@@ -21,6 +21,10 @@
 export {
   COMMAND_LOG_FILENAME,
   HeadlessLane,
+  LOG_FLUSH_GRACE_MS,
+  LOG_FLUSH_STALL_MS,
+  LogSink,
+  MAX_BUFFERED_LOG_BYTES,
   MAX_CAPTURED_CHARS,
   detectHeadedRequest,
   headlessLane,

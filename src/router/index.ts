@@ -16,10 +16,14 @@
  *   here is why that was already safe."
  * - **container when the web command genuinely needs a head**: `--headed`,
  *   `headless: false` in a detected config, WebGL/GPU switches, Chrome
- *   extension loading, video or screen capture, Playwright UI mode, `cypress
- *   open`, vitest browser mode outside CI. These cannot honestly run headless,
- *   so they get a Linux container with an Xvfb virtual display — a real head,
- *   just not yours.
+ *   extension loading, desktop or tab screen capture, Playwright UI mode,
+ *   `cypress open`, vitest browser mode outside CI. These cannot honestly run
+ *   headless, so they get a Linux container with an Xvfb virtual display — a
+ *   real head, just not yours.
+ * - **recording video is not one of them.** `--video=on` looks like it needs a
+ *   screen and does not: Playwright pulls frames out of the browser over CDP
+ *   and muxes them with its own ffmpeg, so a headless run writes the same
+ *   `.webm`. Only capture of a *desktop or another window* needs a display.
  * - **vm for macOS-native work**: `xcodebuild`, `xcrun simctl`, XCUITest
  *   schemes, `open` of a `.app`, a `.dmg`, a targeted `.xcodeproj`. No
  *   container can run these at all.
@@ -169,6 +173,11 @@ function decide(collected: Signal[]): RouteDecision {
   if (lane === 'headless' && suppressed > 0) {
     notes.push(
       'A config in this repository asks for a headed browser, but the command overrides it, so nothing will open a window.',
+    );
+  }
+  if (lane === 'headless' && signals.some((item) => item.kind === 'recorded-video')) {
+    notes.push(
+      'The video recording does not change that: the runner captures frames from the browser it is already driving and encodes them itself, so the file it writes here is the one a headed run would have written. Only capturing a desktop or another window needs a real display.',
     );
   }
 

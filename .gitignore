@@ -19,3 +19,4 @@ coverage/
 # unit-tested against them, so `*.log` above must not swallow them or the suite
 # fails on a clean clone. Applies to every lane's fixtures, not just the vm one.
 !tests/fixtures/**/*.log
+.rudder-workspaces/
