@@ -1,6 +1,6 @@
 {
   "name": "offstage",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Routing layer that keeps UI, browser and macOS app work off your screen by sending each command to the cheapest isolation substrate that can honestly run it.",
   "keywords": [
     "testing",

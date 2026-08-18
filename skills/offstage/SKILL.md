@@ -78,6 +78,23 @@ offstage will not execute a config file to find out. It keeps the cheap lane and
 says so. If the user reports that a window opened anyway, re-run with `--headed`
 and it goes to the container lane; that is the intended repair, not a defect.
 
+## What offstage cannot see
+
+offstage routes on what it can **read** — argv, config files, `package.json`
+scripts, and a script the command names. Two things fall outside that, and both
+matter to you:
+
+- **A Makefile target or a shell script.** `make e2e` or `./run.sh` that hides
+  `--headed` inside routes to the headless lane, because offstage does not parse
+  those files. If you know the underlying command opens a window, either run
+  that command through offstage directly, or pass `--headed` / `headed: true`.
+- **A shell expansion.** `npx playwright test $FLAGS` comes back
+  `confidence: 'low'` with the expansion quoted. Treat low confidence as "check
+  this", not as a verdict.
+
+Reporting this rather than guessing is deliberate. Do not work around it by
+running the command outside offstage.
+
 ## macOS apps
 
 Before promising a user that their macOS app can be tested in a VM, run

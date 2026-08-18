@@ -224,6 +224,102 @@ describe('a repository that is both a web app and a macOS app', () => {
   });
 });
 
+describe('commands that hide the deciding flag behind shell syntax', () => {
+  // Every case here was found by an adversarial audit of the shipped tree, and
+  // every one of them routed to the headless lane — several at HIGH confidence,
+  // with the reason affirmatively stating that no display was involved.
+  const routedToContainer: Array<[string, string[]]> = [
+    ['a -- separator between -c and the script', ['sh', '-c', '--', 'npx playwright test --headed']],
+    ['a bare - separator', ['sh', '-c', '-', 'npx playwright test --headed']],
+    ['bash with --', ['bash', '-c', '--', 'npx playwright test --headed']],
+    ['command substitution', ['sh', '-c', 'npx playwright test $(echo --headed)']],
+    ['env -i, which drops the environment', ['env', '-i', 'PWDEBUG=1', 'npx', 'playwright', 'test']],
+    ['env -u, which unsets one variable', ['env', '-u', 'FOO', 'PWDEBUG=1', 'npx', 'playwright', 'test']],
+    ['env --', ['env', '--', 'PWDEBUG=1', 'npx', 'playwright', 'test']],
+    ['env -S, which packs the command into one argument', ['env', '-S', 'PWDEBUG=1 npx playwright test']],
+    ['a browser launched from an inline script', ['node', '-e', 'require("puppeteer").launch({headless:false})']],
+  ];
+
+  it.each(routedToContainer)('routes %s to the container lane', async (_label, command) => {
+    const decision = await classify({ cwd: await repo(), command });
+    expect(decision.lane).toBe('container');
+  });
+
+  it('reads an inline script the same way it reads one on disk', async () => {
+    const decision = await classify({
+      cwd: await repo(),
+      command: ['node', '-e', 'const p = require("puppeteer"); p.launch({ headless: false });'],
+    });
+    expect(decision.lane).toBe('container');
+    expect(decision.reason).toContain('inline');
+  });
+});
+
+describe('what offstage cannot resolve, it says it cannot resolve', () => {
+  // A shell expansion is the one thing reading cannot settle: only the shell
+  // that runs the command knows what `$FLAGS` becomes. The rule is the same as
+  // for a config computed at runtime — keep the cheap lane, drop the
+  // confidence, quote the thing — and NOT to report the confident default.
+  const unresolvable: string[][] = [
+    ['npx', 'playwright', 'test', '$FLAGS'],
+    ['sh', '-c', 'npx playwright test ${HEADED:+--headed}'],
+    ['sh', '-c', 'H=--headed; npx playwright test $H'],
+    ['sh', '-c', 'npx playwright test `echo --headed`'],
+  ];
+
+  it.each(unresolvable)('reports low confidence for %s %s %s %s', async (...command: string[]) => {
+    const decision = await classify({ cwd: await repo(), command });
+    expect(decision.confidence).toBe('low');
+    expect(decision.reason).toMatch(/shell expansion|cannot resolve|could not resolve/i);
+  });
+
+  it('lets an explicit --headless settle an expansion, as it settles a config', async () => {
+    const decision = await classify({
+      cwd: await repo(),
+      command: ['npx', 'playwright', 'test', '--headless', '$FLAGS'],
+    });
+    expect(decision.confidence).toBe('high');
+  });
+
+  it('does not cry wolf over a command with no expansion in it', async () => {
+    const decision = await classify({ cwd: await repo(), command: ['npx', 'vitest', 'run'] });
+    expect(decision.confidence).toBe('high');
+  });
+});
+
+describe('the headless lane refuses on the text itself, whatever the shell would do', () => {
+  // The last line before a window opens on a real screen. The router should
+  // never hand these over, but the lane must not trust its caller.
+  const refused: string[][] = [
+    ['sh', '-c', 'npx playwright test `echo --headed`'],
+    ['sh', '-c', 'H=--headed; npx playwright test $H'],
+    ['sh', '-c', 'npx playwright test ${HEADED:+--headed}'],
+    ['sh', '-c', "eval 'npx playwright test --headed'"],
+    ['sh', '-c', '--', 'npx playwright test --headed'],
+    ['env', '-i', 'PWDEBUG=1', 'npx', 'playwright', 'test'],
+  ];
+
+  it.each(refused)('refuses %s %s %s', async (...command: string[]) => {
+    expect(detectHeadedRequest({ command })).not.toBeNull();
+  });
+
+  const allowed: string[][] = [
+    ['npx', 'vitest', 'run'],
+    ['node', '--uikit-check', 'app.js'],
+    ['npx', 'playwright', 'test', '--headless'],
+    ['sh', '-c', 'npx playwright test --headless=true'],
+    ['node', '-e', 'console.log("--headless=falsey")'],
+    ['npm', 'run', 'build'],
+  ];
+
+  it.each(allowed)('does not refuse %s %s %s', async (...command: string[]) => {
+    // A false refusal blocks a legitimate run, so the boundaries have to hold
+    // in both directions: --ui must not match --uikit, and --headless=false
+    // must not be read out of --headless=falsey.
+    expect(detectHeadedRequest({ command })).toBeNull();
+  });
+});
+
 describe('the classifier never routes a window onto the real screen', () => {
   const windowOpeners: string[][] = [
     ['npx', 'playwright', 'test', '--headed'],

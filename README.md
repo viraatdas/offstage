@@ -83,9 +83,22 @@ An explicit `--headed` or `--headless` on the command line settles all of them
 and restores `confidence: 'high'`: whatever the config computes, argv is what
 will actually run. The observation stays in `signals`, marked settled.
 
+The same limit applies to *indirection*: offstage reads `package.json` scripts
+(including `pre`/`post` hooks), config files, and scripts a command names —
+including one passed inline with `node -e`. It does not parse Makefiles or
+arbitrary shell scripts. So `make e2e`, where the recipe hides `--headed`,
+routes headless. **If your headed run is behind a Makefile target or a shell
+script, pass `--headed`.** And where a shell expansion decides the outcome
+(`npx playwright test $FLAGS`), offstage says `confidence: 'low'` and quotes the
+expansion rather than reporting the confident default.
+
+[`docs/review.md`](docs/review.md) lists every bypass an adversarial pass found:
+six closed and regression-tested, three stated as boundaries. A safety tool that
+hides its limits is worse than one that has none.
+
 `tests/router.purity.test.ts` holds the no-execution line;
 `tests/router.runtime-capabilities.test.ts` holds the honesty that has to come
-with it.
+with it; `tests/router.adversarial.test.ts` holds the bypasses.
 
 ## Status
 

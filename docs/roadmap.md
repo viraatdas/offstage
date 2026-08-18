@@ -2,8 +2,8 @@
 
 The build was an 11-node plan. **All eleven nodes are done**, along with twelve
 follow-up hardening passes. The suite is green from a clean clone
-(`npm ci && npm run build && npm test`: 26 files, 777 passed, 2 expected fail,
-7 skipped — 779 passed with a container runtime running).
+(`npm ci && npm run build && npm test`: 26 files, 805 passed, 2 expected fail,
+7 skipped — 807 passed with a container runtime running).
 
 What remains is not design work. It is evidence, and one release decision.
 

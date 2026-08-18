@@ -67,6 +67,7 @@ export type SignalKind =
   // context only
   | 'recorded-video'
   | 'xcode-repo'
+  | 'shell-expansion'
   | 'unreadable-config';
 
 export interface Signal {
@@ -159,6 +160,20 @@ export async function buildViews(command: string[], inspector: Inspector): Promi
     // The package manager is now just a launcher; its script is the real command.
     view.binIsMeaningful = false;
 
+    // npm runs `pre<name>` before and `post<name>` after, and they are part of
+    // what `npm run <name>` does. A repository that keeps `playwright test
+    // --headed` in `pree2e` opens a window from a command whose own script
+    // body is innocent.
+    for (const affix of ['pre', 'post'] as const) {
+      const hook = `${affix}${script.script}`;
+      const hookBody = pkg.scripts[hook];
+      if (hookBody === undefined || seenScripts.has(hook)) continue;
+      seenScripts.add(hook);
+      for (const segment of tokenizeShellish(hookBody)) {
+        await walk(segment, `package.json scripts.${hook}`, depth + 1);
+      }
+    }
+
     const segments = tokenizeShellish(body);
     // Sequential on purpose: a script that runs `npm run other` has to share the
     // visited-set with its parent, or a cycle would expand forever.
@@ -187,8 +202,17 @@ export function shellDashC(invocation: Invocation): string | null {
     const token = invocation.args[index] as string;
     if (!token.startsWith('-') || token.startsWith('--')) continue;
     if (!token.includes('c')) continue;
-    const script = invocation.args[index + 1];
-    return typeof script === 'string' && script.trim() !== '' ? script : null;
+
+    // `sh -c -- '<script>'` and `sh -c - '<script>'` are both real: POSIX lets
+    // `--` or a bare `-` sit between the flag and the command string. Taking
+    // args[index + 1] blindly hands back "--" as the script, which tokenizes
+    // to nothing and hides the command completely.
+    for (let next = index + 1; next < invocation.args.length; next += 1) {
+      const candidate = invocation.args[next] as string;
+      if (candidate === '--' || candidate === '-') continue;
+      return candidate.trim() === '' ? null : candidate;
+    }
+    return null;
   }
   return null;
 }
@@ -202,10 +226,23 @@ interface ParsedFlag {
   value?: string;
 }
 
+/**
+ * Strip shell punctuation a tokenizer leaves stuck to a flag.
+ *
+ * `$(echo --headed)` splits into `$(echo` and `--headed)`, and `--headed)` is
+ * not `--headed` to an exact-match lookup — so the one token that decides the
+ * lane slips past every rule. The trailing characters here are shell syntax,
+ * never part of a flag name.
+ */
+function unpunctuate(token: string): string {
+  return token.replace(/[)`'";,]+$/, '').replace(/^[('`"]+/, '');
+}
+
 function parseFlag(token: string): ParsedFlag {
-  const eq = token.indexOf('=');
-  if (eq === -1) return { name: token };
-  return { name: token.slice(0, eq), value: token.slice(eq + 1) };
+  const cleaned = unpunctuate(token);
+  const eq = cleaned.indexOf('=');
+  if (eq === -1) return { name: cleaned };
+  return { name: cleaned.slice(0, eq), value: cleaned.slice(eq + 1) };
 }
 
 const FALSEY = new Set(['false', '0', 'no', 'off', 'none']);
@@ -587,6 +624,8 @@ export async function collectSignals(
     signals.push(...macosSignals(view));
     signals.push(...envPrefixSignals(view));
     signals.push(...flagSignals(view));
+    signals.push(...inlineScriptSignals(view));
+    signals.push(...expansionSignals(view));
     signals.push(...(await toolSignals(view, inspector)));
     signals.push(...(await referencedScriptSignals(view, inspector)));
   }
@@ -857,6 +896,104 @@ function envPrefixSignals(view: CommandView): Signal[] {
   }
 
   return found;
+}
+
+/** Runtimes that take a program as a string argument rather than a file. */
+const INLINE_SCRIPT_BINS = new Set(['node', 'nodejs', 'deno', 'bun', 'tsx', 'ts-node']);
+const INLINE_SCRIPT_FLAGS = new Set(['-e', '--eval', '-p', '--print', '--eval-file']);
+
+/**
+ * A program passed inline: `node -e 'require("puppeteer").launch({headless:false})'`.
+ *
+ * The router already reads a script the command *names*, and this is the same
+ * evidence — the source is simply in argv rather than in a file. Reading it is
+ * free and requires no filesystem access at all. Without this the argv
+ * literally contains `headless:false` while the router reports, at high
+ * confidence, that "no display is involved at all".
+ */
+function inlineScriptSignals(view: CommandView): Signal[] {
+  if (!INLINE_SCRIPT_BINS.has(view.invocation.bin)) return [];
+  const found: Signal[] = [];
+
+  const args = view.invocation.args;
+  for (let index = 0; index < args.length; index += 1) {
+    const flag = args[index] as string;
+    const inline = INLINE_SCRIPT_FLAGS.has(flag)
+      ? args[index + 1]
+      : /^(?:-e|--eval)=/.test(flag)
+        ? flag.slice(flag.indexOf('=') + 1)
+        : undefined;
+    if (typeof inline !== 'string' || inline === '') continue;
+    if (!BROWSER_LIBRARY.test(inline)) continue;
+
+    const library = /puppeteer/i.test(inline) ? 'puppeteer' : 'a browser library';
+    const evidence = readHeadlessEvidence(inline);
+    const where = `${view.label}: ${view.invocation.bin} ${flag}`;
+
+    if (evidence.shape === 'literal-false' || evidence.shape === 'conditional') {
+      found.push(
+        signal({
+          kind: 'script-headed',
+          argues: 'container',
+          origin: view.label,
+          detail: `${where} launches ${library} with headless: false`,
+          clause: `The script passed inline to ${view.invocation.bin} launches ${library} with headless: false, so running it here would open a real browser window; the container lane gives that window a virtual display instead of yours.`,
+          priority: 23,
+          inferred: false,
+          confidence: evidence.shape === 'conditional' ? 'low' : 'high',
+        }),
+      );
+    } else if (evidence.shape === 'computed' || evidence.shape === 'delegated') {
+      found.push(
+        signal({
+          kind: 'computed-headless',
+          argues: null,
+          origin: view.label,
+          detail: `${where} computes headless at runtime`,
+          clause: `The script passed inline to ${view.invocation.bin} launches ${library} but decides headless at runtime, and offstage reads without evaluating — so it cannot tell whether this run opens a window.`,
+          priority: 34,
+          inferred: false,
+          confidence: 'low',
+        }),
+      );
+    }
+  }
+
+  return found;
+}
+
+/** `$FOO`, `${FOO}`, `$(cmd)` and backticks — text only a shell can resolve. */
+const UNRESOLVABLE_EXPANSION = /\$\(|\$\{|\$[A-Za-z_]|`/;
+
+/**
+ * Argv that still contains a shell expansion after everything readable has been
+ * read.
+ *
+ * `npx playwright test $FLAGS` and `sh -c 'npx playwright test ${HEADED:+--headed}'`
+ * may or may not open a window; only the shell that runs them knows, and
+ * offstage will not run one to find out. Saying nothing would report the
+ * confident default. This says "there is text here I could not resolve", which
+ * is the same honesty the router already applies to a config it cannot
+ * evaluate: keep the cheap lane, drop the confidence, quote the thing.
+ */
+function expansionSignals(view: CommandView): Signal[] {
+  const unresolved = view.invocation.tokens.filter((token) => UNRESOLVABLE_EXPANSION.test(token));
+  if (unresolved.length === 0) return [];
+
+  return [
+    signal({
+      kind: 'shell-expansion',
+      argues: null,
+      origin: view.label,
+      detail: `${view.label}: unresolved shell expansion ${shorten(unresolved[0] as string)}`,
+      clause: `This command contains a shell expansion (${shorten(
+        unresolved[0] as string,
+      )}) that only a shell can resolve, and offstage does not run one to find out what it becomes — so it cannot rule out a flag that opens a window. It kept the cheap lane rather than guess; pass --headed if this run does open one.`,
+      priority: 36,
+      inferred: false,
+      confidence: 'low',
+    }),
+  ];
 }
 
 function flagSignals(view: CommandView): Signal[] {

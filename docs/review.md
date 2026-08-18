@@ -8,6 +8,16 @@ whether it was fixed or accepted as a documented risk.
 The promise being attacked: **no combination of flags, missing substrates,
 timeouts, or error handling causes a window to open on the user's real screen.**
 
+A later adversarial pass found that promise, stated that absolutely, was false —
+see [Known bypasses](#known-bypasses) at the end. The accurate version is:
+
+> offstage routes on what it can **read**. Where the deciding fact is in argv,
+> in a config file, in a package script, or in an inline script, it is read and
+> honoured. Where the fact only exists after a shell expands a variable, or
+> inside a file offstage does not parse (a Makefile, a shell script), offstage
+> cannot see it — and says so with `confidence: 'low'` rather than reporting
+> the confident default.
+
 ## Fixed
 
 ### 1. `env PWDEBUG=1 npx playwright test` routed to the headless lane — HIGH
@@ -197,3 +207,49 @@ The safety claims above are held by tests, not by this document:
 | `--lane headless` cannot undo a routing decision | `tests/cli.api.test.ts`, `tests/e2e.test.ts` |
 | An agent gets the same answers as a human | `tests/mcp.test.ts` |
 | An unavailable lane skips instead of falling back | `tests/lanes.container.test.ts`, `tests/lanes.vm.test.ts`, `tests/e2e.test.ts` |
+
+## Known bypasses
+
+A second adversarial pass — run against the pushed tree, trying specifically to
+get window-opening work into the lane with no display — found nine ways through.
+Six are now closed and regression-tested in
+`tests/router.adversarial.test.ts`; three are boundaries rather than bugs, and
+are stated here because a safety tool that hides its limits is worse than one
+that has none.
+
+### Closed
+
+| Bypass | Was | Now |
+| --- | --- | --- |
+| `env -i` / `-u` / `--` / `-S` before `PWDEBUG=1` | headless, the assignment hidden by the option flags | container — `env`'s own options are parsed before the assignments are read |
+| `sh -c -- '<script>'`, `sh -c - '<script>'` | headless — `--` was taken as the script | container — separators are skipped to the real command string |
+| `sh -c 'npx playwright test $(echo --headed)'` | headless, **high** confidence | container — `--headed)` is no longer hidden by the punctuation stuck to it |
+| `node -e 'require("puppeteer").launch({headless:false})'` | headless, **high** confidence, and it *executed in place* | container — an inline script is read exactly like a script on disk |
+| `npm run e2e` where `pree2e` opens a window | headless — lifecycle hooks were never read | container — `pre`/`post` hooks are walked with the script |
+| `` `echo --headed` ``, `${HEADED:+--headed}`, `H=--headed; … $H` | ran in place | refused by the headless lane, which now scans the text of every token |
+
+### Boundaries — stated, not fixed
+
+**A shell expansion offstage cannot resolve.** `npx playwright test $FLAGS`
+might open a window; only the shell that expands `$FLAGS` knows. offstage keeps
+the cheap lane and returns `confidence: 'low'` with the expansion quoted — the
+same rule it already applies to a config computed at runtime. It does not
+report the confident default, and it does not run a shell to find out.
+
+**Indirection through a file offstage does not parse.** `make e2e` where the
+Makefile recipe has `--headed`, or `./run.sh` containing one, routes headless:
+offstage reads `package.json` scripts, `playwright.config.*`, the vitest config,
+and scripts a command names — not Makefiles or arbitrary shell scripts. The
+run-time backstop cannot help either, because the flag is in a file, not in
+argv. **If your headed run is behind a Makefile target or a shell script, pass
+`--headed` to offstage, or run the underlying command directly.** Teaching the
+router to read Makefiles is tractable and is the obvious next step here.
+
+**`dotenv -e .env -- playwright test` where `.env` sets `PWDEBUG=1`.** Same
+shape: the deciding fact is in a file offstage does not open. Reading env files
+requires a new `Inspector` method and is not done.
+
+All three share one root: offstage classifies by reading, and reading has an
+edge. The design response is not to start executing things — that would defeat
+the safety argument the router rests on — but to be loud about the edge, which
+is what `confidence: 'low'` and this section are for.

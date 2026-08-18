@@ -106,6 +106,28 @@ const HEADED_FLAGS = new Set([
 ]);
 
 /**
+ * The same flags, found anywhere in a token rather than as the whole of one.
+ *
+ * Bounded so `--ui` does not match `--uikit` and `--headless=false` is not read
+ * out of `--headless=falsey`. `=` is allowed on the left, because
+ * `HEADED=--headed` is exactly the shape this needs to catch, and disallowed on
+ * the right, where it would mean a different flag. Built from
+ * {@link HEADED_FLAGS} so the two can never drift apart.
+ */
+const HEADED_FLAG_IN_TEXT = new RegExp(
+  `(?:^|[^\\w-])(${[...HEADED_FLAGS]
+    .map((flag) => flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|')})(?:$|[^\\w=-])`,
+  'i',
+);
+
+/** Trim a long token for a message; the whole of a shell script is not useful. */
+function shorten(text: string, limit = 120): string {
+  const collapsed = text.replace(/\s+/g, ' ').trim();
+  return collapsed.length <= limit ? collapsed : `${collapsed.slice(0, limit - 1)}…`;
+}
+
+/**
  * Decide whether a request would open a window if run in place.
  *
  * This lane's whole premise is that the command is already headless. When the
@@ -122,17 +144,16 @@ export function detectHeadedRequest(req: Pick<LaneRequest, 'command' | 'env'>): 
       return `the command includes ${arg}`;
     }
 
-    // A whole command can hide inside one token: `sh -c 'npx playwright test
-    // --headed'` is a single argv entry that opens a window. Splitting on
-    // whitespace is enough to see the flag; this lane does not need to parse
-    // the shell, only to notice that it was handed one.
-    if (/\s/.test(arg)) {
-      for (const piece of arg.split(/\s+/)) {
-        const normalized = piece.trim().replace(/^['"]|['"]$/g, '').toLowerCase();
-        if (HEADED_FLAGS.has(normalized)) {
-          return `the command includes ${piece} inside ${JSON.stringify(arg)}`;
-        }
-      }
+    // A whole command can hide inside one token, and a shell can hide the flag
+    // inside *that*: `sh -c 'npx playwright test `echo --headed`'`,
+    // `H=--headed; npx playwright test $H`, `${HEADED:+--headed}`. Whatever
+    // the shell will do with the surrounding syntax, the flag itself is right
+    // there in the text, and this lane runs in place — so the text is enough
+    // to refuse on. This is the last line before a window opens on a real
+    // screen, so it reads the token rather than trying to parse the shell.
+    const hidden = HEADED_FLAG_IN_TEXT.exec(arg);
+    if (hidden !== null) {
+      return `the command includes ${hidden[1]} inside ${JSON.stringify(shorten(arg))}`;
     }
 
     // `env PWDEBUG=1 npx playwright test` carries the switch as an argv token

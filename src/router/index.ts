@@ -216,6 +216,18 @@ function decide(collected: Signal[]): RouteDecision {
         : 'A config in this repository asks for a headed browser, but the command overrides it, so nothing will open a window.',
     );
   }
+  // An unresolved shell expansion is the one thing the router cannot read its
+  // way past: `npx playwright test $FLAGS` may or may not open a window, and
+  // only the shell that runs it knows. Reporting the confident default here
+  // would be the router asserting something it has no evidence for. An
+  // explicit headless flag on the command line still settles it.
+  const expansion = signals.find((item) => item.kind === 'shell-expansion');
+  if (lane === 'headless' && expansion !== undefined && override === undefined) {
+    confidence = 'low';
+    notes.push(
+      'Part of this command is a shell expansion offstage cannot resolve without running a shell, so it cannot rule out a flag that opens a window; it kept the cheap lane rather than guess. Pass --headed if this run does open one.',
+    );
+  }
   if (lane === 'headless' && signals.some((item) => item.kind === 'recorded-video')) {
     notes.push(
       'The video recording does not change that: the runner captures frames from the browser it is already driving and encodes them itself, so the file it writes here is the one a headed run would have written. Only capturing a desktop or another window needs a real display.',

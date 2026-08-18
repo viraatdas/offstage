@@ -185,6 +185,46 @@ export function normalizeInvocation(input: string[]): Invocation {
     if (TRANSPARENT_WRAPPERS.has(bin)) {
       prefixes.push(bin);
       tokens = tokens.slice(1);
+      if (bin === 'env') {
+        // `env` takes options before the assignments, and every one of them
+        // hides what follows from a peeler that stops at the first `-`:
+        //   env -i PWDEBUG=1 npx playwright test
+        //   env -u FOO PWDEBUG=1 npx playwright test
+        //   env -- PWDEBUG=1 npx playwright test
+        // Skipping them is what lets the assignment be seen at all, and the
+        // assignment is what decides the lane.
+        while (tokens.length > 0) {
+          const flag = tokens[0] as string;
+          if (flag === '--') {
+            tokens = tokens.slice(1);
+            break;
+          }
+          if (flag === '-u' || flag === '--unset') {
+            tokens = tokens.slice(2);
+            continue;
+          }
+          if (flag === '-S' || flag === '--split-string') {
+            // `env -S 'PWDEBUG=1 npx playwright test'` packs the whole command
+            // into one argument. Unpack it so the rest of the peeling applies.
+            const packed = tokens[1];
+            tokens =
+              typeof packed === 'string'
+                ? [...packed.split(/\s+/).filter(Boolean), ...tokens.slice(2)]
+                : tokens.slice(2);
+            continue;
+          }
+          if (/^-S/.test(flag)) {
+            tokens = [...flag.slice(2).split(/\s+/).filter(Boolean), ...tokens.slice(1)];
+            continue;
+          }
+          if (/^-[a-zA-Z0-9]+$/.test(flag)) {
+            // -i, -0, -v and combinations of them: no value, just skip.
+            tokens = tokens.slice(1);
+            continue;
+          }
+          break;
+        }
+      }
       if (bin === 'nice') {
         while (tokens.length > 0 && (tokens[0] as string).startsWith('-')) {
           const flag = tokens[0] as string;
