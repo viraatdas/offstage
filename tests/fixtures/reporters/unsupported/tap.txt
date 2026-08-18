@@ -1,0 +1,16 @@
+TAP version 13
+# Subtest: adds numbers
+not ok 1 - adds numbers
+  ---
+  duration_ms: 1.234
+  location: 'test/sum.test.js:4:1'
+  failureType: 'testCodeFailure'
+  error: 'Expected values to be strictly equal'
+  code: 'ERR_ASSERTION'
+  expected: 4
+  actual: 3
+  ...
+1..1
+# tests 1
+# pass 0
+# fail 1

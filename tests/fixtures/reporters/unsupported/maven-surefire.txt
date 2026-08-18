@@ -1,0 +1,6 @@
+[INFO] Running com.example.CalculatorTest
+[ERROR] Tests run: 2, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.031 s <<< FAILURE!
+[ERROR] com.example.CalculatorTest.add:12 expected:<4> but was:<3>
+[INFO] ------------------------------------------------------------------------
+[ERROR] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------

@@ -1,0 +1,15 @@
+   ▲ Next.js 15.0.3
+
+   Creating an optimized production build ...
+
+Route (app)                               Size     First Load JS
+┌ ○ /                                     5.02 kB        87.1 kB
+└ ● /blog/[slug]                          1.2 kB         83.3 kB
+
+○  (Static)   prerendered as static content
+●  (SSG)      prerendered as static HTML (uses generateStaticParams)
+
+Failed to compile.
+
+./src/app/page.tsx
+Type error: Property 'titel' does not exist on type 'Post'.

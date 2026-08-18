@@ -1,0 +1,18 @@
+  Running:  login.cy.js
+
+  login page
+    1) logs in with valid credentials
+
+  0 passing (4s)
+  1 failing
+
+  1) login page
+       logs in with valid credentials:
+     AssertionError: Timed out retrying after 4000ms: Expected to find element: `[data-cy=submit]`, but never found it.
+      at Context.eval (webpack:///./cypress/e2e/login.cy.js:12:5)
+
+  (Results)
+  ┌────────────────────────────────────────────┐
+  │ Tests:        1                            │
+  │ Failing:      1                            │
+  └────────────────────────────────────────────┘

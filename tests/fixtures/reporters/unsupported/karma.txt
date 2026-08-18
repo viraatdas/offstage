@@ -1,0 +1,6 @@
+30 08 2026 12:04:11.882:INFO [Chrome 120.0.0 (Mac OS X 14.0)]: Connected on socket
+Chrome 120.0.0 (Mac OS X 14.0) Calculator adds numbers FAILED
+	Expected 3 to be 4.
+	    at <Jasmine>
+	    at UserContext.<anonymous> (src/calculator.spec.js:5:24)
+Chrome 120.0.0 (Mac OS X 14.0): Executed 1 of 2 (1 FAILED) (0.02 secs / 0.005 secs)

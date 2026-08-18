@@ -1,0 +1,20 @@
+.F
+
+Failures:
+
+  1) Calculator#add returns the sum
+     Failure/Error: expect(calc.add(1, 2)).to eq(4)
+
+       expected: 4
+            got: 3
+
+       (compared using ==)
+
+     # ./spec/calculator_spec.rb:8:in `block (3 levels) in <top (required)>'
+
+Finished in 0.00243 seconds (files took 0.08 seconds to load)
+2 examples, 1 failure
+
+Failed examples:
+
+rspec ./spec/calculator_spec.rb:8 # Calculator#add returns the sum

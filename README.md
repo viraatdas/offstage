@@ -111,6 +111,17 @@ failure, timeout, substrate died). An agent may retry an `errored` run; retrying
 a `failed` one just wastes time. `skipped` means the substrate was unavailable
 and — importantly — that nothing ran anywhere.
 
+### Failure reporting
+
+`failures[]` is populated for **Playwright, Vitest and Jest, and nothing else**.
+Run Mocha, pytest, `go test`, Cypress, `xcodebuild` or anything else and it comes
+back empty — `status`, `exitCode` and the complete `command.log` are unaffected,
+and `diagnostics` says out loud that nothing was recognized before quoting the
+tail of the log verbatim. A parser that guesses is worse than one that abstains:
+`failures[]` is what sends an agent to edit a specific line of a specific file.
+[`docs/reporter-coverage.md`](docs/reporter-coverage.md) has the reasoning, the
+verified corpus of tools that abstain, and the checklist for adding a fourth.
+
 ### Path conventions
 
 Because the same envelope has to describe a run that happened on the host, in a

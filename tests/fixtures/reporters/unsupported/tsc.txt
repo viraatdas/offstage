@@ -1,0 +1,4 @@
+src/app.ts(12,7): error TS2322: Type 'string' is not assignable to type 'number'.
+src/app.ts(19,3): error TS2554: Expected 2 arguments, but got 1.
+
+Found 2 errors in the same file, starting at: src/app.ts:12
