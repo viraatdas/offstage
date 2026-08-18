@@ -56,6 +56,23 @@ export const COMMAND_LOG_FILENAME = 'command.log';
  * command that prints a gigabyte must not take the offstage process down with
  * it. When the cap is hit the oldest output is dropped, because reporters print
  * their failure summaries at the end.
+ *
+ * The cap is only worth the name if the whole output path is bounded, so three
+ * things hold together and are tested as one:
+ *
+ * 1. **The in-memory bound is hard.** {@link CappedText} retains exactly this
+ *    many characters whatever the chunk sizes are — a single chunk larger than
+ *    the budget is trimmed on the way in — and it evicts in O(1) amortized
+ *    time, so a gigabyte arriving in small pieces costs linear work, not
+ *    quadratic.
+ * 2. **The on-disk log cannot become the leak instead.** Writes to
+ *    `command.log` honor backpressure: when the disk is slower than the
+ *    command, {@link HeadlessLane.run} stops reading the child rather than
+ *    queueing the overflow in the write stream's unbounded internal buffer.
+ *    The command is throttled; nothing is dropped.
+ * 3. **Dropping is disclosed.** When output is discarded, the result says how
+ *    much was lost and that `command.log` on disk is still complete, so a
+ *    reader never mistakes a partial parse for the whole run.
  */
 export const MAX_CAPTURED_CHARS = 4_000_000;
 
@@ -186,6 +203,7 @@ export class HeadlessLane implements LaneRunner {
     const logPath = artifactPath(request.artifactsDir, COMMAND_LOG_FILENAME);
     let logStream: Writable | undefined;
     let logProblem: string | undefined;
+    let logUsable = false;
     try {
       const stream = createWriteStream(logPath);
       await once(stream, 'open');
@@ -194,11 +212,35 @@ export class HeadlessLane implements LaneRunner {
          diagnostics instead, and the run itself still produces a result. */
       stream.on('error', (error: Error) => {
         logProblem ??= `Writing ${COMMAND_LOG_FILENAME} failed: ${error.message}`;
+        logUsable = false;
       });
       logStream = stream;
+      logUsable = true;
     } catch (error) {
       logProblem = `Could not open ${logPath} for writing: ${describeError(error)}`;
     }
+
+    /**
+     * Append to `command.log`, waiting for the stream to drain when it asks to.
+     *
+     * `write()` returning false means the bytes are sitting in the stream's
+     * *unbounded* in-memory queue. Ignoring that would make a gigabyte of
+     * output cost a gigabyte of heap — the exact blow-up
+     * {@link MAX_CAPTURED_CHARS} exists to prevent, arriving through the file
+     * rather than through the capture. Waiting stops us reading the child, the
+     * pipe fills, and the command itself is throttled: the log stays complete
+     * and memory stays bounded. A dead stream is reported once and then
+     * skipped, so a full disk costs the log, never the run.
+     */
+    const writeToLog = async (text: string): Promise<void> => {
+      if (logStream === undefined || !logUsable) return;
+      try {
+        await appendWithBackpressure(logStream, text);
+      } catch (error) {
+        logUsable = false;
+        logProblem ??= `Writing ${COMMAND_LOG_FILENAME} failed: ${describeError(error)}`;
+      }
+    };
 
     const capture = new CappedText(MAX_CAPTURED_CHARS);
     const [file, ...args] = request.command as [string, ...string[]];
@@ -229,7 +271,7 @@ export class HeadlessLane implements LaneRunner {
       for await (const chunk of all) {
         const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
         capture.push(text);
-        logStream?.write(text);
+        await writeToLog(text);
       }
     })().catch((error: unknown) => {
       logProblem ??= `Capturing output failed: ${describeError(error)}`;
@@ -251,6 +293,11 @@ export class HeadlessLane implements LaneRunner {
     if (request.env !== undefined && Object.keys(request.env).length > 0) {
       diagnostics.push(
         `Environment overrides layered on the ambient environment: ${Object.keys(request.env).sort().join(', ')}.`,
+      );
+    }
+    if (capture.droppedChars > 0) {
+      diagnostics.push(
+        `This command printed more than the ${count(MAX_CAPTURED_CHARS)}-character budget offstage keeps in memory for parsing, so the oldest ${count(capture.droppedChars)} characters were dropped from that view and failures[] reflects only the end of the run. ${COMMAND_LOG_FILENAME} on disk is complete: nothing was truncated there.`,
       );
     }
 
@@ -316,27 +363,107 @@ export const headlessLane = new HeadlessLane();
  * A bounded FIFO of text. Keeps at most `limit` characters, discarding from the
  * front — reporters print their failure summary last, so the end is the half
  * worth keeping.
+ *
+ * Both of its properties are load-bearing for {@link MAX_CAPTURED_CHARS}, and
+ * neither is free:
+ *
+ * - **The bound is exact, whatever the chunk sizes are.** Eviction trims
+ *   *inside* the oldest chunk instead of only at chunk boundaries, and a single
+ *   chunk larger than the whole budget is trimmed on the way in. Retention is
+ *   `limit` characters, not "`limit` rounded up to the pipe buffer" and not
+ *   "one chunk, however big it happened to be".
+ * - **Eviction is O(1) amortized.** Released slots are dropped by advancing a
+ *   head index and compacting occasionally, never by `shift()`ing the whole
+ *   array on every write. Output arrives in pieces as small as a single line,
+ *   so a gigabyte can be millions of pushes; shifting each time is quadratic,
+ *   which would hang the process on exactly the runaway command this cap is
+ *   here to survive.
+ *
+ * Exported so the cap can be tested directly against both properties. It is an
+ * implementation detail of this lane, not part of the offstage contract.
  */
-class CappedText {
+export class CappedText {
   #chunks: string[] = [];
+  /** Index of the oldest live chunk; slots before it have been released. */
+  #head = 0;
+  /** Characters currently retained: always `<= limit`. */
   #length = 0;
-  #dropped = false;
+  #dropped = 0;
 
   constructor(private readonly limit: number) {}
 
+  /** How many characters were discarded to stay under the cap. */
+  get droppedChars(): number {
+    return this.#dropped;
+  }
+
   push(chunk: string): void {
+    if (chunk === '') return;
+
+    if (chunk.length >= this.limit) {
+      /* Bigger than the entire budget on its own: keep only its tail, and let
+         everything older go with it. */
+      this.#dropped += this.#length + (chunk.length - this.limit);
+      this.#chunks = [chunk.slice(chunk.length - this.limit)];
+      this.#head = 0;
+      this.#length = this.limit;
+      return;
+    }
+
     this.#chunks.push(chunk);
     this.#length += chunk.length;
-    while (this.#length > this.limit && this.#chunks.length > 1) {
-      this.#length -= this.#chunks.shift()!.length;
-      this.#dropped = true;
+
+    while (this.#length > this.limit) {
+      const oldest = this.#chunks[this.#head]!;
+      const excess = this.#length - this.limit;
+      if (oldest.length > excess) {
+        this.#chunks[this.#head] = oldest.slice(excess);
+        this.#length -= excess;
+        this.#dropped += excess;
+      } else {
+        this.#chunks[this.#head] = '';
+        this.#head += 1;
+        this.#length -= oldest.length;
+        this.#dropped += oldest.length;
+      }
+    }
+
+    /* Compact once the released prefix is at least half the array: that makes
+       the amortized cost of a push constant, however many arrive. */
+    if (this.#head >= 32 && this.#head * 2 >= this.#chunks.length) {
+      this.#chunks = this.#chunks.slice(this.#head);
+      this.#head = 0;
     }
   }
 
   text(): string {
-    const joined = this.#chunks.join('');
-    return this.#dropped ? joined.slice(-this.limit) : joined;
+    return (this.#head === 0 ? this.#chunks : this.#chunks.slice(this.#head)).join('');
   }
+}
+
+/**
+ * Append to a stream, waiting for it to drain when it says it is full.
+ *
+ * `Writable.write()` returning `false` does not mean the write failed — it
+ * means the bytes are now sitting in the stream's internal queue, which has no
+ * upper bound. Writing on regardless turns a slow sink into unbounded heap
+ * growth proportional to the *whole* output, which is precisely the failure
+ * {@link MAX_CAPTURED_CHARS} is meant to rule out; it would simply arrive
+ * through `command.log` instead of through the capture. Awaiting `drain`
+ * instead stops the caller reading the child, the pipe fills, and the command
+ * is throttled by the disk: complete log, bounded memory.
+ *
+ * @throws whatever the stream emits as `'error'` while we are waiting, so the
+ *         caller can stop logging rather than wait on a stream that is gone.
+ */
+export async function appendWithBackpressure(stream: Writable, text: string): Promise<void> {
+  if (stream.write(text)) return;
+  await once(stream, 'drain');
+}
+
+/** Digit-grouped for diagnostics a human reads: `4000000` -> `4,000,000`. */
+function count(value: number): string {
+  return value.toLocaleString('en-US');
 }
 
 /** Flush and close the log stream, resolving even if the close reports an error. */
