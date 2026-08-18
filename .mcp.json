@@ -3,8 +3,8 @@
     "offstage": {
       "type": "stdio",
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/mcp/index.js"],
-      "note": "Exposes offstage_doctor / offstage_route / offstage_run / offstage_probe. IMPORTANT: a plugin install only clones this repo -- it does not run npm install and does not build -- so dist/ and node_modules are absent and this server will not start until you run `npm ci` in the plugin root. Until offstage is published to a registry, prefer: claude mcp add offstage -- node /absolute/path/to/your/built/clone/dist/mcp/index.js"
+      "args": ["dist/mcp/index.js"],
+      "note": "Exposes offstage_doctor / offstage_route / offstage_run / offstage_probe for THIS repository, once `npm ci` has built dist/ (the prepare script does that). The path is relative to the project root, which is where Claude Code starts a project-scoped server. To use offstage from any directory instead, register it globally against a built clone: claude mcp add offstage --scope user -- node /absolute/path/to/offstage/dist/mcp/index.js"
     }
   }
 }

@@ -13,6 +13,7 @@ the intent does.
 | | |
 | --- | --- |
 | Date | 2026-08-18 |
+| Container runtime | OrbStack, Docker daemon 29.4.0 |
 | OS | macOS 26.3 (25D125) |
 | Arch | arm64 (Apple silicon) |
 | Node | v26.7.0 |
@@ -24,7 +25,7 @@ the intent does.
 | Lane | Verified live here | Verified against fixtures | Never exercised |
 | --- | --- | --- | --- |
 | `headless` | ✅ real child processes, real vitest runs, real timeouts and log backpressure | ✅ recorded Playwright/Vitest/Jest reporter output | — |
-| `container` | ❌ no container runtime is running on this machine | ✅ run-plan construction, runtime detection, guest-path mapping, failure parsing | the Xvfb image has been **built and run** on this host previously (n3), but not on this date |
+| `container` | ✅ **the headline claim, demonstrated** — a genuinely headed Chromium ran inside the container while the host screen stayed untouched (evidence below) | ✅ run-plan construction, runtime detection, guest-path mapping, failure parsing | a Linux host (the `--user $(id -u)` path), and a run that produces video |
 | `vm` | ❌ Tart is not installed and no VM has been booted | ✅ 28 recorded fixtures: `tart-runner` stdout, `xcodebuild.log`, `Result.xcresult` shapes, `xcresulttool` JSON | a real macOS guest, a real golden image, a real XCUITest run |
 | `probe` | ⚠️ partly — real file parsing against real `.xcodeproj` / `.app` fixtures, and one real `codesign` invocation by hand (see below) | ✅ hand-written entitlements plists covering every verdict path; `codesign` and `hdiutil` are driven through an injected runner so the suite is platform-independent | a real signed Developer ID app, and a real `hdiutil` mount |
 
@@ -42,9 +43,57 @@ stating plainly rather than burying: the adapter is written to the documented
 contract of [`novotnyllc/tart-xcode-runner`](https://github.com/novotnyllc/tart-xcode-runner)
 (plugin v0.4.11) and its README, and has never driven a guest.
 
+## The container lane, demonstrated live
+
+Recorded on the machine above with OrbStack running (`orb start`). This is the
+claim the whole product rests on, so it is worth showing rather than asserting.
+
+A project whose `playwright.config.mjs` sets `headless: false` — no offstage
+flag passed, the router read the config itself:
+
+```console
+$ offstage route -- npx playwright test
+lane:       container
+confidence: high
+reason:     playwright.config.mjs sets headless: false, so this run would open
+            a real browser window on your desktop; the container lane gives it
+            an Xvfb display to open into instead.
+
+$ offstage run -- npx playwright test
+PASSED  container lane  3.7s  exit 0
+
+diagnostics:
+  - runtime: Docker daemon 29.4.0 (context "orbstack")
+  - image: offstage-web:01aa66c82a23 (built in 3s from docker/offstage-web.Dockerfile)
+  - display: :152 at 1280x900x24 on Xvfb inside the container — the host
+    display was never opened
+  - mounts: /private/tmp/pwtest -> /workspace (ro), <run dir> -> /offstage/artifacts (rw),
+    volume offstage-playwright-browsers -> /ms-playwright (rw)
+```
+
+Three things were checked, not assumed:
+
+1. **The browser was genuinely headed.** The spec printed
+   `browser version: 151.0.7922.34` and `DISPLAY inside the container: :152`,
+   and the run's log contains no mention of headless at all.
+2. **The host screen was untouched.** The set of visible macOS applications was
+   captured before and after the run and diffed: identical. No window appeared,
+   and no focus was taken.
+3. **The virtual framebuffer is real.** Every container run captures
+   `screen.png` — a 1280x900 PNG of what the Xvfb display actually showed.
+
+Populating the browser volume is a one-time step per machine, as designed:
+`offstage run --lane container -- npx playwright install chromium` (the
+`offstage-playwright-browsers` volume persists across runs, so later runs skip
+it and the image stays small).
+
 ## `offstage doctor`, verbatim
 
-Captured on the machine above, unedited:
+Captured on the machine above **before** `orb start`, unedited. This is the
+state of a normal laptop with nothing running, and it is the more interesting
+one: it shows what offstage does when the isolation is not there. (After
+`orb start`, the container row flips to `✓ container available` — that is the
+run demonstrated in the section above.)
 
 ```console
 $ offstage doctor
@@ -82,15 +131,26 @@ taken — it does not run it here instead.
 
 ## The suite
 
+The suite's numbers depend on what is running on the machine, which is the
+point — tests gated on an absent substrate skip rather than pass vacuously.
+
 ```console
-$ npm ci && npm run build && npm test
+$ npm ci && npm run build && npm test      # with no container runtime
 Test Files  26 passed (26)
-     Tests  769 passed | 2 expected fail | 7 skipped (778)
+     Tests  777 passed | 2 expected fail | 7 skipped (786)
+
+$ orb start && npm test                    # with a container runtime up
+Test Files  26 passed (26)
+     Tests  779 passed | 2 expected fail | 5 skipped (786)
 ```
 
+The two extra passes are the container lane's live tests: they build the Xvfb
+image and run a headed browser in it. CI runs the first form, because a hosted
+runner has no daemon.
+
 - **2 expected fail** — negative tests asserting that something *does* fail.
-- **7 skipped** — every one of them is gated on a substrate that is absent
-  here, and each says so rather than passing vacuously:
+- **skipped** — every one is gated on a substrate that may be absent, and each
+  says which:
 
 | Skipped | Gate | To run them |
 | --- | --- | --- |

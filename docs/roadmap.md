@@ -2,8 +2,8 @@
 
 The build was an 11-node plan. **All eleven nodes are done**, along with twelve
 follow-up hardening passes. The suite is green from a clean clone
-(`npm ci && npm run build && npm test`: 26 files, 769 passed, 2 expected fail,
-7 skipped).
+(`npm ci && npm run build && npm test`: 26 files, 777 passed, 2 expected fail,
+7 skipped — 779 passed with a container runtime running).
 
 What remains is not design work. It is evidence, and one release decision.
 
@@ -38,6 +38,10 @@ What remains is not design work. It is evidence, and one release decision.
 
 ### The vm lane has never driven a real macOS guest
 
+(The container lane no longer belongs on this list: as of 2026-08-18 it has run
+a genuinely headed Chromium with the host screen verifiably untouched — see
+[docs/verified.md](verified.md).)
+
 This is the one gap that matters. Every claim about the vm lane rests on 28
 recorded fixtures and `xcresulttool`'s published JSON Schema 0.1.0 — not on a
 bundle a real run produced. Closing it means installing Tart and the
@@ -56,9 +60,9 @@ code change.
 ### Smaller, and each already written down where it bites
 
 - **Live browser coverage is opt-in.** 5 of the 7 skipped tests need
-  `@playwright/test` plus a cached Chromium; 2 need a running container runtime.
-  `docs/verified.md` has the commands. Playwright is deliberately not a
-  devDependency.
+  `@playwright/test` plus a cached Chromium; the other 2 need a container
+  runtime and do run once one is up. `docs/verified.md` has the commands.
+  Playwright is deliberately not a devDependency.
 - **A run produces no output until it finishes.** `LaneRunner` has no streaming
   hook, so `offstage run -- npm test` is silent between the routing line and the
   result. Fixing it is a contract change that has to work identically for a

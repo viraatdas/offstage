@@ -65,10 +65,18 @@ describe('.mcp.json', () => {
     const arg = mcp.mcpServers.offstage?.args.at(-1) ?? '';
     const published = pkg.bin['offstage-mcp'];
     expect(published).toBeDefined();
-    // The plugin root is substituted by Claude Code at load time; what has to
-    // match is the path underneath it.
-    expect(arg.endsWith(published as string)).toBe(true);
-    expect(arg.startsWith('${CLAUDE_PLUGIN_ROOT}/')).toBe(true);
+    expect(arg).toBe(published);
+  });
+
+  it('uses a path Claude Code can actually resolve at project scope', () => {
+    // `${CLAUDE_PLUGIN_ROOT}` is only substituted for a server a *plugin*
+    // provides. In a project-scoped .mcp.json — which is what this file is
+    // when someone opens the repository — it is passed through literally and
+    // Claude Code reports a missing environment variable. A path relative to
+    // the project root is the form that works where this file is actually read.
+    const arg = mcp.mcpServers.offstage?.args.at(-1) ?? '';
+    expect(arg).not.toContain('${');
+    expect(path.isAbsolute(arg)).toBe(false);
   });
 
   it('names a real source file, so the server exists before it is built', () => {

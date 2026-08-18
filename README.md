@@ -98,7 +98,7 @@ worth more than a progress bar:
 | `src/contract/` — lane contract | implemented; the interface below is stable |
 | `src/router/` — `classify()` | implemented; exercised against real repositories and adversarial commands |
 | `src/lanes/headless/` | implemented; **verified live** — real processes, real timeouts, real log backpressure |
-| `src/lanes/container/` + `docker/` | implemented; verified live on this host previously, fixture-tested since |
+| `src/lanes/container/` + `docker/` | implemented; **verified live** — a headed Chromium ran inside it while the host screen stayed untouched |
 | `src/lanes/vm/` | implemented; **fixture-tested only** — no real macOS guest has ever been booted |
 | `src/probe/` — entitlements probe | implemented; real parsing of real `.xcodeproj`/`.app` fixtures, `codesign`/`hdiutil` paths driven through an injected runner |
 | `src/cli/` — `offstage` CLI | implemented; `doctor` / `route` / `run` / `probe`, with `--json` on each |
