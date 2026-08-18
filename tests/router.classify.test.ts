@@ -150,6 +150,19 @@ const TABLE: Row[] = [
     signal: 'no browser, GPU or macOS-native signal found',
     reason: 're-run with --headed',
   },
+  {
+    /* Recording is not a head. Playwright takes the frames from the browser it
+       already drives and encodes them itself, so this writes a real .webm with
+       nothing on screen — see `tests/router.video.test.ts`, which proves it by
+       running Chromium rather than by asserting it. */
+    what: 'video recording, which a headless browser does perfectly well',
+    repo: 'plain',
+    command: ['npx', 'playwright', 'test', '--video=on'],
+    lane: 'headless',
+    confidence: 'high',
+    signal: 'argv: --video=on',
+    reason: 'captures frames from the browser it is already driving',
+  },
 
   /* ------------------------------- container ------------------------------ */
   {
@@ -198,13 +211,13 @@ const TABLE: Row[] = [
     reason: 'headed browser profile',
   },
   {
-    what: 'video capture',
+    what: 'desktop capture, which has no surfaces to offer without a display',
     repo: 'plain',
-    command: ['npx', 'playwright', 'test', '--video=on'],
+    command: ['node', 'record.js', '--auto-select-desktop-capture-source=Screen 1'],
     lane: 'container',
     confidence: 'high',
-    signal: 'argv: --video=on',
-    reason: 'compositor',
+    signal: 'argv: --auto-select-desktop-capture-source=Screen 1',
+    reason: 'desktop-capture APIs',
   },
   {
     what: 'vitest browser mode, which is headed outside CI',
@@ -453,7 +466,7 @@ describe('container is for web work that genuinely needs a head', () => {
       '--auto-select-desktop-capture-source=Entire screen',
     ]);
     expect(decision.lane).toBe('container');
-    expect(decision.reason).toMatch(/compositor/);
+    expect(decision.reason).toMatch(/desktop-capture APIs/);
   });
 
   it('routes GPU flags hidden in a playwright config', async () => {
@@ -623,8 +636,11 @@ describe('package scripts are followed, never run', () => {
 
   it('sees through cross-env and shell redirection inside a script', async () => {
     const decision = await route('scripts', ['npm', 'run', 'record']);
-    expect(decision.lane).toBe('container');
+    /* The flag is found inside `cross-env CI=1 playwright test --video=on >
+       out.log 2>&1`, quoted back with its origin — and recording a video is not
+       a reason to isolate anything, so the lane stays headless. */
     expect(signalText(decision)).toContain('package.json scripts.record: --video=on');
+    expect(decision.lane).toBe('headless');
   });
 
   it('does not report the package manager itself as the tool', async () => {

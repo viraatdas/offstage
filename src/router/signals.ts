@@ -62,6 +62,7 @@ export type SignalKind =
   | 'disable-gpu'
   | 'no-signal'
   // context only
+  | 'recorded-video'
   | 'xcode-repo'
   | 'unreadable-config';
 
@@ -228,9 +229,15 @@ function isExtensionFlag(flag: ParsedFlag): boolean {
   return flag.name === '--load-extension' || flag.name === '--disable-extensions-except';
 }
 
-const CAPTURE_FLAG_NAMES = new Set([
-  '--video',
-  '--record-video',
+/**
+ * Switches that capture *the screen* — a desktop, another application's window,
+ * or another tab — through `getDisplayMedia` and `chrome.desktopCapture`. Those
+ * APIs enumerate surfaces the window system is drawing; a browser with no
+ * display attached has none to offer, so the picker comes back empty and the
+ * capture fails or silently records nothing. This is the class of work that
+ * genuinely needs a head.
+ */
+const SCREEN_CAPTURE_FLAG_NAMES = new Set([
   '--auto-select-desktop-capture-source',
   '--auto-select-tab-capture-source-by-title',
   '--auto-accept-this-tab-capture',
@@ -238,8 +245,31 @@ const CAPTURE_FLAG_NAMES = new Set([
   '--allow-http-screen-capture',
 ]);
 
-function isCaptureFlag(flag: ParsedFlag): boolean {
-  if (!CAPTURE_FLAG_NAMES.has(flag.name)) return false;
+/**
+ * Flags that ask the *runner* to record the page it is already driving:
+ * Playwright's `video`, and the `--record-video` spelling used by harnesses
+ * built on top of it.
+ *
+ * These do **not** need a display, and that is not a guess. Playwright records
+ * by asking the browser for its own frames — `Page.startScreencast` over CDP —
+ * and muxing the `screencastFrame` stream with the ffmpeg it ships in the box.
+ * The renderer produces those frames whether or not anything is presenting
+ * them, so a headless run writes the same `.webm` a headed one would. Sending
+ * these to the container lane would buy nothing and charge container startup
+ * for it, which is exactly the trade offstage exists to refuse.
+ *
+ * `--video=off` (and the other falsey spellings) is not a recording request at
+ * all, so it produces no signal.
+ */
+const RECORDED_VIDEO_FLAG_NAMES = new Set(['--video', '--record-video']);
+
+function isScreenCaptureFlag(flag: ParsedFlag): boolean {
+  if (!SCREEN_CAPTURE_FLAG_NAMES.has(flag.name)) return false;
+  return !isFalseish(flag.value);
+}
+
+function isRecordedVideoFlag(flag: ParsedFlag): boolean {
+  if (!RECORDED_VIDEO_FLAG_NAMES.has(flag.name)) return false;
   return !isFalseish(flag.value);
 }
 
@@ -689,7 +719,7 @@ function flagSignals(view: CommandView): Signal[] {
       );
       continue;
     }
-    if (isCaptureFlag(flag)) {
+    if (isScreenCaptureFlag(flag)) {
       found.push(
         signal({
           kind: 'capture-flag',
@@ -697,8 +727,23 @@ function flagSignals(view: CommandView): Signal[] {
           origin: view.label,
           detail: at(token),
           clause:
-            'This records video or captures the screen, which needs a compositor actually drawing frames; the container lane provides one so the recording is real and still never reaches your display.',
+            'This captures the screen or another window through the desktop-capture APIs, which can only offer surfaces a window system is actually drawing; the container lane supplies an Xvfb display to capture, so the recording is real and still never reaches yours.',
           priority: 27,
+          inferred,
+          confidence: 'high',
+        }),
+      );
+      continue;
+    }
+    if (isRecordedVideoFlag(flag)) {
+      found.push(
+        signal({
+          kind: 'recorded-video',
+          argues: null,
+          origin: view.label,
+          detail: at(token),
+          clause: 'The run records video of the page it drives, which needs no display.',
+          priority: 46,
           inferred,
           confidence: 'high',
         }),
