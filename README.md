@@ -37,6 +37,56 @@ real screen.** If a lane's substrate is unavailable, the run stops and tells you
 the exact command that would fix it. A headed browser appearing on your desktop
 because Colima was not running would defeat the entire point.
 
+## What the router cannot see
+
+The router never executes a line of the repository it classifies. It reads argv,
+and it reads a few small files — `package.json`, `playwright.config.*`, the
+vitest config, a script the command names — and that is all. This is the safety
+argument, not a shortcut: a router that evaluated your config to find out
+whether it opens a window could open a window *while deciding whether to open a
+window*, on your real screen, before any lane had been chosen.
+
+The price is that a capability computed at runtime is invisible:
+
+```ts
+export default defineConfig({
+  use: { headless: process.env.HEADED !== '1' },   // offstage cannot know
+});
+```
+
+**So offstage says so.** It does not report Playwright's default as though it
+had read yours. The command stays in the default `headless` lane — "I can't
+tell" is a reason to say "I can't tell", not a reason to bill every ambiguous
+repository for container startup — but the decision comes back with
+`confidence: 'low'` and a reason that quotes the expression it could not
+evaluate:
+
+```
+headless (low) — playwright.config.ts computes headless at runtime, from
+`process.env.HEADED !== '1'`, and offstage reads files without ever executing
+them — so it genuinely cannot know whether this run opens a window. It kept the
+default headless lane rather than bill you for a container on a guess; if a
+window does open, re-run with --headed and it goes to the container lane.
+```
+
+Four shapes fall outside what reading can settle, and each is reported rather
+than guessed:
+
+| What is in the file                       | Lane        | Confidence | Why                                                                       |
+| ----------------------------------------- | ----------- | ---------- | ------------------------------------------------------------------------- |
+| `headless: process.env.X`, `headless: fn()` | `headless`  | `low`      | The key is there; the value is an expression offstage will not evaluate.   |
+| `use: sharedUse`, `launch(opts)`          | `headless`  | `low`      | The browser options are a reference; offstage reads one file and follows nothing out of it. |
+| `headless` spelled both `false` and `true` | `container` | `low`      | A branch picked at runtime. Container is the cheaper way to be wrong.      |
+| vitest browser mode with a computed `headless` | `container` | `low`  | Browser mode is headed outside CI unless something pins it, and nothing readable does. |
+
+An explicit `--headed` or `--headless` on the command line settles all of them
+and restores `confidence: 'high'`: whatever the config computes, argv is what
+will actually run. The observation stays in `signals`, marked settled.
+
+`tests/router.purity.test.ts` holds the no-execution line;
+`tests/router.runtime-capabilities.test.ts` holds the honesty that has to come
+with it.
+
 ## Status
 
 Early. The repository skeleton, the manifests and the lane contract are in

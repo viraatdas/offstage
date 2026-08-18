@@ -30,6 +30,14 @@
  *   or a hosted grid that runs the browser on someone else's machine. Only
  *   when there is nothing to read does it fall back to the container lane, and
  *   it says so at low confidence.
+ * - **what it cannot see, it says out loud.** A repository that computes
+ *   `headless` at runtime — from an env var, a variable, a call, another module
+ *   — is invisible to the router by construction, because reading files is the
+ *   whole safety argument: a router that evaluated your config to find out
+ *   whether it opens a window could open a window while deciding. So offstage
+ *   keeps the default lane, drops to `confidence: 'low'`, and names the
+ *   expression it could not evaluate, instead of reporting the tool's default
+ *   as though it had read yours.
  * - **vm for macOS-native work**: `xcodebuild`, `xcrun simctl`, XCUITest
  *   schemes, `open` of a `.app`, a `.dmg`, a targeted `.xcodeproj`,
  *   `safaridriver`. No container can run these at all.
@@ -123,6 +131,15 @@ const OVERRIDABLE_KINDS = new Set([
   'headed-driver',
 ]);
 
+/**
+ * Evidence that says "a file decides this at runtime and offstage does not run
+ * files". An explicit `--headless` settles that question: the value the router
+ * could not read is no longer the value that will be used, so the doubt is
+ * retired rather than left to drag the decision's confidence down. It stays in
+ * `signals`, annotated, because the config still says what it says.
+ */
+const UNREADABLE_KINDS = new Set(['computed-headless']);
+
 const NOTHING_FOUND: Signal = {
   kind: 'no-signal',
   argues: 'headless',
@@ -159,6 +176,9 @@ function decide(collected: Signal[]): RouteDecision {
         item.detail = `${item.detail} (overridden by ${overridePhrase})`;
         suppressedKinds.add(item.kind);
         suppressed += 1;
+      } else if (UNREADABLE_KINDS.has(item.kind)) {
+        item.argues = null;
+        item.detail = `${item.detail} (settled by ${overridePhrase})`;
       }
     }
   }
