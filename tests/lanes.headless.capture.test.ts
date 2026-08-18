@@ -348,7 +348,21 @@ describe('a run that prints more than the budget', () => {
 
       expect(disclosure).toBeDefined();
       expect(disclosure).toMatch(/more than the 4,000,000-character budget/);
-      expect(disclosure).toMatch(/command\.log on disk is complete/);
+      /* The budget is a property of the in-memory capture alone. It never
+         truncates the file, so the disclosure scopes itself to the capture
+         rather than claiming the log is whole: whether the *log* is whole is
+         the log sink's question, and it answers it separately below. */
+      expect(disclosure).toMatch(/applies to the in-memory capture only/);
+      expect(disclosure).toMatch(/is not truncated by it/);
+
+      /* And on this disk it is whole: a sink that dropped or abandoned bytes
+         discloses that itself, so the absence of that disclosure is the claim
+         'command.log on disk is complete' — now made by the component that
+         actually knows, instead of asserted unconditionally here. */
+      const shortfall = result.diagnostics.find(
+        (line) => line.includes('bytes were dropped') || line.includes('still unwritten'),
+      );
+      expect(shortfall).toBeUndefined();
 
       const dropped = /oldest ([\d,]+) characters were dropped/.exec(disclosure!);
       expect(dropped).not.toBeNull();

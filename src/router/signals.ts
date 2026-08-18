@@ -1394,7 +1394,9 @@ async function webdriverSignals(view: CommandView, inspector: Inspector): Promis
     const capabilities = webdriverCapabilities(config.file, config.text);
     // A remote grid moves the browser off this machine, which makes the local
     // launch options in the same file irrelevant to your screen.
-    if (!capabilities.remote) found.push(...configSignals(config.file, config.text));
+    /* wdio has no headless default, so a value offstage could not read must not
+       fall back to one. See configSignals' `defaultsHeadless`. */
+    if (!capabilities.remote) found.push(...configSignals(config.file, config.text, false));
     found.push(...capabilities.signals);
   }
 
@@ -1419,6 +1421,15 @@ function headlessEvidenceSignal(
   file: string,
   evidence: HeadlessEvidence,
   source: 'config' | 'script',
+  /**
+   * Whether the tool this file configures runs headless when the file says
+   * nothing. Playwright, Puppeteer and Vitest browser mode do; WebDriver does
+   * not. It only matters for the two shapes offstage cannot read — `computed`
+   * and `delegated` — where the fallback *is* the tool's default, and assuming
+   * a headless one the tool does not have would put a real window on the
+   * user's screen.
+   */
+  defaultsHeadless = true,
 ): Signal | undefined {
   /** Same sentence either way; only the noun for the file changes. */
   const noun = source === 'config' ? 'config' : 'script';
@@ -1467,11 +1478,13 @@ function headlessEvidenceSignal(
     case 'computed':
       return signal({
         kind: 'computed-headless',
-        argues: 'headless',
+        argues: defaultsHeadless ? 'headless' : 'container',
         origin: file,
         detail: `${file}: headless is computed at runtime (headless: ${evidence.expression})`,
-        clause: `${file} computes headless at runtime, from \`${evidence.expression}\`, and offstage reads files without ever executing them — so it genuinely cannot know whether this run opens a window. It kept the default headless lane rather than bill you for a container on a guess; if a window does open, re-run with --headed and it goes to the container lane.`,
-        priority: 38,
+        clause: defaultsHeadless
+          ? `${file} computes headless at runtime, from \`${evidence.expression}\`, and offstage reads files without ever executing them — so it genuinely cannot know whether this run opens a window. It kept the default headless lane rather than bill you for a container on a guess; if a window does open, re-run with --headed and it goes to the container lane.`
+          : `${file} computes headless at runtime, from \`${evidence.expression}\`, and offstage reads files without ever executing them — so it genuinely cannot know whether this run opens a window. Unlike Playwright, this tool has no headless default to fall back on: if that expression comes out false, a real window opens on your desktop. It routed to the container lane, because that is the cheaper way to be wrong. Pass --headless if you know this run is the headless one.`,
+        priority: defaultsHeadless ? 38 : 22,
         inferred: true,
         confidence: 'low',
       });
@@ -1479,11 +1492,13 @@ function headlessEvidenceSignal(
     case 'delegated':
       return signal({
         kind: 'computed-headless',
-        argues: 'headless',
+        argues: defaultsHeadless ? 'headless' : 'container',
         origin: file,
         detail: `${file}: browser options come from \`${evidence.key}\`, which offstage does not resolve`,
-        clause: `${file} hands its browser options over as \`${evidence.key}\` rather than writing them out, and offstage reads one ${noun} without following what it imports, so a headless: false could be sitting one file away. It kept the default headless lane and lowered its confidence instead of claiming a window will not open; re-run with --headed if one does.`,
-        priority: 38,
+        clause: defaultsHeadless
+          ? `${file} hands its browser options over as \`${evidence.key}\` rather than writing them out, and offstage reads one ${noun} without following what it imports, so a headless: false could be sitting one file away. It kept the default headless lane and lowered its confidence instead of claiming a window will not open; re-run with --headed if one does.`
+          : `${file} hands its browser options over as \`${evidence.key}\` rather than writing them out, and offstage reads one ${noun} without following what it imports, so a headless: false could be sitting one file away. This tool has no headless default that would make that a safe bet, so it routed to the container lane rather than risk a window on your desktop; pass --headless if you know this run is the headless one.`,
+        priority: defaultsHeadless ? 38 : 22,
         inferred: true,
         confidence: 'low',
       });
@@ -1493,11 +1508,23 @@ function headlessEvidenceSignal(
   }
 }
 
-/** Signals read out of a Playwright-shaped config file. */
-function configSignals(file: string, text: string): Signal[] {
+/**
+ * Signals read out of a browser config file.
+ *
+ * `defaultsHeadless` describes the tool the file belongs to, not the file: it
+ * is what the run does when the file settles nothing. Playwright-shaped configs
+ * leave it true; WebdriverIO passes false, because wdio has no headless default
+ * and the whole point of reading its config is that guessing one is unsafe.
+ */
+function configSignals(file: string, text: string, defaultsHeadless = true): Signal[] {
   const found: Signal[] = [];
 
-  const headlessSignal = headlessEvidenceSignal(file, readHeadlessEvidence(text), 'config');
+  const headlessSignal = headlessEvidenceSignal(
+    file,
+    readHeadlessEvidence(text),
+    'config',
+    defaultsHeadless,
+  );
   if (headlessSignal !== undefined) found.push(headlessSignal);
 
   for (const token of text.match(/--[a-z0-9-]+(=[^\s'"`,)]+)?/gi) ?? []) {

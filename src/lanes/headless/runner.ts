@@ -21,6 +21,9 @@
  * - **An obviously-headed command is refused, not run.** Running
  *   `playwright test --headed` in place would put a window on the user's screen,
  *   which is the one thing offstage exists to prevent. See {@link detectHeadedRequest}.
+ * - **Writing the log can never change the verdict.** A slow disk must not be
+ *   able to turn a passing run into a timeout, so this lane never lets the log
+ *   file apply backpressure to the command. See {@link LogSink}.
  */
 
 import { createWriteStream } from 'node:fs';
@@ -51,30 +54,38 @@ import { parseFailures, tailOf } from './parse.js';
 export const COMMAND_LOG_FILENAME = 'command.log';
 
 /**
- * How much output is retained **in memory** for failure parsing. The log file
- * itself is never truncated — it is streamed straight to disk — but a runaway
+ * How much output is retained **in memory** for failure parsing. A runaway
  * command that prints a gigabyte must not take the offstage process down with
  * it. When the cap is hit the oldest output is dropped, because reporters print
  * their failure summaries at the end.
  *
- * The cap is only worth the name if the whole output path is bounded, so three
- * things hold together and are tested as one:
- *
- * 1. **The in-memory bound is hard.** {@link CappedText} retains exactly this
- *    many characters whatever the chunk sizes are — a single chunk larger than
- *    the budget is trimmed on the way in — and it evicts in O(1) amortized
- *    time, so a gigabyte arriving in small pieces costs linear work, not
- *    quadratic.
- * 2. **The on-disk log cannot become the leak instead.** Writes to
- *    `command.log` honor backpressure: when the disk is slower than the
- *    command, {@link HeadlessLane.run} stops reading the child rather than
- *    queueing the overflow in the write stream's unbounded internal buffer.
- *    The command is throttled; nothing is dropped.
- * 3. **Dropping is disclosed.** When output is discarded, the result says how
- *    much was lost and that `command.log` on disk is still complete, so a
- *    reader never mistakes a partial parse for the whole run.
+ * This buffer is what the verdict and `failures[]` are computed from, and it is
+ * deliberately independent of {@link COMMAND_LOG_FILENAME}: however badly the
+ * disk misbehaves, what offstage *concludes* about the code under test is
+ * unaffected. See {@link LogSink}.
  */
 export const MAX_CAPTURED_CHARS = 4_000_000;
+
+/**
+ * How many bytes may sit queued for the log file before this lane stops feeding
+ * it. See {@link LogSink} for why the alternative — letting the queue grow, or
+ * waiting for it to drain — is worse.
+ */
+export const MAX_BUFFERED_LOG_BYTES = 8_000_000;
+
+/**
+ * Extra time the log may take to reach disk after the command has already
+ * finished, on top of the caller's `timeoutMs`. Small on purpose: a caller who
+ * asked for an answer within a deadline should get one.
+ */
+export const LOG_FLUSH_GRACE_MS = 2_000;
+
+/**
+ * How long the log may make **no progress at all** before it is abandoned. This
+ * is the backstop for a wedged disk when the caller set no `timeoutMs`: a sink
+ * that is still draining, however slowly, is allowed to finish.
+ */
+export const LOG_FLUSH_STALL_MS = 5_000;
 
 /* -------------------------------------------------------------------------- */
 /* The headed-command guard                                                   */
@@ -203,44 +214,18 @@ export class HeadlessLane implements LaneRunner {
     const logPath = artifactPath(request.artifactsDir, COMMAND_LOG_FILENAME);
     let logStream: Writable | undefined;
     let logProblem: string | undefined;
-    let logUsable = false;
     try {
       const stream = createWriteStream(logPath);
       await once(stream, 'open');
-      /* Once open, a later write error (a full disk) must not become an
-         unhandled 'error' event and take the process down; it is reported in
-         diagnostics instead, and the run itself still produces a result. */
-      stream.on('error', (error: Error) => {
-        logProblem ??= `Writing ${COMMAND_LOG_FILENAME} failed: ${error.message}`;
-        logUsable = false;
-      });
       logStream = stream;
-      logUsable = true;
     } catch (error) {
       logProblem = `Could not open ${logPath} for writing: ${describeError(error)}`;
     }
 
-    /**
-     * Append to `command.log`, waiting for the stream to drain when it asks to.
-     *
-     * `write()` returning false means the bytes are sitting in the stream's
-     * *unbounded* in-memory queue. Ignoring that would make a gigabyte of
-     * output cost a gigabyte of heap — the exact blow-up
-     * {@link MAX_CAPTURED_CHARS} exists to prevent, arriving through the file
-     * rather than through the capture. Waiting stops us reading the child, the
-     * pipe fills, and the command itself is throttled: the log stays complete
-     * and memory stays bounded. A dead stream is reported once and then
-     * skipped, so a full disk costs the log, never the run.
-     */
-    const writeToLog = async (text: string): Promise<void> => {
-      if (logStream === undefined || !logUsable) return;
-      try {
-        await appendWithBackpressure(logStream, text);
-      } catch (error) {
-        logUsable = false;
-        logProblem ??= `Writing ${COMMAND_LOG_FILENAME} failed: ${describeError(error)}`;
-      }
-    };
+    /* Once open, a later write error (a full disk) must not become an unhandled
+       'error' event and take the process down; it is reported in diagnostics
+       instead, and the run itself still produces a result. */
+    const log = new LogSink(logStream, MAX_BUFFERED_LOG_BYTES);
 
     const capture = new CappedText(MAX_CAPTURED_CHARS);
     const [file, ...args] = request.command as [string, ...string[]];
@@ -265,20 +250,33 @@ export class HeadlessLane implements LaneRunner {
       reject: false,
     });
 
+    /* This loop is on the command's critical path: every iteration that does
+       not return promptly is time the child spends blocked on a full pipe. So
+       it awaits nothing but the next chunk — `log.write()` is non-blocking by
+       construction. */
     const pump = (async () => {
       const all = subprocess.all;
       if (all === undefined) return;
       for await (const chunk of all) {
         const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
         capture.push(text);
-        await writeToLog(text);
+        log.write(text);
       }
     })().catch((error: unknown) => {
       logProblem ??= `Capturing output failed: ${describeError(error)}`;
     });
 
     const [result] = await Promise.all([subprocess, pump]);
-    await closeStream(logStream);
+    /* The command is done; only the log is still in flight. Give it a bounded
+       window to land so a slow disk cannot extend a run past its deadline. */
+    await log.close({
+      deadline:
+        request.timeoutMs === undefined
+          ? undefined
+          : startedAtMs + request.timeoutMs + LOG_FLUSH_GRACE_MS,
+      stallMs: LOG_FLUSH_STALL_MS,
+    });
+    logProblem ??= log.problem;
 
     const durationMs = Date.now() - startedAtMs;
     const output = capture.text();
@@ -295,9 +293,10 @@ export class HeadlessLane implements LaneRunner {
         `Environment overrides layered on the ambient environment: ${Object.keys(request.env).sort().join(', ')}.`,
       );
     }
+
     if (capture.droppedChars > 0) {
       diagnostics.push(
-        `This command printed more than the ${count(MAX_CAPTURED_CHARS)}-character budget offstage keeps in memory for parsing, so the oldest ${count(capture.droppedChars)} characters were dropped from that view and failures[] reflects only the end of the run. ${COMMAND_LOG_FILENAME} on disk is complete: nothing was truncated there.`,
+        `This command printed more than the ${count(MAX_CAPTURED_CHARS)}-character budget offstage keeps in memory for parsing, so the oldest ${count(capture.droppedChars)} characters were dropped from that view and failures[] reflects only the end of the run. This budget applies to the in-memory capture only: ${COMMAND_LOG_FILENAME} on disk is written from the same output and is not truncated by it.`,
       );
     }
 
@@ -329,6 +328,17 @@ export class HeadlessLane implements LaneRunner {
       );
       const tail = tailOf(output);
       if (tail !== '') diagnostics.push(tail);
+    }
+
+    /* If the disk could not keep up, say so plainly, and say what it did and
+       did not cost. Silently handing back a log with a hole in it would be the
+       dishonest option. */
+    const shortfall = log.describeShortfall(COMMAND_LOG_FILENAME);
+    if (shortfall !== undefined) {
+      diagnostics.push(shortfall);
+      diagnostics.push(
+        `This did not affect the result: ${status} and failures[] were determined from the output held in memory, which is captured before the log is written and is independent of it.`,
+      );
     }
 
     if (logProblem !== undefined) diagnostics.push(logProblem);
@@ -363,24 +373,6 @@ export const headlessLane = new HeadlessLane();
  * A bounded FIFO of text. Keeps at most `limit` characters, discarding from the
  * front — reporters print their failure summary last, so the end is the half
  * worth keeping.
- *
- * Both of its properties are load-bearing for {@link MAX_CAPTURED_CHARS}, and
- * neither is free:
- *
- * - **The bound is exact, whatever the chunk sizes are.** Eviction trims
- *   *inside* the oldest chunk instead of only at chunk boundaries, and a single
- *   chunk larger than the whole budget is trimmed on the way in. Retention is
- *   `limit` characters, not "`limit` rounded up to the pipe buffer" and not
- *   "one chunk, however big it happened to be".
- * - **Eviction is O(1) amortized.** Released slots are dropped by advancing a
- *   head index and compacting occasionally, never by `shift()`ing the whole
- *   array on every write. Output arrives in pieces as small as a single line,
- *   so a gigabyte can be millions of pushes; shifting each time is quadratic,
- *   which would hang the process on exactly the runaway command this cap is
- *   here to survive.
- *
- * Exported so the cap can be tested directly against both properties. It is an
- * implementation detail of this lane, not part of the offstage contract.
  */
 export class CappedText {
   #chunks: string[] = [];
@@ -442,6 +434,199 @@ export class CappedText {
 }
 
 /**
+ * The command log, written so that it can never change the answer.
+ *
+ * ## Why this is not just `stream.write(text)`
+ *
+ * The obvious two implementations are both wrong, and both were measured
+ * against a 4MB-of-output command whose log was drained at 160 KB/s:
+ *
+ * - **Await the write** (honour backpressure). The pump stops reading the
+ *   child's pipe, the pipe fills, and the child blocks in `write(2)`. A command
+ *   that passes in 68ms on a fast disk was killed by its own 20s timeout and
+ *   reported `errored` — "the command never finished, so nothing can be
+ *   concluded about the code under test". That sentence was false: the code was
+ *   fine and the *disk* was slow. For a tool whose whole product is an honest
+ *   verdict, this is the worst available failure.
+ * - **Fire and forget** (`write()` and ignore the `false`). The child never
+ *   blocks, but the unwritten bytes pile up in the stream's internal queue with
+ *   no bound — reintroducing exactly the runaway-memory failure that
+ *   {@link MAX_CAPTURED_CHARS} exists to prevent — and `run()` then sat in
+ *   `end()` flushing them, returning after 24.6s against a 20s deadline.
+ *
+ * So this sink does neither. It **absorbs** backpressure instead of propagating
+ * it: writes are always non-blocking, the queue is capped at
+ * {@link MAX_BUFFERED_LOG_BYTES}, and output that arrives while the queue is
+ * over that cap is dropped **from the log only** — never from the in-memory
+ * capture the verdict is computed from. When the sink catches up, a marker is
+ * written at the point of the hole so the gap is visible in the file itself
+ * rather than inferred. The result: the log degrades, the verdict does not.
+ */
+export class LogSink {
+  #stream: Writable | undefined;
+  #dropping = false;
+  #droppedBytes = 0;
+  #pendingDropBytes = 0;
+  #abandonedBytes = 0;
+  #markersWritten = 0;
+  #dead = false;
+
+  /** Set when the stream itself reported an error, for `diagnostics`. */
+  problem: string | undefined;
+
+  constructor(
+    stream: Writable | undefined,
+    private readonly limit: number,
+  ) {
+    this.#stream = stream;
+    stream?.on('error', (error: Error) => {
+      this.problem ??= `Writing ${COMMAND_LOG_FILENAME} failed: ${error.message}`;
+      /* Every subsequent write would queue behind a stream that is never going
+         to drain, so stop feeding it. */
+      this.#dead = true;
+    });
+  }
+
+  /**
+   * Queue `text` for the log. Returns immediately, always: this runs on the
+   * command's critical path.
+   */
+  write(text: string): void {
+    const stream = this.#stream;
+    if (stream === undefined || this.#dead) return;
+
+    if (this.#dropping) {
+      /* Hysteresis: resume only once the backlog has properly cleared, so a
+         queue hovering at the cap does not shred the log into markers. */
+      if (stream.writableLength > this.limit / 2) {
+        this.#pendingDropBytes += Buffer.byteLength(text);
+        return;
+      }
+      this.#dropping = false;
+      this.#droppedBytes += this.#pendingDropBytes;
+      const omitted = this.#pendingDropBytes;
+      this.#pendingDropBytes = 0;
+      this.#writeMarker(stream, omitted);
+    } else if (stream.writableLength > this.limit) {
+      this.#dropping = true;
+      this.#pendingDropBytes += Buffer.byteLength(text);
+      return;
+    }
+
+    stream.write(text);
+  }
+
+  /**
+   * Flush what is queued and close, within bounds.
+   *
+   * Waiting is allowed while the sink is demonstrably making progress — a slow
+   * disk that is still draining should be permitted to finish, and truncating
+   * a log that is actively being written would be gratuitous. Waiting stops at
+   * the caller's `deadline`, or once the queue has not shrunk for `stallMs`,
+   * whichever comes first.
+   */
+  async close(opts: { deadline?: number; stallMs: number }): Promise<void> {
+    const stream = this.#stream;
+    if (stream === undefined) return;
+
+    /* Output was still being dropped when the command exited, so no resume ever
+       wrote the marker. Record the hole now, at the end of the queue — which is
+       exactly where it falls — so the file testifies to its own gap instead of
+       ending mid-stream with nothing to explain it. */
+    if (this.#pendingDropBytes > 0) {
+      this.#droppedBytes += this.#pendingDropBytes;
+      const omitted = this.#pendingDropBytes;
+      this.#pendingDropBytes = 0;
+      this.#dropping = false;
+      if (!this.#dead) this.#writeMarker(stream, omitted);
+    }
+
+    if (!this.#dead) {
+      let remaining = stream.writableLength;
+      let lastProgressAt = Date.now();
+      while (remaining > 0) {
+        const now = Date.now();
+        if (opts.deadline !== undefined && now >= opts.deadline) break;
+        if (now - lastProgressAt >= opts.stallMs) break;
+        await delay(FLUSH_POLL_MS);
+        const next = stream.writableLength;
+        if (next < remaining) lastProgressAt = Date.now();
+        remaining = next;
+      }
+      this.#abandonedBytes = stream.writableLength;
+    }
+
+    if (this.#abandonedBytes > 0 || this.#dead) {
+      stream.destroy();
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      stream.end(() => {
+        resolve();
+      });
+    });
+  }
+
+  /** Write the omission marker, and remember that we did. */
+  #writeMarker(stream: Writable, omitted: number): void {
+    stream.write(
+      `\n[offstage] ---- ${omitted} bytes omitted here: the disk could not keep up with this command's output ----\n`,
+    );
+    this.#markersWritten += 1;
+  }
+
+  /**
+   * One sentence naming everything that did not reach the log, or `undefined`
+   * when the log is complete.
+   */
+  describeShortfall(filename: string): string | undefined {
+    const parts: string[] = [];
+    /* Counts drops still pending a resume marker too, so this reads the same
+       whether or not `close()` has folded them in yet. */
+    const dropped = this.#droppedBytes + this.#pendingDropBytes;
+    if (dropped > 0) {
+      parts.push(
+        `${dropped} bytes were dropped while the command was running, because more than ${this.limit} bytes were already queued and waiting on the disk`,
+      );
+    }
+    if (this.#abandonedBytes > 0) {
+      parts.push(
+        `${this.#abandonedBytes} bytes were still unwritten when the run ended and were abandoned rather than delay the result any further`,
+      );
+    }
+    if (parts.length === 0) return undefined;
+    /* Only claim a marker when one was actually written *and* had room to
+       reach disk. Bytes abandoned at close leave no trace — the queue they sat
+       in never reached the disk — and saying otherwise would send a reader
+       looking for something that is not there. */
+    const marked =
+      this.#markersWritten > 0 && this.#abandonedBytes === 0
+        ? ' The omitted stretches are marked in the file.'
+        : '';
+    return `${filename} is incomplete: ${parts.join(', and ')}. The disk could not keep up with this command's output.${marked}`;
+  }
+}
+
+/** How often {@link LogSink.close} samples the queue for progress. */
+const FLUSH_POLL_MS = 50;
+
+/**
+ * A promise that resolves after `ms`.
+ *
+ * Deliberately **not** `unref`'d: this timer is what keeps the event loop alive
+ * while {@link LogSink.close} waits for the disk, and an unref'd one would let
+ * a process whose only remaining work is this flush exit out from under it —
+ * losing the log silently and never resolving `run()`. The wait is bounded by
+ * the caller's deadline and by {@link LOG_FLUSH_STALL_MS}, so a live timer here
+ * cannot hold anything open for long.
+ */
+function delay(ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/**
  * Append to a stream, waiting for it to drain when it says it is full.
  *
  * `Writable.write()` returning `false` does not mean the write failed — it
@@ -464,16 +649,6 @@ export async function appendWithBackpressure(stream: Writable, text: string): Pr
 /** Digit-grouped for diagnostics a human reads: `4000000` -> `4,000,000`. */
 function count(value: number): string {
   return value.toLocaleString('en-US');
-}
-
-/** Flush and close the log stream, resolving even if the close reports an error. */
-async function closeStream(stream: Writable | undefined): Promise<void> {
-  if (stream === undefined) return;
-  await new Promise<void>((resolve) => {
-    stream.end(() => {
-      resolve();
-    });
-  });
 }
 
 /** Best-effort message for anything thrown or returned as an error. */

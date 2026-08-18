@@ -164,6 +164,47 @@ const REPOS = {
     ].join('\n'),
   },
 
+  /** The same computed shape, but in a Playwright repo, which does default headless. */
+  playwrightComputed: {
+    'package.json': `${JSON.stringify(
+      { name: 'fixture-pw', devDependencies: { '@playwright/test': '^1.50.0' } },
+      null,
+      2,
+    )}\n`,
+    'playwright.config.ts': [
+      'export default {',
+      "  use: { headless: process.env.HEADED !== '1' },",
+      '};',
+      '',
+    ].join('\n'),
+  },
+
+  /**
+   * `headless` is real but computed, so offstage can see the key and still not
+   * know the value. Playwright's answer to this is "keep the headless default";
+   * wdio has no such default, so the same shrug would put a window on screen.
+   */
+  computed: {
+    'wdio.conf.ts': [
+      'export const config = {',
+      '  capabilities: [',
+      "    { browserName: 'chrome', 'goog:chromeOptions': { headless: process.env.HEADED !== '1' } },",
+      '  ],',
+      '};',
+      '',
+    ].join('\n'),
+  },
+
+  /** The capabilities live in another module offstage does not follow. */
+  delegated: {
+    'wdio.conf.ts': [
+      "import { capabilities } from './caps.js';",
+      '',
+      'export const config = { capabilities };',
+      '',
+    ].join('\n'),
+  },
+
   /** The command hides in a package script, which is where it usually lives. */
   scripted: {
     'package.json': `${JSON.stringify(
@@ -371,6 +412,68 @@ describe('when nothing settles it, the guess says it is a guess', () => {
     const decision = await route('chromeHeadless', ['npx', 'wdio', 'run', 'wdio.conf.ts', '--headed']);
     expect(decision.lane).toBe('container');
     expect(decision.confidence).toBe('high');
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* A value it cannot read is not a value it can assume                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The regression followup-10 flagged and nobody had a fixture for.
+ *
+ * `computed` and `delegated` mean "the file names headless but offstage cannot
+ * evaluate it", and the honest fallback is whatever the tool does on its own.
+ * For Playwright that is headless, so those shapes keep the default lane. For
+ * wdio there is no default at all, and inheriting Playwright's answer routed a
+ * config that might well open a window straight into the headless lane — a real
+ * window on a real desktop, which is the one outcome offstage promises never to
+ * cause. Worse, it was *less* safe the more the config said: a wdio.conf.ts with
+ * no headless key routed to the container, and adding a computed one moved it
+ * out.
+ */
+describe('a headless it could not evaluate is not a headless it can assume', () => {
+  it('routes a computed headless to the container, not to the default lane', async () => {
+    const decision = await route('computed', ['npx', 'wdio', 'run', 'wdio.conf.ts']);
+    expect(decision.lane).toBe('container');
+    expect(decision.confidence).toBe('low');
+  });
+
+  it('says it could not evaluate the expression, and that wdio has no default', async () => {
+    const decision = await route('computed', ['npx', 'wdio', 'run', 'wdio.conf.ts']);
+    expect(decision.reason).toMatch(/computes headless at runtime/);
+    expect(decision.reason).toMatch(/no headless default/);
+  });
+
+  it('routes delegated capabilities to the container too', async () => {
+    const decision = await route('delegated', ['npx', 'wdio', 'run', 'wdio.conf.ts']);
+    expect(decision.lane).toBe('container');
+    expect(decision.confidence).toBe('low');
+  });
+
+  it('is never less safe than the same config with nothing to read', async () => {
+    const [computed, bare] = await Promise.all([
+      route('computed', ['npx', 'wdio', 'run', 'wdio.conf.ts']),
+      route('bare', ['npx', 'wdio', 'run', 'wdio.conf.js']),
+    ]);
+    expect(computed.lane).toBe(bare.lane);
+  });
+
+  it('still lets an explicit --headless settle it', async () => {
+    const decision = await route('computed', ['npx', 'wdio', 'run', 'wdio.conf.ts', '--headless']);
+    expect(decision.lane).toBe('headless');
+    expect(decision.confidence).toBe('high');
+  });
+
+  it('leaves Playwright alone: it does have a headless default', async () => {
+    /* The same shape in a Playwright repo must keep the headless lane, or the
+       fix has traded one wrong answer for another. */
+    const decision = await classify({
+      cwd: path.join(root, 'playwrightComputed'),
+      command: ['npx', 'playwright', 'test'],
+    });
+    expect(decision.lane).toBe('headless');
+    expect(decision.confidence).toBe('low');
   });
 });
 

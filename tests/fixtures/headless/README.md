@@ -11,6 +11,7 @@ they may import packages this repo does not install.
 | `vitest-fail/` | same, with one red assertion                 | `status: 'failed'` + parsed `failures[]`       |
 | `playwright/`  | `@playwright/test` specs, `headless: true`   | a real browser run in place, one green one red |
 | `slow.mjs`     | prints one line, then hangs                  | `timeoutMs` -> `status: 'errored'`             |
+| `noisy.mjs`    | prints ~1MB and exits 0                      | a log sink that cannot keep up never changes the verdict |
 
 ## The Playwright block is gated
 

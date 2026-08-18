@@ -229,6 +229,24 @@ timestamp-prefixed, so they sort chronologically. `allocateRunDir()` creates the
 directory, `writeResult()` validates and persists `result.json` into it, and
 `readResult()` validates on the way back in.
 
+### The log never decides the verdict
+
+Lanes stream a command's combined stdout and stderr to `command.log` in that
+directory while it runs. Writing that file sits on the command's critical path,
+so a disk that cannot keep up gets to slow the run down — and, done naively,
+gets to change its outcome. Honouring backpressure blocks the command on a full
+pipe until it is killed by its own timeout, which reports `errored` — "the
+command never finished" — about a command that was fine. Ignoring backpressure
+queues the unwritten output in memory without bound and then stalls the run
+flushing it, overrunning the deadline the caller asked for.
+
+offstage does neither. The log absorbs backpressure instead of passing it on:
+writes never block the command, the queue is capped, and output arriving while
+the queue is full is dropped from the log — never from the in-memory buffer the
+result is computed from. A run whose log was cut short says so in
+`diagnostics`, marks the gap in the file, and still reports the verdict the
+command actually earned. **The log degrades; the answer does not.**
+
 ## Layout
 
 ```
