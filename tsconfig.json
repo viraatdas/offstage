@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "moduleDetection": "force",
+
+    "rootDir": ".",
+    "outDir": "dist",
+
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+
+    /* ESM + esbuild safety: type-only imports must say `import type`, otherwise
+       vitest/tsx emit a runtime import for a type that does not exist at runtime. */
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+
+    "types": ["node"],
+
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts", "vitest.config.ts"],
+  /* tests/fixtures/** is sample code for the lanes to EXECUTE (Playwright specs,
+     Xcode projects, plists). It is deliberately outside the TS program: it may
+     import packages this repo does not install, and typechecking it would break
+     the build for everyone. vitest.config.ts excludes it from collection too. */
+  "exclude": ["node_modules", "dist", ".offstage", "tests/fixtures"]
+}
