@@ -230,11 +230,11 @@ describe('the built package', () => {
     const pkg = JSON.parse(await fs.readFile(path.join(ROOT, 'package.json'), 'utf8')) as {
       bin: Record<string, string>;
     };
-    const cli = path.join(ROOT, pkg.bin.offstage as string);
+    const cliPath = path.join(ROOT, pkg.bin.offstage as string);
 
     let built = true;
     try {
-      await fs.access(cli);
+      await fs.access(cliPath);
     } catch {
       built = false;
     }
@@ -249,9 +249,24 @@ describe('the built package', () => {
       await expect(fs.access(path.join(ROOT, relative))).resolves.toBeUndefined();
     }
 
+    // Spawned through a SYMLINK, the way npm installs a bin. This is not
+    // pedantry: `node_modules/.bin/offstage` is a symlink, so `process.argv[1]`
+    // is the link while `import.meta.url` is the real file. When the entry
+    // point check compared them without resolving, every installed copy of
+    // offstage exited 0 having printed nothing — while running perfectly from
+    // a clone, which is why nothing else here caught it.
+    const linkDir = await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-bin-'));
+    temps.push(linkDir);
+    const link = path.join(linkDir, 'offstage');
+    await fs.symlink(cliPath, link);
+
+    const viaLink = await execFileAsync(process.execPath, [link, 'route', '--json', '--', 'npx', 'playwright', 'test', '--headed'], { cwd: ROOT });
+    expect(viaLink.stdout.trim(), 'the CLI printed nothing when invoked through a symlink').not.toBe('');
+    expect((JSON.parse(viaLink.stdout) as { lane: string }).lane).toBe('container');
+
     // Spawned as a real process, through the real shebang path, against the
     // real repo — the closest thing to what a user types.
-    const { stdout } = await execFileAsync(process.execPath, [cli, 'route', '--json', '--', 'npx', 'vitest', 'run'], {
+    const { stdout } = await execFileAsync(process.execPath, [cliPath, 'route', '--json', '--', 'npx', 'vitest', 'run'], {
       cwd: ROOT,
     });
     expect((JSON.parse(stdout) as { lane: string }).lane).toBe('headless');

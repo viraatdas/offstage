@@ -115,13 +115,18 @@ doctor` output of the machine it was recorded on.
 ## Try it
 
 ```bash
-npm ci && npm run build
+git clone https://github.com/viraatdas/offstage && cd offstage
+npm ci            # `prepare` builds dist/ for you
+npm link          # puts `offstage` and `offstage-mcp` on your PATH
 
 offstage doctor                             # which lanes work here, and the fix for the rest
 offstage route -- npx playwright test       # where would this go? (nothing runs)
 offstage run   -- npx playwright test       # send it there, hand back one result
 offstage probe MyApp.xcodeproj              # is ad-hoc VM testing enough for this app?
 ```
+
+Without `npm link`, use `node dist/cli/index.js …` from the clone — the binary
+is only on your PATH once it is linked or installed.
 
 `--json` on any of them puts the contract envelope on stdout and every human
 line on stderr, so `offstage run --json -- npm test | jq .status` is safe.

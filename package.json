@@ -37,9 +37,12 @@
     "skills",
     ".claude-plugin",
     ".mcp.json",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
+    "prepare": "npm run build",
+    "prepack": "npm run build",
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx src/cli/index.ts",
     "test": "vitest run",

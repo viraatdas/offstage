@@ -130,6 +130,53 @@ describe('doctor', () => {
   });
 });
 
+describe('a command passed as one quoted string', () => {
+  it('splits it, instead of classifying a program whose name contains spaces', async () => {
+    // `offstage route -- "npx playwright test --headed"` arrives as one argv
+    // entry. Read literally it names no browser, so it classified as headless
+    // — a wrong answer that reads as a confident one.
+    const cwd = await tempRepo();
+    const decision = await route({ cwd, command: ['npx playwright test --headed'] }, deps({}));
+
+    expect(decision.lane).toBe('container');
+    expect(decision.confidence).toBe('high');
+  });
+
+  it('passes the split argv to the lane, so run and route agree', async () => {
+    const cwd = await tempRepo();
+    const headless = fakeLane('headless');
+    await run({ cwd, command: ['npx vitest run'] }, deps({ headless }));
+
+    expect(headless.calls[0]?.command).toEqual(['npx', 'vitest', 'run']);
+  });
+
+  it('leaves a single token with no whitespace exactly as it is', async () => {
+    const cwd = await tempRepo();
+    const headless = fakeLane('headless');
+    await run({ cwd, command: ['./build.sh'] }, deps({ headless }));
+
+    expect(headless.calls[0]?.command).toEqual(['./build.sh']);
+  });
+
+  it('never splits a multi-token command, where the spacing is the caller\'s', async () => {
+    // `node -e "console.log('a b')"` has a legitimate argument with spaces in
+    // it. Splitting that would corrupt the command.
+    const cwd = await tempRepo();
+    const headless = fakeLane('headless');
+    const command = ['node', '-e', "console.log('a b')"];
+    await run({ cwd, command }, deps({ headless }));
+
+    expect(headless.calls[0]?.command).toEqual(command);
+  });
+
+  it('refuses a shell script rather than pretending it is a command', async () => {
+    const cwd = await tempRepo();
+    await expect(
+      route({ cwd, command: ['npm run build && npx playwright test'] }, deps({})),
+    ).rejects.toThrow(/shell script, not a command/);
+  });
+});
+
 describe('route', () => {
   it('classifies without running anything', async () => {
     const cwd = await tempRepo();

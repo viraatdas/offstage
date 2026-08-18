@@ -8,13 +8,16 @@ agent and a human cannot get different answers for the same command.
 
 ```bash
 git clone https://github.com/viraatdas/offstage && cd offstage
-npm ci
-npm run build          # emits dist/, which the bins and the MCP server need
-npm link               # optional: puts `offstage` and `offstage-mcp` on PATH
+npm ci                 # the `prepare` script builds dist/ as part of this
+npm link               # puts `offstage` and `offstage-mcp` on your PATH
 ```
 
-`dist/` is a build output and is not committed, so the build step is not
-optional for anything that runs `offstage` outside this repo.
+`dist/` is a build output and is not committed. `npm ci` builds it through
+`prepare`, and `npm install github:viraatdas/offstage` builds it the same way —
+but a bare `git clone` with no install does not, which matters for the Claude
+Code plugin (see below). Without `npm link`, invoke the CLI as
+`node dist/cli/index.js …` from inside the clone; `offstage` is only a command
+once it is linked or installed.
 
 ## `offstage route -- <command>`
 
@@ -132,8 +135,15 @@ claude mcp add offstage -- node /absolute/path/to/offstage/dist/mcp/index.js
 ```
 
 That registers `offstage_doctor`, `offstage_route`, `offstage_run` and
-`offstage_probe`. Installing the Claude Code plugin registers the same server
-through the plugin's `.mcp.json`; see [`docs/codex.md`](codex.md) for Codex.
+`offstage_probe`. See [`docs/codex.md`](codex.md) for the Codex equivalent.
+
+**The Claude Code plugin has a caveat worth knowing before you install it.**
+A plugin install clones the repository — it does not run `npm install`, and it
+does not build. So the server path in `.mcp.json` points at a `dist/` the
+cloned plugin does not have, and the tools will not start. Until offstage is
+published to a registry, the working setup is the `claude mcp add` line above,
+pointing at a clone you built yourself. The skill in `skills/offstage/` is
+useful on its own and loads fine either way.
 
 `offstage_run` returns the full outcome — the routing decision, the run id, the
 path to `result.json`, and the `LaneResult` — plus any screenshot the container

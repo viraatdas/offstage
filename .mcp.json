@@ -4,7 +4,7 @@
       "type": "stdio",
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/dist/mcp/index.js"],
-      "note": "Exposes offstage_doctor / offstage_route / offstage_run / offstage_probe. Requires `npm ci && npm run build` in the plugin root once: dist/ is a build output and is not committed."
+      "note": "Exposes offstage_doctor / offstage_route / offstage_run / offstage_probe. IMPORTANT: a plugin install only clones this repo -- it does not run npm install and does not build -- so dist/ and node_modules are absent and this server will not start until you run `npm ci` in the plugin root. Until offstage is published to a registry, prefer: claude mcp add offstage -- node /absolute/path/to/your/built/clone/dist/mcp/index.js"
     }
   }
 }

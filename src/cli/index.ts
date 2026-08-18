@@ -31,6 +31,7 @@
  * the status. A malformed invocation exits 64, a missing path 66.
  */
 
+import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 import { Command, InvalidArgumentError } from 'commander';
@@ -246,8 +247,25 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
 }
 
 /* c8 ignore start — the process entry point itself is exercised end to end, not by unit tests. */
-const isEntryPoint =
-  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+/**
+ * Whether this module was invoked as the program, rather than imported.
+ *
+ * `process.argv[1]` must be resolved through `realpath` before it is compared:
+ * npm installs a bin as a **symlink** at `node_modules/.bin/offstage`, so argv
+ * carries the symlink path while `import.meta.url` carries the real file. A
+ * naive comparison of the two is false for every installed copy of offstage,
+ * and the CLI then exits 0 having printed nothing at all — working perfectly
+ * from a clone and silently doing nothing everywhere else.
+ */
+const isEntryPoint = ((): boolean => {
+  const invoked = process.argv[1];
+  if (invoked === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(invoked)).href;
+  } catch {
+    return false;
+  }
+})();
 
 if (isEntryPoint) {
   process.exitCode = await main(process.argv.slice(2));

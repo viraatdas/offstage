@@ -71,12 +71,39 @@ export async function allocateRunDir(options: AllocateRunDirOptions = {}): Promi
   const runId = options.runId ?? makeRunId(options.now ?? new Date());
   const artifactsDir = path.join(root, OFFSTAGE_DIR, 'runs', runId);
   await fs.mkdir(artifactsDir, { recursive: true });
+  await ignoreSelf(path.join(root, OFFSTAGE_DIR));
   return {
     runId,
     artifactsDir,
     resultPath: path.join(artifactsDir, RESULT_FILENAME),
     relativeDir: path.posix.join(RUNS_DIR, runId),
   };
+}
+
+/**
+ * Make `.offstage/` ignore itself, by writing a `.gitignore` containing `*`
+ * the first time a run directory is created.
+ *
+ * The first thing offstage does for a new user is write logs and results into
+ * their repository. Left alone, that shows up as untracked files in `git
+ * status` and, sooner or later, in someone's commit. Telling users to add a
+ * line to their own `.gitignore` puts the burden in the wrong place — a
+ * self-ignoring directory needs nothing from them and touches no file they own.
+ *
+ * Best effort by design: a read-only or already-present file is not worth
+ * failing a run over.
+ */
+async function ignoreSelf(offstageDir: string): Promise<void> {
+  const marker = path.join(offstageDir, '.gitignore');
+  try {
+    await fs.writeFile(
+      marker,
+      "# Created by offstage. Everything in here is a run artifact, not source.\n*\n",
+      { flag: 'wx' },
+    );
+  } catch {
+    // Already there, or the directory is not writable. Neither changes the run.
+  }
 }
 
 /**

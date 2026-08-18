@@ -45,7 +45,7 @@ import { vmLane } from '../lanes/vm/index.js';
 import type { EntitlementsProbeReport } from '../probe/index.js';
 import { probeEntitlements } from '../probe/index.js';
 import type { ClassifyHints } from '../router/index.js';
-import { classify } from '../router/index.js';
+import { classify, tokenizeShellish } from '../router/index.js';
 
 /* -------------------------------------------------------------------------- */
 /* Errors                                                                     */
@@ -146,7 +146,36 @@ function resolveCommand(command: unknown): string[] {
   if (command.some((token) => typeof token !== 'string')) {
     throw new OffstageUsageError('Every command token must be a string.');
   }
-  return command as string[];
+
+  const tokens = command as string[];
+
+  // `offstage route -- "npx playwright test --headed"` arrives as ONE argv
+  // entry. Read literally, it is a program with a very odd name: no browser is
+  // named, so it classifies as headless — a wrong answer that reads as a
+  // confident one. `run` fails closed (ENOENT on a binary with spaces in its
+  // name), but `route` would quietly mislead.
+  //
+  // A single argument containing whitespace is unambiguous: nobody has an
+  // executable called `npx playwright test --headed`. Split it the same way the
+  // router already splits a package script or an `sh -c` string.
+  if (tokens.length === 1) {
+    const only = tokens[0] as string;
+    if (/\s/.test(only)) {
+      const segments = tokenizeShellish(only);
+      if (segments.length !== 1) {
+        throw new OffstageUsageError(
+          `"${only}" is a shell script, not a command: it has ${segments.length} segments joined by ` +
+            'shell operators. offstage never runs anything through a shell. Pass the argv directly ' +
+            '(`offstage run -- npx playwright test`), or run the shell explicitly ' +
+            "(`offstage run -- sh -c '<script>'`), which offstage reads and routes on.",
+        );
+      }
+      const split = segments[0] as string[];
+      if (split.length > 1) return split;
+    }
+  }
+
+  return tokens;
 }
 
 /**

@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gate:
+    name: ${{ matrix.os }} · node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS is where the vm lane and most users live; Linux is where the
+        # container lane actually runs, and has a code path (--user $(id -u))
+        # that exists only there. Node 20 is the floor `engines` promises.
+        os: [macos-latest, ubuntu-latest]
+        node: ['20', '22', 'lts/*']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # The clean-clone gate, exactly as docs/verified.md describes it. The
+      # suite is written to pass with no container runtime and no Tart: lanes
+      # whose substrate is missing report themselves unavailable rather than
+      # failing, which is the behaviour under test.
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+
+      # The bins are declared in package.json; prove they resolve to files that
+      # exist and actually execute, on every OS and Node version in the matrix.
+      - name: the published entry points run
+        run: |
+          node dist/cli/index.js --help
+          node dist/cli/index.js route --json -- npx playwright test
+          node dist/cli/index.js route --json -- npx playwright test --headed
+
+  package:
+    name: packs cleanly from a clean checkout
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: npm
+      - run: npm ci
+      # `prepack` builds, so this must produce a tarball containing dist/ even
+      # though dist/ is gitignored and absent from the checkout.
+      - run: npm pack
+      - name: the tarball contains the entry points it publishes
+        run: |
+          tar tzf offstage-*.tgz > files.txt
+          grep -q 'package/dist/cli/index.js' files.txt || { echo "MISSING dist/cli/index.js"; exit 1; }
+          grep -q 'package/dist/mcp/index.js' files.txt || { echo "MISSING dist/mcp/index.js"; exit 1; }
+          grep -q 'package/skills/offstage/SKILL.md' files.txt || { echo "MISSING the skill"; exit 1; }
+          grep -q 'package/LICENSE' files.txt || { echo "MISSING LICENSE"; exit 1; }
+          ! grep -q 'package/tests/' files.txt || { echo "tests/ must not ship"; exit 1; }

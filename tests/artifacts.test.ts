@@ -49,6 +49,25 @@ describe('makeRunId', () => {
 });
 
 describe('allocateRunDir', () => {
+  it('makes .offstage ignore itself, so a run leaves the user\'s git status clean', async () => {
+    // The first thing offstage does for a new user is write into their
+    // repository. Nothing it writes should ever show up as untracked.
+    await allocateRunDir({ cwd: repo });
+
+    const marker = await fs.readFile(path.join(repo, '.offstage', '.gitignore'), 'utf8');
+    expect(marker).toContain('*');
+    expect(marker).toContain('offstage');
+  });
+
+  it('does not overwrite an existing .offstage/.gitignore', async () => {
+    await fs.mkdir(path.join(repo, '.offstage'), { recursive: true });
+    await fs.writeFile(path.join(repo, '.offstage', '.gitignore'), 'mine\n');
+
+    await allocateRunDir({ cwd: repo });
+
+    expect(await fs.readFile(path.join(repo, '.offstage', '.gitignore'), 'utf8')).toBe('mine\n');
+  });
+
   it('creates .offstage/runs/<id>/ and reports every form of the path', async () => {
     const run = await allocateRunDir({ cwd: repo, runId: 'run-1' });
 
