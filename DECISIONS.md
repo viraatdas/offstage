@@ -53,3 +53,21 @@ Shared, agent-authored log of cross-cutting decisions the fleet must honor. The 
 - **Interfaces:** .gitignore only — no source, manifest, or contract files touched during conflict resolution. src/contract/index.ts, src/contract/artifacts.ts, package.json, tsconfig*.json, vitest.config.ts and README.md came through the merge from the n0 side unmodified.
 - **By:** n0 · 2026-08-18T01:14:39.255Z
 
+
+## n2: The headless lane refuses an explicitly-headed command instead of running it
+- **What:** `HeadlessLane.run()` returns `status: 'errored'` — it does not execute — when the request would put a window on the user's screen. The trigger set is deliberately small and unambiguous: argv containing `--headed`, `--headful`, `--no-headless`, `--headless=false`, `--headless=0` or `--ui`, or `env` setting `PWDEBUG` (non-empty, non-`0`) or `HEADLESS` to `0`/`false`/`no`. The diagnostics name the trigger and point at the container lane. Exported as `detectHeadedRequest(req)` from `src/lanes/headless/index.js` if anyone else wants the same check.
+- **Why:** This lane applies no isolation — it spawns in place — so an already-headed command running here lands a real window on the real display. Contract rule 3 ("run() never falls back to the user's screen") is the whole product thesis, and it has to hold even when the caller is wrong. The router (n1) should never emit such a request; this is the backstop for when something else does. It fails closed on purpose and there is no escape hatch, because an escape hatch here is a feature for putting windows on the user's screen.
+- **Consequences for siblings:** n1 must classify `--headed`/`--ui`/`PWDEBUG` as `container`, never `headless` — routing one to this lane now produces `errored` (exit 70), not a run. n6/n9: `errored` is the correct, intended outcome for that misroute; do not add a `--force` flag that bypasses it. The set is intentionally conservative (e.g. `--debug` is excluded as too ambiguous), so widening it is a deliberate decision, not a bug fix.
+- **By:** n2 · 2026-08-18T01:35:00.000Z
+
+## n2: The headless lane's isAvailable() is unconditionally available, by construction
+- **What:** `HeadlessLane.isAvailable()` returns `{ available: true }` always, with no probe of any kind.
+- **Why:** The other two lanes probe a substrate that can genuinely be absent (Docker daemon, Tart binary). This lane's substrate is the machine offstage is already executing on — if it were unavailable, the method could not have been called. There is nothing to probe and no honest way to return `available: false`, so `skippedResult()` is unreachable for this lane.
+- **Consequences for siblings:** n6 `offstage doctor` can render the headless lane as always-green without a timeout or spinner. n1 can treat `headless` as an always-viable fallback target for anything it proves is already headless.
+- **By:** n2 · 2026-08-18T01:35:00.000Z
+
+## n2: Real-Playwright coverage is gated on an already-installed browser and skips in a bare checkout
+- **What:** `tests/lanes.headless.test.ts` runs its two real-Chromium tests only when `@playwright/test` resolves *from* `tests/fixtures/headless/playwright/` **and** a `chromium*-<rev>` directory with `INSTALLATION_COMPLETE` exists in the Playwright browser cache. Neither is a repo dependency, so in a clean checkout the block reports `skipped` and `npm test` is 119 passed / 2 skipped.
+- **Why:** The node brief put CI safety above coverage: a suite that downloads 150MB of browser on a cold runner is a worse outcome than a skipped test. The gate fails closed and never installs anything.
+- **Consequences for siblings:** n9 (e2e/live smoke) is the natural owner if the project ever wants this green by default — that means adding `@playwright/test` as a devDependency (n0 owns `package.json`, so n2 did not) and an explicit `npx playwright install chromium` step. Until then the honest status is "verified live, not verified in CI". Verified live on darwin/arm64 during n2: both gated tests pass against real headless Chromium, and a process-level check confirmed all four browser processes ran `chrome-headless-shell --headless` while the set of visible macOS applications was unchanged before and after the run.
+- **By:** n2 · 2026-08-18T01:35:00.000Z
