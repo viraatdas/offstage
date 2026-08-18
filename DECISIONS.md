@@ -53,3 +53,23 @@ Shared, agent-authored log of cross-cutting decisions the fleet must honor. The 
 - **Interfaces:** .gitignore only — no source, manifest, or contract files touched during conflict resolution. src/contract/index.ts, src/contract/artifacts.ts, package.json, tsconfig*.json, vitest.config.ts and README.md came through the merge from the n0 side unmodified.
 - **By:** n0 · 2026-08-18T01:14:39.255Z
 
+
+## n3: Container lane fix-ranking prefers the runtime the user already configured
+- **What:** `detectContainerRuntime()` ranks remediations by *certainty*, not by a fixed runtime preference. A desktop runtime whose application bundle is found on disk (OrbStack -> `orb start`, Docker Desktop -> `open -a Docker`, Rancher) outranks a stopped Colima profile, which outranks an unidentified dead docker daemon, which outranks podman, which outranks "install something". A step only carries a `fix` when the thing it names was verified present; guesses are ranked below certainties.
+- **Why:** The first version hardcoded `colima start` at the top, per the node prompt's example. On the actual dev machine that is wrong and user-hostile: the docker context is OrbStack (installed, stopped, ~2s to start, light) while Colima is a stopped 10-CPU/16 GB Lima VM. Telling someone to boot the heavy VM to replace the light runtime they already chose is worse than useless. The user flagged exactly this ("does it have to be colima, colima is heavy"). Detection still probes docker -> colima -> podman in that order; only the *remediation ranking* changed.
+- **By:** n3 · 2026-08-18
+
+## n3: The container image tag hashes the whole build context, not just the Dockerfile
+- **What:** `imageTagFor(imageName, files)` takes every file in `docker/` (name + contents, sorted) rather than just the Dockerfile and entrypoint.
+- **Why:** The image also depends on `docker/fluxbox-init`. With the original two-file hash, fixing the window manager would not have changed the tag, so `docker image inspect` would have found the stale image and skipped the rebuild. Caught while adding the fluxbox fix, not in review.
+- **By:** n3 · 2026-08-18
+
+## n3: Debian's system-wide fluxbox config must be overridden, or every screenshot carries an error dialog
+- **What:** `docker/fluxbox-init` is installed to `/etc/X11/fluxbox/init`, and the Dockerfile derives a wallpaper-free style from Debian's `Squared_for_Debian` at build time (keeping its decorations, neutralising only the two `background` lines, with `grep` guards so the build fails loudly if the derivation ever stops working).
+- **Why:** Stock Debian fluxbox paints a JPEG wallpaper via `fbsetbg`, which fails inside a container and pops an `xmessage` error dialog. It lands in the middle of every end-of-run screenshot and — worse for this lane — steals focus from the browser under test, which changes headed behaviour. Verified empirically: `fluxbox -rc <file>` is NOT read for this, and `~/.fluxbox/init` does not override it either; only the system-wide file wins. Also verified that fluxbox clears the root window at startup, so `xsetroot` must run *after* the WM, not before. Anyone touching `docker/` should keep the regression test in `tests/lanes.container.test.ts` that pins all of this.
+- **By:** n3 · 2026-08-18
+
+## n3: Verified against a real runtime on OrbStack, then the machine was restored
+- **What:** The image was built and the headed path exercised end to end (image 689 MB on arm64, cold build ~1 min, rebuild after a `docker/` edit ~2 s). Afterwards every image, the `offstage-playwright-browsers` volume and the OrbStack VM were removed/stopped, returning the host to no-usable-runtime.
+- **Why:** The Dockerfile had never been built anywhere, so its package list and the Xvfb/WM/screenshot chain were unproven. Both the live path (123 tests, 2 real-runtime tests included) and the degraded path (121 passed + 2 cleanly skipped, `fix: orb start`) are now verified on this host. Siblings should not assume a runtime is present: the host is deliberately back to its original stopped state.
+- **By:** n3 · 2026-08-18

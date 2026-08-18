@@ -1,0 +1,25 @@
+! offstage-web: the system-wide fluxbox configuration.
+!
+! This file is installed to /etc/X11/fluxbox/init, which on Debian is the
+! configuration fluxbox actually obeys. That location matters, and it was found
+! the hard way:
+!
+!   The stock Debian setup points fluxbox at the "Squared_for_Debian" style,
+!   whose background is a JPEG wallpaper. Inside a container, fbsetbg cannot
+!   apply it, so fluxbox pops up an `xmessage` error dialog. That dialog lands in
+!   the middle of every end-of-run screenshot, and — much worse for a lane whose
+!   whole purpose is faithful headed behaviour — it takes focus away from the
+!   browser under test.
+!
+!   Neither `fluxbox -rc <file>` nor `~/.fluxbox/init` overrides it: the system
+!   file wins. So the fix belongs here, pointing at a style whose background is
+!   `none` (the Dockerfile derives that style from the Debian one, keeping its
+!   window decorations and losing only the wallpaper).
+session.styleFile: /etc/offstage/fluxbox/style
+session.screen0.toolbar.visible: true
+session.screen0.workspaces: 1
+session.screen0.focusModel: ClickToFocus
+session.screen0.focusNewWindows: true
+! Nothing in a test run should ever wait for a human.
+session.autoRaiseDelay: 0
+session.screen0.workspacewarping: false
