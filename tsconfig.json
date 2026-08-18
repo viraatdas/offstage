@@ -7,9 +7,6 @@
     "moduleResolution": "NodeNext",
     "moduleDetection": "force",
 
-    "rootDir": ".",
-    "outDir": "dist",
-
     "strict": true,
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
@@ -30,6 +27,14 @@
 
     "types": ["node"],
 
+    /* This config never emits, so it declares no emit paths: rootDir and outDir
+       here would be dead settings that tsconfig.build.json overrides anyway.
+       The published layout (rootDir src -> outDir dist, which is what keeps bin
+       and exports at dist/cli/index.js rather than dist/src/cli/index.js) is
+       declared in tsconfig.build.json and only there. Build output is kept out
+       of this program by "dist" in `exclude` below, not by outDir. The remaining
+       emit-shape options above (declaration, declarationMap, sourceMap) do stay:
+       tsconfig.build.json extends this file and does emit. */
     "noEmit": true
   },
   "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts", "vitest.config.ts"],
