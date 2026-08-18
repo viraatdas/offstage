@@ -59,6 +59,16 @@ describe('tsconfig.json (typecheck config)', () => {
     const fixtures = path.join(ROOT, 'tests', 'fixtures');
     expect(parsed.fileNames.filter((f) => under(fixtures, f))).toEqual([]);
   });
+
+  it('declares no emit paths, because it never emits', () => {
+    // rootDir/outDir here are dead settings: tsc ignores them under noEmit, and
+    // tsconfig.build.json overrides both anyway. They were removed rather than
+    // left inert, so nothing in this file describes an emit layout it does not
+    // produce. Asserted on the resolved options, so an emit path arriving later
+    // through `extends` is caught too.
+    expect(parsed.options.rootDir).toBeUndefined();
+    expect(parsed.options.outDir).toBeUndefined();
+  });
 });
 
 describe('tsconfig.build.json (emitting config)', () => {
@@ -124,5 +134,19 @@ describe('why the split is required', () => {
       expect(p, `${p} must be under dist/`).toMatch(/^\.?\/?dist\//);
       expect(p, `${p} leaks the rootDir into the published path`).not.toMatch(/dist\/src\//);
     }
+  });
+
+  it('declares that published layout in exactly one config', () => {
+    // Every bin/exports/types path above is a consequence of rootDir src ->
+    // outDir dist. That pair is stated in tsconfig.build.json and nowhere else,
+    // so there is one file to read to know the layout, and one to get wrong.
+    const declaresEmitPaths = (name: string): boolean => {
+      const { config } = ts.readConfigFile(path.join(ROOT, name), ts.sys.readFile);
+      const options = (config as { compilerOptions?: Record<string, unknown> }).compilerOptions ?? {};
+      return 'rootDir' in options || 'outDir' in options;
+    };
+
+    expect(declaresEmitPaths('tsconfig.build.json')).toBe(true);
+    expect(declaresEmitPaths('tsconfig.json')).toBe(false);
   });
 });
