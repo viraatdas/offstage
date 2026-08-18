@@ -57,11 +57,13 @@ export type SignalKind =
   | 'headless-flag'
   | 'headless-hint'
   | 'config-headless'
+  | 'computed-headless'
   | 'browser-default'
   | 'no-display-tool'
   | 'disable-gpu'
   | 'no-signal'
   // context only
+  | 'recorded-video'
   | 'xcode-repo'
   | 'unreadable-config';
 
@@ -228,9 +230,15 @@ function isExtensionFlag(flag: ParsedFlag): boolean {
   return flag.name === '--load-extension' || flag.name === '--disable-extensions-except';
 }
 
-const CAPTURE_FLAG_NAMES = new Set([
-  '--video',
-  '--record-video',
+/**
+ * Switches that capture *the screen* — a desktop, another application's window,
+ * or another tab — through `getDisplayMedia` and `chrome.desktopCapture`. Those
+ * APIs enumerate surfaces the window system is drawing; a browser with no
+ * display attached has none to offer, so the picker comes back empty and the
+ * capture fails or silently records nothing. This is the class of work that
+ * genuinely needs a head.
+ */
+const SCREEN_CAPTURE_FLAG_NAMES = new Set([
   '--auto-select-desktop-capture-source',
   '--auto-select-tab-capture-source-by-title',
   '--auto-accept-this-tab-capture',
@@ -238,8 +246,31 @@ const CAPTURE_FLAG_NAMES = new Set([
   '--allow-http-screen-capture',
 ]);
 
-function isCaptureFlag(flag: ParsedFlag): boolean {
-  if (!CAPTURE_FLAG_NAMES.has(flag.name)) return false;
+/**
+ * Flags that ask the *runner* to record the page it is already driving:
+ * Playwright's `video`, and the `--record-video` spelling used by harnesses
+ * built on top of it.
+ *
+ * These do **not** need a display, and that is not a guess. Playwright records
+ * by asking the browser for its own frames — `Page.startScreencast` over CDP —
+ * and muxing the `screencastFrame` stream with the ffmpeg it ships in the box.
+ * The renderer produces those frames whether or not anything is presenting
+ * them, so a headless run writes the same `.webm` a headed one would. Sending
+ * these to the container lane would buy nothing and charge container startup
+ * for it, which is exactly the trade offstage exists to refuse.
+ *
+ * `--video=off` (and the other falsey spellings) is not a recording request at
+ * all, so it produces no signal.
+ */
+const RECORDED_VIDEO_FLAG_NAMES = new Set(['--video', '--record-video']);
+
+function isScreenCaptureFlag(flag: ParsedFlag): boolean {
+  if (!SCREEN_CAPTURE_FLAG_NAMES.has(flag.name)) return false;
+  return !isFalseish(flag.value);
+}
+
+function isRecordedVideoFlag(flag: ParsedFlag): boolean {
+  if (!RECORDED_VIDEO_FLAG_NAMES.has(flag.name)) return false;
   return !isFalseish(flag.value);
 }
 
@@ -355,8 +386,109 @@ const SCRIPT_REFERENCE = /\.(c|m)?[jt]sx?$/;
 /** Library mentions that make a `headless:` key in a file about a browser. */
 const BROWSER_LIBRARY = /puppeteer|playwright|chromium|webdriver|selenium|@browserbasehq|chrome-launcher/i;
 
-const HEADLESS_FALSE = /headless\s*:\s*false/;
-const HEADLESS_TRUE = /headless\s*:\s*(true|['"]new['"]|['"]shell['"])/;
+/**
+ * What a file says about `headless`, as far as reading it can tell.
+ *
+ * This is the router's honesty boundary in one type. offstage reads configs and
+ * scripts; it never evaluates them, because a router that executes your config
+ * to find out whether it opens a window can open a window while deciding. The
+ * cost of that rule is that `headless: process.env.HEADED !== '1'` is a value
+ * offstage cannot know, and the rule is only worth having if the router says so
+ * instead of quietly reporting the tool default with `confidence: 'high'`.
+ *
+ * - `literal-false` / `literal-true` — the value is spelled out; believe it.
+ * - `conditional` — the file spells out *both*, so which one applies is decided
+ *   at runtime. Container is the safe way to be wrong, but not a confident one.
+ * - `computed` — the key is there and the value is an expression: an env var, a
+ *   variable, a ternary, a function call.
+ * - `delegated` — the browser options are a reference to something offstage did
+ *   not read; the `headless` that matters may be one import away.
+ * - `absent` — no `headless` key at all, which is the honest, common case where
+ *   the tool's own default (headless, for every runner offstage routes) applies.
+ */
+export type HeadlessEvidence =
+  | { shape: 'literal-false' }
+  | { shape: 'literal-true' }
+  | { shape: 'conditional' }
+  | { shape: 'computed'; expression: string }
+  | { shape: 'delegated'; key: string }
+  | { shape: 'absent' };
+
+/** Every `headless:` binding in a file, capturing the raw text of its value. */
+const HEADLESS_BINDING = /\bheadless\s*:\s*([^,;\n}]*)/g;
+
+/** The only two spellings of "no window opens" the router takes at face value. */
+const LITERAL_FALSE = /^false$/;
+const LITERAL_TRUE = /^(?:true|['"]new['"]|['"]shell['"])$/;
+
+/**
+ * Keys that hold the browser options. When one of these is bound to a bare
+ * reference rather than an object literal — `use: baseUse`, `use: makeUse()`,
+ * or the `{ use }` shorthand over an import — everything offstage cares about
+ * lives in a file it did not open.
+ */
+const BROWSER_OPTION_KEYS = ['use', 'launchOptions', 'contextOptions'];
+
+/** Keep a quoted expression short enough to sit in a one-line signal. */
+function shorten(expression: string, limit = 60): string {
+  const flat = expression.replace(/\s+/g, ' ').trim();
+  return flat.length <= limit ? flat : `${flat.slice(0, limit - 1)}…`;
+}
+
+/** True when browser options are handed over as a reference offstage cannot follow. */
+function delegatedOptionKey(text: string): string | undefined {
+  for (const key of BROWSER_OPTION_KEYS) {
+    // `use: baseUse` / `use: makeUse()`. Deliberately narrow: an object literal
+    // is readable and must not match, and neither should anything the router
+    // cannot name back to the user, so only a plain reference or call counts.
+    // `text.match(re)` rather than the RegExp method whose name a
+    // process-spawning function also uses: `tests/router.purity.test.ts` bans
+    // that name outright from this directory so nobody can quietly start a
+    // process here, and a textual guard cannot tell the harmless namesake from
+    // the one it hunts. The guard is right to stay blunt; the router bends.
+    const bound = new RegExp(`\\b${key}\\s*:\\s*([A-Za-z_$][\\w$.]*(?:\\([^)\\n]*\\))?)\\s*[,}\\n]`);
+    const match = text.match(bound);
+    if (match?.[1] !== undefined) return match[1];
+    // The `{ use }` shorthand, which is how an imported options object arrives.
+    if (new RegExp(`\\{\\s*${key}\\s*[,}]`).test(text)) return key;
+  }
+  // `puppeteer.launch(opts)` is the same handover in a script: the options are
+  // real, and they are not in this file. `launch()` and `launch({ … })` are not.
+  const launched = text.match(/\b(?:launch|launchPersistentContext)\s*\(\s*([A-Za-z_$][\w$.]*)\s*[,)]/);
+  return launched?.[1];
+}
+
+/**
+ * Read a file's position on `headless` without executing a line of it.
+ *
+ * A literal `false` anywhere outranks everything, because a window that might
+ * open is the thing offstage exists to catch — but when the same file also
+ * spells out `true`, or computes the value somewhere else, the answer is
+ * `conditional` rather than a confident `literal-false`.
+ */
+export function readHeadlessEvidence(text: string): HeadlessEvidence {
+  let literalFalse = false;
+  let literalTrue = false;
+  let computed: string | undefined;
+
+  HEADLESS_BINDING.lastIndex = 0;
+  for (const match of text.matchAll(HEADLESS_BINDING)) {
+    const value = (match[1] ?? '').trim();
+    if (LITERAL_FALSE.test(value)) literalFalse = true;
+    else if (LITERAL_TRUE.test(value)) literalTrue = true;
+    // An empty capture means the value wrapped onto the next line: the key is
+    // there and its value is not readable, which is exactly `computed`.
+    else computed ??= value.length > 0 ? shorten(value) : '(value on the next line)';
+  }
+
+  if (literalFalse && (literalTrue || computed !== undefined)) return { shape: 'conditional' };
+  if (literalFalse) return { shape: 'literal-false' };
+  if (computed !== undefined) return { shape: 'computed', expression: computed };
+  if (literalTrue) return { shape: 'literal-true' };
+
+  const key = delegatedOptionKey(text);
+  return key === undefined ? { shape: 'absent' } : { shape: 'delegated', key };
+}
 
 /* -------------------------------------------------------------------------- */
 /* Detection                                                                  */
@@ -689,7 +821,7 @@ function flagSignals(view: CommandView): Signal[] {
       );
       continue;
     }
-    if (isCaptureFlag(flag)) {
+    if (isScreenCaptureFlag(flag)) {
       found.push(
         signal({
           kind: 'capture-flag',
@@ -697,8 +829,23 @@ function flagSignals(view: CommandView): Signal[] {
           origin: view.label,
           detail: at(token),
           clause:
-            'This records video or captures the screen, which needs a compositor actually drawing frames; the container lane provides one so the recording is real and still never reaches your display.',
+            'This captures the screen or another window through the desktop-capture APIs, which can only offer surfaces a window system is actually drawing; the container lane supplies an Xvfb display to capture, so the recording is real and still never reaches yours.',
           priority: 27,
+          inferred,
+          confidence: 'high',
+        }),
+      );
+      continue;
+    }
+    if (isRecordedVideoFlag(flag)) {
+      found.push(
+        signal({
+          kind: 'recorded-video',
+          argues: null,
+          origin: view.label,
+          detail: at(token),
+          clause: 'The run records video of the page it drives, which needs no display.',
+          priority: 46,
           inferred,
           confidence: 'high',
         }),
@@ -969,7 +1116,8 @@ async function vitestSignals(view: CommandView, inspector: Inspector): Promise<S
   const configPath = flagValue(args, ['--config', '-c']);
   const config = await inspector.vitestConfig(configPath);
   if (config !== undefined && /browser\s*:\s*\{/.test(config.text) && /enabled\s*:\s*true/.test(config.text)) {
-    if (HEADLESS_TRUE.test(config.text)) {
+    const evidence = readHeadlessEvidence(config.text);
+    if (evidence.shape === 'literal-true') {
       found.push(
         signal({
           kind: 'config-headless',
@@ -984,14 +1132,31 @@ async function vitestSignals(view: CommandView, inspector: Inspector): Promise<S
         }),
       );
     } else {
+      // Every remaining shape lands in the container, because vitest browser
+      // mode is headed outside CI unless something pins it — but the detail has
+      // to say what was actually there. Claiming "headless not set" about a
+      // config that sets it from an env var is the exact dishonesty this lane
+      // is supposed to avoid.
+      const state =
+        evidence.shape === 'computed'
+          ? `headless is computed at runtime (headless: ${evidence.expression})`
+          : evidence.shape === 'delegated'
+            ? `browser options come from \`${evidence.key}\`, which offstage does not resolve`
+            : evidence.shape === 'literal-false'
+              ? 'headless: false'
+              : evidence.shape === 'conditional'
+                ? 'headless is set both false and true; the branch is chosen at runtime'
+                : 'headless not set';
+      const readable = evidence.shape === 'absent' || evidence.shape === 'literal-false';
       found.push(
         signal({
           kind: 'vitest-browser-config',
           argues: 'container',
           origin: config.file,
-          detail: `${config.file}: browser mode enabled, headless not set`,
-          clause:
-            'The vitest config turns browser mode on without pinning headless, and vitest treats that as headed outside CI; the container lane absorbs the window this would otherwise open on your screen.',
+          detail: `${config.file}: browser mode enabled, ${state}`,
+          clause: readable
+            ? 'The vitest config turns browser mode on without pinning headless, and vitest treats that as headed outside CI; the container lane absorbs the window this would otherwise open on your screen.'
+            : 'The vitest config turns browser mode on and works out headless at runtime, which offstage reads but never evaluates, so it cannot tell whether a window opens; it took the container lane, where one that does opens on a virtual display instead of your screen.',
           priority: 31,
           inferred: true,
           confidence: 'low',
@@ -1019,13 +1184,27 @@ async function vitestSignals(view: CommandView, inspector: Inspector): Promise<S
 
 /* ------------------------------ config files ------------------------------ */
 
-/** Signals read out of a Playwright-shaped config file. */
-function configSignals(file: string, text: string): Signal[] {
-  const found: Signal[] = [];
+/**
+ * Turn what a file was willing to reveal about `headless` into one signal.
+ *
+ * The two readable shapes keep the confident answers they have always had. The
+ * three unreadable ones are the point of this function: rather than fall
+ * through to "the tool is headless by default" — true of the tool, unknown of
+ * this repository — they produce a signal that argues for the default lane and
+ * says, in the reason the user actually reads, which expression offstage could
+ * not evaluate and what to do about it.
+ */
+function headlessEvidenceSignal(
+  file: string,
+  evidence: HeadlessEvidence,
+  source: 'config' | 'script',
+): Signal | undefined {
+  /** Same sentence either way; only the noun for the file changes. */
+  const noun = source === 'config' ? 'config' : 'script';
 
-  if (HEADLESS_FALSE.test(text)) {
-    found.push(
-      signal({
+  switch (evidence.shape) {
+    case 'literal-false':
+      return signal({
         kind: 'config-headed',
         argues: 'container',
         origin: file,
@@ -1034,11 +1213,10 @@ function configSignals(file: string, text: string): Signal[] {
         priority: 22,
         inferred: true,
         confidence: 'high',
-      }),
-    );
-  } else if (HEADLESS_TRUE.test(text)) {
-    found.push(
-      signal({
+      });
+
+    case 'literal-true':
+      return signal({
         kind: 'config-headless',
         argues: 'headless',
         origin: file,
@@ -1047,9 +1225,59 @@ function configSignals(file: string, text: string): Signal[] {
         priority: 39,
         inferred: true,
         confidence: 'high',
-      }),
-    );
+      });
+
+    case 'conditional':
+      // Both spellings are in the file, so the branch that runs is chosen at
+      // runtime. Keeping `config-headed` matters: an explicit `--headless` on
+      // the command line still overrides this, exactly as it overrides a plain
+      // `headless: false`.
+      return signal({
+        kind: 'config-headed',
+        argues: 'container',
+        origin: file,
+        detail: `${file}: headless is set both false and true; the branch is chosen at runtime`,
+        clause: `${file} spells out headless both ways and picks between them at runtime, which offstage reads but does not evaluate, so it cannot tell which one this run gets; it took the branch that would open a window and routed to the container lane, because that is the cheaper way to be wrong. Pass --headless if you know this run is the headless branch.`,
+        priority: 22,
+        inferred: true,
+        confidence: 'low',
+      });
+
+    case 'computed':
+      return signal({
+        kind: 'computed-headless',
+        argues: 'headless',
+        origin: file,
+        detail: `${file}: headless is computed at runtime (headless: ${evidence.expression})`,
+        clause: `${file} computes headless at runtime, from \`${evidence.expression}\`, and offstage reads files without ever executing them — so it genuinely cannot know whether this run opens a window. It kept the default headless lane rather than bill you for a container on a guess; if a window does open, re-run with --headed and it goes to the container lane.`,
+        priority: 38,
+        inferred: true,
+        confidence: 'low',
+      });
+
+    case 'delegated':
+      return signal({
+        kind: 'computed-headless',
+        argues: 'headless',
+        origin: file,
+        detail: `${file}: browser options come from \`${evidence.key}\`, which offstage does not resolve`,
+        clause: `${file} hands its browser options over as \`${evidence.key}\` rather than writing them out, and offstage reads one ${noun} without following what it imports, so a headless: false could be sitting one file away. It kept the default headless lane and lowered its confidence instead of claiming a window will not open; re-run with --headed if one does.`,
+        priority: 38,
+        inferred: true,
+        confidence: 'low',
+      });
+
+    case 'absent':
+      return undefined;
   }
+}
+
+/** Signals read out of a Playwright-shaped config file. */
+function configSignals(file: string, text: string): Signal[] {
+  const found: Signal[] = [];
+
+  const headlessSignal = headlessEvidenceSignal(file, readHeadlessEvidence(text), 'config');
+  if (headlessSignal !== undefined) found.push(headlessSignal);
 
   for (const token of text.match(/--[a-z0-9-]+(=[^\s'"`,)]+)?/gi) ?? []) {
     const flag = parseFlag(token);
@@ -1105,19 +1333,32 @@ async function referencedScriptSignals(view: CommandView, inspector: Inspector):
 
     const library = /puppeteer/i.test(file.text) ? 'puppeteer' : 'a browser library';
 
-    if (HEADLESS_FALSE.test(file.text)) {
+    const evidence = readHeadlessEvidence(file.text);
+    const unreadable =
+      evidence.shape === 'computed' || evidence.shape === 'delegated'
+        ? headlessEvidenceSignal(file.file, evidence, 'script')
+        : undefined;
+
+    if (evidence.shape === 'literal-false' || evidence.shape === 'conditional') {
+      const conditional = evidence.shape === 'conditional';
       found.push(
         signal({
           kind: 'script-headed',
           argues: 'container',
           origin: file.file,
-          detail: `${file.file}: launches ${library} with headless: false`,
-          clause: `${file.file} launches ${library} with headless: false, so running it here would open a real browser window; the container lane gives that window a virtual display.`,
+          detail: conditional
+            ? `${file.file}: launches ${library} with headless set both ways, chosen at runtime`
+            : `${file.file}: launches ${library} with headless: false`,
+          clause: conditional
+            ? `${file.file} launches ${library} with headless spelled both false and true and chooses between them at runtime; offstage reads the script without running it, so it cannot tell which branch this run takes and sent it to the container lane, where a window that does open lands on a virtual display instead of yours.`
+            : `${file.file} launches ${library} with headless: false, so running it here would open a real browser window; the container lane gives that window a virtual display.`,
           priority: 23,
           inferred,
-          confidence: 'high',
+          confidence: conditional ? 'low' : 'high',
         }),
       );
+    } else if (unreadable !== undefined) {
+      found.push(unreadable);
     } else {
       found.push(
         signal({
