@@ -1,0 +1,10 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project SmokeApp.xcodeproj -scheme SmokeApp build CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= CODE_SIGN_ENTITLEMENTS= AD_HOC_CODE_SIGNING_ALLOWED=YES -derivedDataPath /Users/admin/tart-runner/20260817T182210Z-49177/DerivedData -resultBundlePath /Users/admin/tart-runner/20260817T182210Z-49177/Result.xcresult
+
+note: Building targets in dependency order
+CompileSwiftSources normal arm64 com.apple.xcode.tools.swift.compiler
+    cd /Users/admin/tart-runner/20260817T182210Z-49177/src
+Ld /Users/admin/tart-runner/20260817T182210Z-49177/DerivedData/Build/Products/Debug/SmokeApp.app/Contents/MacOS/SmokeApp normal
+CodeSign /Users/admin/tart-runner/20260817T182210Z-49177/DerivedData/Build/Products/Debug/SmokeApp.app
+
+** BUILD SUCCEEDED **

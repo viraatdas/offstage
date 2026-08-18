@@ -1,0 +1,6 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -scheme SmokeAppUITests test
+
+Test Suite 'All tests' started at 2026-08-17 19:02:11.004.
+Test Case '-[LoginUITests testSignInWithValidCredentials]' started.
+    t =     0.00s Start Test at 2026-08-17 19:02:11.005

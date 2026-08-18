@@ -1,0 +1,8 @@
+results: /Users/viraat/Library/Application Support/Tart Xcode Runner/results/20260817T181500Z-48213
+tart: cloning golden image tart-xcui-base -> disposable VM tart-xcui-run-20260817T181500Z-48213
+tart: booting tart-xcui-run-20260817T181500Z-48213 headless; the host stays free
+tart: guest ready — macOS 26.5 (25F74), running in the VM
+Test Suite 'All tests' started at 2026-08-17 18:16:02.114.
+** TEST FAILED **
+tart: deleted disposable VM tart-xcui-run-20260817T181500Z-48213; golden image tart-xcui-base untouched
+xcresult: /Users/viraat/Library/Application Support/Tart Xcode Runner/results/20260817T181500Z-48213/Result.xcresult
