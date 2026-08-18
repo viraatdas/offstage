@@ -1,0 +1,19 @@
+
+  [0mArray[0m
+    [0m#indexOf()[0m
+      [31m1) should return -1 when the value is not present[0m
+
+  [92m 1 passing[0m[90m (9ms)[0m
+  [31m 1 failing[0m
+
+  [0m 1) Array
+       #indexOf()
+         should return -1 when the value is not present:[0m
+
+      [31mAssertionError [ERR_ASSERTION]: expected -1 to equal 0[0m
+      [32m+ expected[0m [31m- actual[0m
+
+      [31m-1[0m
+      [32m+0[0m
+
+      at Context.<anonymous> (test/array.spec.js:9:25)

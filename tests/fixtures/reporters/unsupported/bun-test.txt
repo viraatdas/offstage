@@ -1,0 +1,15 @@
+bun test v1.1.30
+
+sum.test.ts:
+(pass) leaves the other one alone [0.10ms]
+(fail) adds numbers [0.42ms]
+  error: expect(received).toBe(expected)
+
+  Expected: 4
+  Received: 3
+
+      at /repo/sum.test.ts:5:19
+
+ 1 pass
+ 1 fail
+Ran 2 tests across 1 file. [12.00ms]

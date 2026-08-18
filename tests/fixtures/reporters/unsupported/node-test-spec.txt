@@ -1,0 +1,15 @@
+✔ leaves the other one alone (0.512ms)
+✖ adds numbers (1.937ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  3 !== 4
+
+      at TestContext.<anonymous> (file:///repo/test/sum.test.js:5:3)
+      at Test.runInAsyncScope (node:async_hooks:211:14) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION'
+  }
+
+ℹ tests 2
+ℹ pass 1
+ℹ fail 1

@@ -1,0 +1,17 @@
+running 2 tests
+test tests::leaves_the_other_one_alone ... ok
+test tests::adds_numbers ... FAILED
+
+failures:
+
+---- tests::adds_numbers stdout ----
+thread 'tests::adds_numbers' panicked at src/lib.rs:12:9:
+assertion `left == right` failed
+  left: 3
+ right: 4
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+failures:
+    tests::adds_numbers
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out

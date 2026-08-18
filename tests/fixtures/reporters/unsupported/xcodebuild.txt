@@ -1,0 +1,7 @@
+Test Suite 'LoginTests' started at 2026-08-17 12:04:11.882
+Testing failed:
+	-[LoginTests testInvalidPassword] : XCTAssertEqual failed: ("1") is not equal to ("0")
+	/Users/dev/App/LoginTests/LoginTests.swift:42: error: -[LoginTests testInvalidPassword] : XCTAssertEqual failed
+** TEST FAILED **
+
+Testing started

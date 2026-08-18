@@ -1,0 +1,5 @@
+● docker.service - Docker Application Container Engine
+     Loaded: loaded (/lib/systemd/system/docker.service; enabled)
+     Active: failed (Result: exit-code) since Mon 2026-08-17 12:04:11 UTC
+
+Aug 17 12:04:11 host dockerd[912]: failed to start daemon

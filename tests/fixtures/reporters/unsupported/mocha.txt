@@ -1,0 +1,22 @@
+
+
+  Array
+    #indexOf()
+      1) should return -1 when the value is not present
+
+  1 passing (9ms)
+  1 failing
+
+  1) Array
+       #indexOf()
+         should return -1 when the value is not present:
+
+      AssertionError [ERR_ASSERTION]: expected -1 to equal 0
+      + expected - actual
+
+      -1
+      +0
+
+      at Context.<anonymous> (test/array.spec.js:9:25)
+      at process.processImmediate (node:internal/timers:478:21)
+

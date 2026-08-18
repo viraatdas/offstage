@@ -1,0 +1,17 @@
+  ✘ [fail]: adds numbers Expected values to be strictly equal
+  ─
+
+  adds numbers
+
+  test/sum.test.js:4
+
+   3:   const actual = add(1, 2);
+   4:   t.is(actual, 4);
+   5: });
+
+  Difference (- actual, + expected):
+
+  - 3
+  + 4
+
+  1 test failed

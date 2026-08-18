@@ -1,0 +1,8 @@
+=== RUN   TestAdd
+    math_test.go:12: got 3, want 4
+--- FAIL: TestAdd (0.00s)
+=== RUN   TestSubtract
+--- PASS: TestSubtract (0.00s)
+FAIL
+FAIL	example.com/m	0.004s
+FAIL
