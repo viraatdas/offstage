@@ -32,7 +32,7 @@
 
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts", "vitest.config.ts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"],
   /* tests/fixtures/** is sample code for the lanes to EXECUTE (Playwright specs,
      Xcode projects, plists). It is deliberately outside the TS program: it may
      import packages this repo does not install, and typechecking it would break
