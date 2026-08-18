@@ -3,3 +3,13 @@
 RUDDER.md
 RUDDER_SHARED.md
 .claude/skills/rudder-*/
+
+# --- offstage ---
+node_modules/
+dist/
+.offstage/
+coverage/
+
+# OS / editor noise
+.DS_Store
+*.log

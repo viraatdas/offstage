@@ -1,0 +1,64 @@
+{
+  "name": "offstage",
+  "version": "0.1.0",
+  "description": "Routing layer that keeps UI, browser and macOS app work off your screen by sending each command to the cheapest isolation substrate that can honestly run it.",
+  "keywords": [
+    "testing",
+    "playwright",
+    "puppeteer",
+    "xcodebuild",
+    "xcuitest",
+    "xvfb",
+    "tart",
+    "isolation",
+    "mcp",
+    "claude-code"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "offstage": "dist/cli/index.js",
+    "offstage-mcp": "dist/mcp/index.js"
+  },
+  "exports": {
+    ".": "./dist/contract/index.js",
+    "./contract": "./dist/contract/index.js",
+    "./contract/artifacts": "./dist/contract/artifacts.js",
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/contract/index.d.ts",
+  "files": [
+    "dist",
+    "docker",
+    "docs",
+    "skills",
+    ".claude-plugin",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/cli/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "commander": "^14.0.3",
+    "execa": "^9.6.1",
+    "fast-xml-parser": "^5.11.0",
+    "plist": "^3.1.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/plist": "^3.0.5",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}
