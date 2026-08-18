@@ -1,0 +1,101 @@
+{
+  "testPlanConfigurations": [
+    {
+      "configurationId": "1",
+      "configurationName": "Configuration 1"
+    }
+  ],
+  "devices": [
+    {
+      "deviceId": "6A1F3C8E-2B47-4D19-9F0A-77C1E5D3B084",
+      "deviceName": "iPhone 16",
+      "architecture": "arm64",
+      "modelName": "iPhone 16",
+      "platform": "iOS Simulator",
+      "osVersion": "26.0",
+      "osBuildNumber": "23A340"
+    }
+  ],
+  "testNodes": [
+    {
+      "nodeType": "Test Plan",
+      "name": "SmokeApp",
+      "result": "Failed",
+      "children": [
+        {
+          "nodeType": "UI test bundle",
+          "name": "SmokeAppUITests.xctest",
+          "result": "Failed",
+          "children": [
+            {
+              "nodeType": "Test Suite",
+              "name": "LoginUITests",
+              "result": "Failed",
+              "children": [
+                {
+                  "nodeType": "Test Case",
+                  "name": "testSignInWithValidCredentials()",
+                  "nodeIdentifier": "LoginUITests/testSignInWithValidCredentials()",
+                  "nodeIdentifierURL": "test://com.apple.xcode/SmokeApp/SmokeAppUITests/LoginUITests/testSignInWithValidCredentials()",
+                  "duration": "13.4s",
+                  "durationInSeconds": 13.402,
+                  "result": "Failed",
+                  "children": [
+                    {
+                      "nodeType": "Failure Message",
+                      "name": "LoginUITests.swift:42: XCTAssertTrue failed - Expected the dashboard to appear within 10s",
+                      "result": "Failed"
+                    }
+                  ]
+                },
+                {
+                  "nodeType": "Test Case",
+                  "name": "testSignOut()",
+                  "nodeIdentifier": "LoginUITests/testSignOut()",
+                  "duration": "4.1s",
+                  "durationInSeconds": 4.118,
+                  "result": "Passed"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "nodeType": "Unit test bundle",
+          "name": "SmokeAppTests.xctest",
+          "result": "Failed",
+          "children": [
+            {
+              "nodeType": "Test Suite",
+              "name": "ParserTests",
+              "result": "Failed",
+              "children": [
+                {
+                  "nodeType": "Test Case",
+                  "name": "testTrimsWhitespace()",
+                  "nodeIdentifier": "ParserTests/testTrimsWhitespace()",
+                  "duration": "0.004s",
+                  "durationInSeconds": 0.004,
+                  "result": "Failed",
+                  "children": [
+                    {
+                      "nodeType": "Failure Message",
+                      "name": "ParserTests.swift:88: XCTAssertEqual failed: (\"  hi  \") is not equal to (\"hi\")",
+                      "result": "Failed"
+                    }
+                  ]
+                },
+                {
+                  "nodeType": "Test Case",
+                  "name": "testSkipsOnLinux()",
+                  "nodeIdentifier": "ParserTests/testSkipsOnLinux()",
+                  "result": "Skipped"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

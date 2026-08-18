@@ -1,0 +1,16 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project SmokeApp.xcodeproj -scheme SmokeApp build
+
+note: Building targets in dependency order
+CompileSwiftSources normal arm64 com.apple.xcode.tools.swift.compiler
+/Users/admin/tart-runner/20260817T182210Z-49177/src/SmokeApp/ContentView.swift:17:23: error: cannot find 'viewMdoel' in scope
+/Users/admin/tart-runner/20260817T182210Z-49177/src/SmokeApp/Model/Store.swift:104:9: error: value of type 'Store' has no member 'reolad'
+/Users/admin/tart-runner/20260817T182210Z-49177/src/SmokeApp/Model/Store.swift:31:5: warning: variable 'cache' was never mutated; consider changing to 'let' constant
+ld: symbol(s) not found for architecture arm64
+clang: error: linker command failed with exit code 1 (use -v to see invocation)
+
+The following build commands failed:
+	SwiftCompile normal arm64 Compiling\ ContentView.swift
+(1 failure)
+
+** BUILD FAILED **

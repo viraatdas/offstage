@@ -1,0 +1,84 @@
+{
+  "testPlanConfigurations": [
+    { "configurationId": "1", "configurationName": "Configuration 1" },
+    { "configurationId": "2", "configurationName": "Stress" }
+  ],
+  "devices": [
+    {
+      "deviceId": "6A1F3C8E-2B47-4D19-9F0A-77C1E5D3B084",
+      "deviceName": "iPhone 16",
+      "architecture": "arm64",
+      "modelName": "iPhone 16",
+      "osVersion": "26.0"
+    }
+  ],
+  "testNodes": [
+    {
+      "nodeType": "Test Plan",
+      "name": "SmokeApp",
+      "result": "Failed",
+      "children": [
+        {
+          "nodeType": "UI test bundle",
+          "name": "SmokeAppUITests.xctest",
+          "result": "Failed",
+          "children": [
+            {
+              "nodeType": "Test Suite",
+              "name": "FlakyUITests",
+              "result": "Failed",
+              "children": [
+                {
+                  "nodeType": "Test Case",
+                  "name": "testScrollsToBottom()",
+                  "nodeIdentifier": "FlakyUITests/testScrollsToBottom()",
+                  "result": "Failed",
+                  "children": [
+                    {
+                      "nodeType": "Repetition",
+                      "name": "Repetition 1 of 2",
+                      "result": "Failed",
+                      "children": [
+                        {
+                          "nodeType": "Device",
+                          "name": "iPhone 16",
+                          "result": "Failed",
+                          "children": [
+                            {
+                              "nodeType": "Failure Message",
+                              "name": "XCTAssertEqual failed: (\"0\") is not equal to (\"120\")",
+                              "result": "Failed",
+                              "children": [
+                                {
+                                  "nodeType": "Source Code Reference",
+                                  "name": "FlakyUITests.swift:57",
+                                  "nodeIdentifierURL": "file:///Users/admin/tart-runner/20260817T181500Z-48213/src/SmokeAppUITests/FlakyUITests.swift#CharacterRangeLen=0&EndingColumnNumber=9&EndingLineNumber=56&StartingColumnNumber=9&StartingLineNumber=56"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "nodeType": "Repetition",
+                      "name": "Repetition 2 of 2",
+                      "result": "Passed"
+                    }
+                  ]
+                },
+                {
+                  "nodeType": "Test Case",
+                  "name": "testSilentlyDies()",
+                  "nodeIdentifier": "FlakyUITests/testSilentlyDies()",
+                  "result": "Failed",
+                  "details": "The test runner exited unexpectedly during execution."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project SmokeApp.xcodeproj -scheme SmokeAppUITests test -parallel-testing-enabled NO -destination id=6A1F3C8E-2B47-4D19-9F0A-77C1E5D3B084 CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- -derivedDataPath /Users/admin/tart-runner/20260817T181500Z-48213/DerivedData -resultBundlePath /Users/admin/tart-runner/20260817T181500Z-48213/Result.xcresult
+
+User defaults from command line:
+    IDEPackageSupportUseBuiltinSCM = YES
+
+Prepare packages
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+CompileSwiftSources normal arm64 com.apple.xcode.tools.swift.compiler
+Test Suite 'All tests' started at 2026-08-17 18:16:02.114.
+Test Suite 'SmokeAppUITests.xctest' started at 2026-08-17 18:16:02.115.
+Test Suite 'LoginUITests' started at 2026-08-17 18:16:02.115.
+Test Case '-[LoginUITests testSignInWithValidCredentials]' started.
+    t =     0.00s Start Test at 2026-08-17 18:16:02.116
+    t =     0.01s Set Up
+    t =     1.24s Open com.example.SmokeApp
+/Users/admin/tart-runner/20260817T181500Z-48213/src/SmokeAppUITests/LoginUITests.swift:42: error: -[LoginUITests testSignInWithValidCredentials] : XCTAssertTrue failed - Expected the dashboard to appear within 10s
+Test Case '-[LoginUITests testSignInWithValidCredentials]' failed (13.402 seconds).
+Test Case '-[LoginUITests testSignOut]' started.
+Test Case '-[LoginUITests testSignOut]' passed (4.118 seconds).
+Test Suite 'LoginUITests' failed at 2026-08-17 18:16:19.640.
+	 Executed 2 tests, with 1 failure (0 unexpected) in 17.520 (17.525) seconds
+Test Suite 'SmokeAppTests.xctest' started at 2026-08-17 18:16:19.641.
+Test Suite 'ParserTests' started at 2026-08-17 18:16:19.641.
+Test Case '-[ParserTests testTrimsWhitespace]' started.
+/Users/admin/tart-runner/20260817T181500Z-48213/src/SmokeAppTests/ParserTests.swift:88: error: ParserTests.testTrimsWhitespace() : XCTAssertEqual failed: ("  hi  ") is not equal to ("hi")
+Test Case '-[ParserTests testTrimsWhitespace]' failed (0.004 seconds).
+Test Suite 'ParserTests' failed at 2026-08-17 18:16:19.650.
+	 Executed 1 test, with 1 failure (0 unexpected) in 0.004 (0.009) seconds
+
+Testing failed:
+	LoginUITests.testSignInWithValidCredentials(): XCTAssertTrue failed - Expected the dashboard to appear within 10s
+	ParserTests.testTrimsWhitespace(): XCTAssertEqual failed: ("  hi  ") is not equal to ("hi")
+
+** TEST FAILED **

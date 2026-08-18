@@ -1,0 +1,9 @@
+host:       arm64
+tart:       2.34.0
+TART_HOME:  /Users/viraat/Library/Application Support/Tart Xcode Runner/.tart
+/dev/disk3s5   926Gi   412Gi   498Gi    46%    /System/Volumes/Data
+base VM:    tart-xcui-base (ready)
+active runs: 0
+interrupted runs: 0
+host safety: ready
+keychain:   login keychain available
