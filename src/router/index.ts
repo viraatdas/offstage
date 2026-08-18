@@ -24,9 +24,15 @@
  *   screen and does not: Playwright pulls frames out of the browser over CDP
  *   and muxes them with its own ffmpeg, so a headless run writes the same
  *   `.webm`. Only capture of a *desktop or another window* needs a display.
+ * - **WebDriver is read, not guessed.** `wdio` has no headless default, so the
+ *   router opens the config the command names and looks for what actually
+ *   settles it — a `--headless` switch in the capabilities, a `headless` key,
+ *   or a hosted grid that runs the browser on someone else's machine. Only
+ *   when there is nothing to read does it fall back to the container lane, and
+ *   it says so at low confidence.
  * - **vm for macOS-native work**: `xcodebuild`, `xcrun simctl`, XCUITest
- *   schemes, `open` of a `.app`, a `.dmg`, a targeted `.xcodeproj`. No
- *   container can run these at all.
+ *   schemes, `open` of a `.app`, a `.dmg`, a targeted `.xcodeproj`,
+ *   `safaridriver`. No container can run these at all.
  * - **everything else is headless**, because no display is involved anywhere.
  *
  * When the evidence is thin or contradictory the answer comes back with
@@ -101,11 +107,21 @@ export async function classify(input: ClassifyInput): Promise<RouteDecision> {
 const FRAMING_KINDS = new Set(['browser-default', 'no-display-tool', 'no-signal']);
 
 /**
- * Container evidence that came from a config file rather than from the command.
- * An explicit `--headless` on the command line outranks these — it is the thing
- * that will actually be executed. It does *not* outrank a literal `--headed`.
+ * Container evidence that is a default or an inference rather than something
+ * the command literally says. An explicit `--headless` on the command line
+ * outranks these — it is the thing that will actually be executed. It does
+ * *not* outrank a literal `--headed`.
+ *
+ * `headed-driver` belongs here for the same reason `config-headed` does, only
+ * more so: it is the router admitting it could not find the capabilities, so a
+ * caller who knows the run is headless must be able to say so and be believed.
  */
-const OVERRIDABLE_KINDS = new Set(['config-headed', 'script-headed', 'vitest-browser-config']);
+const OVERRIDABLE_KINDS = new Set([
+  'config-headed',
+  'script-headed',
+  'vitest-browser-config',
+  'headed-driver',
+]);
 
 const NOTHING_FOUND: Signal = {
   kind: 'no-signal',
@@ -135,11 +151,13 @@ function decide(collected: Signal[]): RouteDecision {
         : override.detail.replace(/^[^:]+:\s*/, '');
 
   let suppressed = 0;
+  const suppressedKinds = new Set<string>();
   if (override !== undefined) {
     for (const item of signals) {
       if (item.argues === 'container' && OVERRIDABLE_KINDS.has(item.kind)) {
         item.argues = null;
         item.detail = `${item.detail} (overridden by ${overridePhrase})`;
+        suppressedKinds.add(item.kind);
         suppressed += 1;
       }
     }
@@ -171,8 +189,11 @@ function decide(collected: Signal[]): RouteDecision {
     );
   }
   if (lane === 'headless' && suppressed > 0) {
+    const driverOnly = suppressedKinds.size === 1 && suppressedKinds.has('headed-driver');
     notes.push(
-      'A config in this repository asks for a headed browser, but the command overrides it, so nothing will open a window.',
+      driverOnly
+        ? 'A WebDriver tool here has no headless default and offstage could not find the capabilities, but the command overrides that guess, so nothing will open a window.'
+        : 'A config in this repository asks for a headed browser, but the command overrides it, so nothing will open a window.',
     );
   }
   if (lane === 'headless' && signals.some((item) => item.kind === 'recorded-video')) {

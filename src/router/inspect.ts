@@ -77,6 +77,26 @@ const PUPPETEER_CONFIG_NAMES = [
   '.puppeteerrc.js',
 ];
 
+/**
+ * WebdriverIO configs. WebDriver has no useful default — whether a window opens
+ * is written in the capabilities — so this file is the only place that can
+ * answer the question, and the router reads it rather than guessing from the
+ * tool name. The command usually names the config itself (`wdio run <path>`);
+ * these are the fallbacks for when it does not.
+ */
+const WEBDRIVER_CONFIG_NAMES = [
+  'wdio.conf.ts',
+  'wdio.conf.mts',
+  'wdio.conf.cts',
+  'wdio.conf.js',
+  'wdio.conf.mjs',
+  'wdio.conf.cjs',
+  'test/wdio.conf.ts',
+  'test/wdio.conf.js',
+  'e2e/wdio.conf.ts',
+  'e2e/wdio.conf.js',
+];
+
 /** Extensions the router is willing to open when a command names a local file. */
 const SCRIPT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.jsx', '.tsx']);
 
@@ -149,6 +169,8 @@ export interface Inspector {
   playwrightConfig(explicitPath?: string): Promise<InspectedFile | undefined>;
   vitestConfig(explicitPath?: string): Promise<InspectedFile | undefined>;
   puppeteerConfig(): Promise<InspectedFile | undefined>;
+  /** The WebdriverIO config, or the one the command named, if it is readable. */
+  webdriverConfig(explicitPath?: string): Promise<InspectedFile | undefined>;
   /** A local source file named by the command, e.g. `node scripts/scrape.js`. */
   localScript(reference: string): Promise<InspectedFile | undefined>;
   /** `.xcodeproj` / `.xcworkspace` bundles sitting at the repository root. */
@@ -247,6 +269,11 @@ export function createInspector(cwd: string): Inspector {
 
     puppeteerConfig(): Promise<InspectedFile | undefined> {
       return firstReadable(PUPPETEER_CONFIG_NAMES);
+    },
+
+    webdriverConfig(explicitPath?: string): Promise<InspectedFile | undefined> {
+      if (explicitPath !== undefined && explicitPath.length > 0) return readInspected(explicitPath);
+      return firstReadable(WEBDRIVER_CONFIG_NAMES);
     },
 
     localScript(reference: string): Promise<InspectedFile | undefined> {
