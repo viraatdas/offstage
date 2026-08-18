@@ -16,7 +16,7 @@
  * single config fails loudly here instead of shipping a broken dist layout.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
@@ -133,6 +133,31 @@ describe('why the split is required', () => {
     for (const p of published) {
       expect(p, `${p} must be under dist/`).toMatch(/^\.?\/?dist\//);
       expect(p, `${p} leaks the rootDir into the published path`).not.toMatch(/dist\/src\//);
+    }
+  });
+
+  it('every published dist path has a source file the build will emit there', () => {
+    // The shape check above is not enough on its own: `bin` could name
+    // dist/cli/index.js while no src/cli/index.ts exists, and nothing would
+    // fail until a user ran `npx offstage`. Map each published path back
+    // through the rootDir -> outDir pair and require the source to be there.
+    // (Deliberately checks src/, not dist/: this must pass on a clean clone,
+    // before anything is built. tests/e2e.test.ts checks the emitted files.)
+    const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')) as {
+      bin?: Record<string, string>;
+      exports?: Record<string, string>;
+      types?: string;
+    };
+    const published = [
+      ...Object.values(pkg.bin ?? {}),
+      ...Object.values(pkg.exports ?? {}),
+      ...(pkg.types ? [pkg.types] : []),
+    ].filter((p) => p.includes('dist'));
+
+    for (const p of published) {
+      const underDist = p.replace(/^\.?\/?dist\//, '');
+      const source = path.join(ROOT, 'src', underDist.replace(/\.d\.ts$/, '.ts').replace(/\.js$/, '.ts'));
+      expect(existsSync(source), `${p} is published but ${path.relative(ROOT, source)} does not exist`).toBe(true);
     }
   });
 

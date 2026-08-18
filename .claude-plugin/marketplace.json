@@ -1,0 +1,14 @@
+{
+  "name": "offstage",
+  "owner": {
+    "name": "Viraat Das"
+  },
+  "description": "Keep UI, browser and macOS app work off your screen.",
+  "plugins": [
+    {
+      "name": "offstage",
+      "source": "./",
+      "description": "Route browser and macOS app test commands to the cheapest isolation substrate that can run them without stealing your screen."
+    }
+  ]
+}

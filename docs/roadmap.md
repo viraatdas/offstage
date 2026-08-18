@@ -1,8 +1,11 @@
 # offstage — roadmap
 
-The build is a 11-node plan. n0-n5 and twelve follow-up hardening passes are
-done, merged and pushed; what is left is the surface that turns the engine into
-something an agent can actually call.
+The build was an 11-node plan. **All eleven nodes are done**, along with twelve
+follow-up hardening passes. The suite is green from a clean clone
+(`npm ci && npm run build && npm test`: 26 files, 769 passed, 2 expected fail,
+7 skipped).
+
+What remains is not design work. It is evidence, and one release decision.
 
 ## Done
 
@@ -12,52 +15,59 @@ something an agent can actually call.
 - **n3** — Container lane: headed web under Xvfb
 - **n4** — VM lane: adapter over novotnyllc/tart-xcode-runner
 - **n5** — Entitlements probe: is the signing lane required?
-- **n7** — MCP server wrapping the lanes. `src/mcp/{index,server,core}.ts` + `tests/mcp.test.ts`;
-  a stdio server exposing `offstage_doctor` / `offstage_route` / `offstage_run` / `offstage_probe`
-  with zod-validated inputs. `dist/mcp/index.js` builds, so the `offstage-mcp` bin resolves.
-  **Deviation to pay back:** it was specified to wrap n6's `src/cli/api.ts`, but n6 never landed,
-  so `src/mcp/core.ts` implements lane dispatch itself. When n6 is built, that logic belongs in
-  `src/cli/api.ts` and `core.ts` should collapse onto it rather than the two diverging.
-  Coverage is thin — 4 tests — so treat it as working, not proven.
-- **followup-1..12** — hardening passes: the two-tsconfig split, dependency pins, the 4MB
-  capture budget, reporter-coverage boundary, WebDriver capability reading, video-vs-screen
-  capture, runtime-computed capability honesty, and log backpressure.
+- **n6** — CLI core: `offstage doctor / route / run / probe`, `--json` on each,
+  and the one refusal that has no override. `src/cli/{api,render,index}.ts`.
+  `src/mcp/core.ts` was collapsed onto `src/cli/api.ts`, so there is exactly one
+  dispatch path and an agent cannot get a different answer than a human.
+- **n7** — MCP server wrapping the CLI: `offstage_doctor` / `offstage_route` /
+  `offstage_run` / `offstage_probe` over stdio.
+- **n8** — Claude Code plugin + skill + Codex wiring: `.claude-plugin/`,
+  `skills/offstage/SKILL.md`, `.mcp.json`, `docs/usage.md`, `docs/codex.md`.
+- **n9** — End-to-end integration + live smoke: `tests/e2e.test.ts` drives the
+  real command tree against real fixtures; `docs/verified.md` records what was
+  exercised live versus in degraded mode.
+- **n10** — Review pass: two real routing holes found and closed
+  (`env PWDEBUG=1 …` and `sh -c '… --headed'`, both of which routed work that
+  opens a window into the lane with no display). Findings in `docs/review.md`.
+- **followup-1..12** — hardening: the two-tsconfig split, dependency pins, the
+  4MB capture budget, the reporter-coverage boundary, WebDriver capability
+  reading, video-vs-screen capture, runtime-computed capability honesty, and log
+  backpressure.
 
 ## Left
 
-### n6 — CLI core: offstage run / route / doctor / probe
+### The vm lane has never driven a real macOS guest
 
-Depends on: n0, n1, n2, n3, n4, n5 (all done)
+This is the one gap that matters. Every claim about the vm lane rests on 28
+recorded fixtures and `xcresulttool`'s published JSON Schema 0.1.0 — not on a
+bundle a real run produced. Closing it means installing Tart and the
+`tart-xcode-runner` plugin, preparing a golden image, and driving one XCUITest
+through `offstage run`. Until someone does that, the README, `docs/verified.md`
+and `DECISIONS.md` all say "fixture-tested only" in those words.
 
-Wire the router plus all three lanes behind one CLI that is the engine everything
-else calls. This was launched once and produced nothing — the agent stalled
-before writing a file — so it starts from scratch. Note that n7 landed first and had to
-implement lane dispatch itself in `src/mcp/core.ts`; `src/cli/api.ts` should absorb that
-logic and `core.ts` should be reduced to calling it, so there is one dispatch path.
+### Publish, so the plugin does not need a build step
 
-**Done when:** `offstage doctor` reports per-lane availability with the exact fix command on this machine; `offstage route -- <cmd>` prints the lane decision without executing; `offstage run [--lane] [--timeout] -- <cmd>` dispatches, writes `.offstage/runs/<id>/result.json` and exits with a code derived from `LaneResult.status`; `offstage probe <path>` prints the entitlements verdict; `--json` on every command emits the contract envelope on stdout with human output on stderr; CLI tests pass with no container runtime and no tart installed. If the chosen lane is unavailable it must fail loudly with the fix and never fall back to the user's real screen. Business logic stays in the modules it imports; `src/cli/api.ts` exports `doctor()` / `route()` / `run()` / `probe()` returning typed values, which is what the MCP node consumes.
+`.mcp.json` points at `${CLAUDE_PLUGIN_ROOT}/dist/mcp/index.js`, and `dist/` is
+a build output that is not committed — so a plugin installed from git needs one
+`npm ci && npm run build` in the plugin root. Publishing to npm would let the
+manifest say `npx -y offstage-mcp` instead. That is a release decision, not a
+code change.
 
-### n8 — Claude Code plugin + skill + Codex wiring
+### Smaller, and each already written down where it bites
 
-Depends on: n6, n7
-
-Make both agents reach for offstage automatically instead of opening a browser or app on the user's screen.
-
-**Done when:** `.claude-plugin/plugin.json` and `skills/offstage/SKILL.md` install cleanly and the skill description triggers on browser/UI/simulator/app-testing work; `.mcp.json` registers the offstage server fo...
-
-### n9 — End-to-end integration + live smoke
-
-Depends on: n6, n7, n8
-
-Prove the whole path works on this laptop and record exactly which lanes were verified live versus degraded.
-
-**Done when:** `npm ci && npm run build && npm test` pass from a clean clone; an e2e test drives route -> run -> result.json for a headless fixture; real `offstage doctor` output is captured into `docs/verified.m...
-
-### n10 — Opus review pass: correctness, honesty, and the routing thesis
-
-Depends on: n9
-
-Adversarially review the whole assembled codebase and fix what is wrong before it is called done.
-
-**Done when:** Every claim in README.md, docs/verified.md, docs/signing-lane.md and the skill description is checked against the code and corrected where false; the router's policy is validated against adversaria...
-
+- **Live browser coverage is opt-in.** 5 of the 7 skipped tests need
+  `@playwright/test` plus a cached Chromium; 2 need a running container runtime.
+  `docs/verified.md` has the commands. Playwright is deliberately not a
+  devDependency.
+- **A run produces no output until it finishes.** `LaneRunner` has no streaming
+  hook, so `offstage run -- npm test` is silent between the routing line and the
+  result. Fixing it is a contract change that has to work identically for a
+  container and a VM copying files back.
+- **`offstage doctor --prune`.** A `SIGKILL` of the offstage process can leave a
+  container running. Listing and removing `offstage-*` containers is a small
+  feature — but it would make `doctor`, documented as "probes, never mutates",
+  able to mutate.
+- **The 2-VM ceiling is per repository** unless `OFFSTAGE_VM_SLOT_DIR` names one
+  absolute path. Apple's limit is per host.
+- **`failures[]` covers Playwright, Vitest and Jest only.** Deliberate
+  abstention; `docs/reporter-coverage.md` has the checklist for adding a fourth.

@@ -9,7 +9,15 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { LaneResult, RouteDecision } from '../src/contract/index.js';
 import { createLaneResult } from '../src/contract/index.js';
-import type { DoctorReport, OffstageCore, ProbeInput, RouteInput, RunInput } from '../src/mcp/core.js';
+import type {
+  DoctorReport,
+  OffstageCore,
+  ProbeInput,
+  RouteInput,
+  RunInput,
+  RunOutcome,
+} from '../src/mcp/core.js';
+import { createDefaultCore } from '../src/mcp/core.js';
 import { createOffstageMcpServer } from '../src/mcp/server.js';
 import type { EntitlementsProbeReport } from '../src/probe/index.js';
 
@@ -25,11 +33,24 @@ class FakeCore implements OffstageCore {
 
   async doctor(): Promise<DoctorReport> {
     return {
-      lanes: {
-        headless: { available: true },
-        container: { available: false, reason: 'no container runtime', fix: 'install Docker or start Colima' },
-        vm: { available: false, reason: 'tart is not installed', fix: 'brew install openai/tools/tart' },
-      },
+      offstageVersion: '0.1.0',
+      node: 'v20.0.0',
+      platform: 'darwin',
+      arch: 'arm64',
+      ready: ['headless'],
+      lanes: [
+        { lane: 'headless', availability: { available: true }, detail: [] },
+        {
+          lane: 'container',
+          availability: { available: false, reason: 'no container runtime', fix: 'install Docker or start Colima' },
+          detail: [],
+        },
+        {
+          lane: 'vm',
+          availability: { available: false, reason: 'tart is not installed', fix: 'brew install openai/tools/tart' },
+          detail: [],
+        },
+      ],
     };
   }
 
@@ -38,9 +59,9 @@ class FakeCore implements OffstageCore {
     return routeDecision;
   }
 
-  async run(input: RunInput): Promise<LaneResult> {
+  async run(input: RunInput): Promise<RunOutcome> {
     const artifactsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-mcp-artifacts-'));
-    const result = createLaneResult({
+    const result: LaneResult = createLaneResult({
       lane: input.lane ?? 'container',
       status: 'passed',
       exitCode: 0,
@@ -50,7 +71,17 @@ class FakeCore implements OffstageCore {
     if (this.screenshotPath !== null) {
       result.artifacts.push({ kind: 'screenshot', path: this.screenshotPath });
     }
-    return result;
+    return {
+      runId: 'fake-run',
+      artifactsDir,
+      relativeDir: '.offstage/runs/fake-run',
+      resultPath: path.join(artifactsDir, 'result.json'),
+      decision: routeDecision,
+      lane: result.lane,
+      laneSource: input.lane === undefined ? 'router' : 'explicit',
+      result,
+      exitCode: 0,
+    };
   }
 
   async probe(input: ProbeInput): Promise<EntitlementsProbeReport> {
@@ -167,5 +198,55 @@ describe('offstage MCP server', () => {
     expect(parsed.isError).toBe(true);
     expect(parsed.content[0]?.type).toBe('text');
     expect(parsed.content[0]?.type === 'text' ? parsed.content[0].text : '').toContain('Input validation error');
+  });
+
+  it('rejects an unknown argument rather than silently ignoring it', async () => {
+    const { client, server } = await connect();
+    cleanup.push(() => client.close(), () => server.close());
+
+    const result = await client.callTool(
+      {
+        name: 'offstage_run',
+        arguments: { cwd: process.cwd(), command: ['npm', 'test'], force: true },
+      },
+      CallToolResultSchema,
+    );
+    expect(CallToolResultSchema.parse(result).isError).toBe(true);
+  });
+});
+
+/**
+ * The default core must be the CLI's api and nothing else. If lane dispatch
+ * ever grows a second implementation here, an agent and a human get different
+ * answers for the same command — including, eventually, different answers about
+ * what is safe to run in place.
+ */
+describe('the default core is the CLI api', () => {
+  const cleanup: Array<() => Promise<void>> = [];
+
+  afterEach(async () => {
+    while (cleanup.length > 0) await cleanup.pop()?.();
+  });
+
+  it('routes through the same classifier the CLI uses', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-core-'));
+    cleanup.push(() => fs.rm(cwd, { recursive: true, force: true }));
+
+    const decision = await createDefaultCore().route({ cwd, command: ['xcodebuild', 'test'] });
+    expect(decision.lane).toBe('vm');
+  });
+
+  it('enforces the CLI\'s refusal: forcing headless onto isolated work runs nothing', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-core-'));
+    cleanup.push(() => fs.rm(cwd, { recursive: true, force: true }));
+
+    const outcome = await createDefaultCore().run({
+      cwd,
+      command: ['npx', 'playwright', 'test', '--headed'],
+      lane: 'headless',
+    });
+
+    expect(outcome.result.status).toBe('errored');
+    expect(outcome.result.diagnostics[0]).toContain('Refused: --lane headless');
   });
 });

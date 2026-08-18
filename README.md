@@ -89,24 +89,62 @@ with it.
 
 ## Status
 
-Early. The repository skeleton, the manifests and the lane contract are in
-place; the lanes themselves are being implemented against that contract.
+Every piece of the design is implemented and the suite is green from a clean
+clone. What varies is the *evidence* behind each piece, and that distinction is
+worth more than a progress bar:
 
-| Piece                             | State                                    |
-| --------------------------------- | ---------------------------------------- |
-| `src/contract/` — lane contract   | **implemented** — the interface below is stable |
-| `src/router/` — `classify()`      | in progress                              |
-| `src/lanes/headless/`             | in progress                              |
-| `src/lanes/container/` + `docker/`| in progress                              |
-| `src/lanes/vm/`                   | in progress                              |
-| `src/probe/` — entitlements probe | in progress                              |
-| `src/cli/` — `offstage` CLI       | in progress                              |
-| `src/mcp/` — MCP server           | in progress                              |
-| `.claude-plugin/`, `skills/`      | in progress                              |
+| Piece | State |
+| --- | --- |
+| `src/contract/` — lane contract | implemented; the interface below is stable |
+| `src/router/` — `classify()` | implemented; exercised against real repositories and adversarial commands |
+| `src/lanes/headless/` | implemented; **verified live** — real processes, real timeouts, real log backpressure |
+| `src/lanes/container/` + `docker/` | implemented; verified live on this host previously, fixture-tested since |
+| `src/lanes/vm/` | implemented; **fixture-tested only** — no real macOS guest has ever been booted |
+| `src/probe/` — entitlements probe | implemented; real parsing of real `.xcodeproj`/`.app` fixtures, `codesign`/`hdiutil` paths driven through an injected runner |
+| `src/cli/` — `offstage` CLI | implemented; `doctor` / `route` / `run` / `probe`, with `--json` on each |
+| `src/mcp/` — MCP server | implemented; the four tools call the CLI's own API, so they cannot diverge |
+| `.claude-plugin/`, `skills/` | implemented; plugin, skill and `.mcp.json` for Claude Code, Codex wiring documented |
 
-Nothing here claims to be verified on real hardware yet; when the integration
-pass lands it will record, per lane, what was exercised live versus only in
-degraded mode.
+The vm lane is the honest gap: its adapter is written to the documented contract
+of `tart-xcode-runner` and validated against recorded fixtures and
+`xcresulttool`'s published JSON Schema, not against a bundle a real run
+produced. [`docs/verified.md`](docs/verified.md) records, per lane, exactly what
+was exercised live versus only in degraded mode — including the `offstage
+doctor` output of the machine it was recorded on.
+
+## Try it
+
+```bash
+npm ci && npm run build
+
+offstage doctor                             # which lanes work here, and the fix for the rest
+offstage route -- npx playwright test       # where would this go? (nothing runs)
+offstage run   -- npx playwright test       # send it there, hand back one result
+offstage probe MyApp.xcodeproj              # is ad-hoc VM testing enough for this app?
+```
+
+`--json` on any of them puts the contract envelope on stdout and every human
+line on stderr, so `offstage run --json -- npm test | jq .status` is safe.
+
+`--lane` overrides the router, in one direction only. Asking for *more*
+isolation than it chose always works. Asking for less — `--lane headless` on a
+command routed to `container` or `vm` — is refused, nothing is executed, and
+there is deliberately no flag that overrides the refusal.
+
+[`docs/usage.md`](docs/usage.md) is the full reference.
+
+## For agents
+
+The same four operations are MCP tools — `offstage_doctor`, `offstage_route`,
+`offstage_run`, `offstage_probe` — served over stdio by `offstage-mcp`. They
+call `src/cli/api.ts`, the same code `offstage run` calls, so an agent and a
+human cannot get different answers about what is safe to run in place.
+
+- **Claude Code**: install the plugin in this repository (`.claude-plugin/`).
+  It ships the `offstage` skill, which triggers on browser, UI, simulator and
+  macOS app work, and registers the MCP server via `.mcp.json`.
+- **Codex**: [`docs/codex.md`](docs/codex.md) has the `~/.codex/config.toml`
+  block and the `AGENTS.md` text that tells it when to reach for the tools.
 
 ## Development
 

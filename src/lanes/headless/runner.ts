@@ -121,6 +121,33 @@ export function detectHeadedRequest(req: Pick<LaneRequest, 'command' | 'env'>): 
     if (HEADED_FLAGS.has(arg.trim().toLowerCase())) {
       return `the command includes ${arg}`;
     }
+
+    // A whole command can hide inside one token: `sh -c 'npx playwright test
+    // --headed'` is a single argv entry that opens a window. Splitting on
+    // whitespace is enough to see the flag; this lane does not need to parse
+    // the shell, only to notice that it was handed one.
+    if (/\s/.test(arg)) {
+      for (const piece of arg.split(/\s+/)) {
+        const normalized = piece.trim().replace(/^['"]|['"]$/g, '').toLowerCase();
+        if (HEADED_FLAGS.has(normalized)) {
+          return `the command includes ${piece} inside ${JSON.stringify(arg)}`;
+        }
+      }
+    }
+
+    // `env PWDEBUG=1 npx playwright test` carries the switch as an argv token
+    // rather than in `env`, so the check below would never see it.
+    const assignment = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(arg.trim());
+    if (assignment !== null) {
+      const name = (assignment[1] as string).toUpperCase();
+      const value = assignment[2] as string;
+      if (name === 'PWDEBUG' && value !== '' && value !== '0') {
+        return `the command sets ${arg}, which opens the Playwright Inspector window`;
+      }
+      if (name === 'HEADLESS' && /^(?:0|false|no)$/i.test(value.trim())) {
+        return `the command sets ${arg}`;
+      }
+    }
   }
 
   const env = req.env ?? {};

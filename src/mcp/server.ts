@@ -15,6 +15,7 @@ const RouteArgsSchema = z
   .object({
     cwd: z.string().min(1),
     command: z.array(z.string().min(1)).min(1),
+    headed: z.boolean().optional(),
   })
   .strict();
 const RunArgsSchema = RouteArgsSchema.extend({
@@ -24,6 +25,7 @@ const RunArgsSchema = RouteArgsSchema.extend({
 const ProbeArgsSchema = z
   .object({
     path: z.string().min(1),
+    allowExternalTools: z.boolean().optional(),
   })
   .strict();
 
@@ -134,14 +136,14 @@ export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()
     {
       title: 'offstage run',
       description:
-        'Run a command off the user screen through the selected offstage lane. Headed browser work uses a virtual display, macOS-native work uses a VM, and this never falls back to the user real display.',
+        'Run a command off the user screen through the selected offstage lane, and return the normalized result plus where it was written. Headed browser work uses a virtual display, macOS-native work uses a VM, and this never falls back to the user real display — forcing lane "headless" on work that needs isolation is refused, not honoured.',
       inputSchema: RunArgsSchema,
     },
     async (args) =>
       callSafely(RunArgsSchema, args, async (input) => {
-        const result = await core.run(input);
+        const outcome = await core.run(input);
         return {
-          content: [jsonText(result), ...(await screenshotContent(result))],
+          content: [jsonText(outcome), ...(await screenshotContent(outcome.result))],
         };
       }),
   );

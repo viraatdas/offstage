@@ -46,6 +46,7 @@ export type SignalKind =
   | 'script-headed'
   | 'inspector-flag'
   | 'headed-subcommand'
+  | 'headed-env'
   | 'extension-flag'
   | 'gpu-flag'
   | 'capture-flag'
@@ -56,6 +57,7 @@ export type SignalKind =
   // headless
   | 'headless-flag'
   | 'headless-hint'
+  | 'headless-env'
   | 'config-headless'
   | 'computed-headless'
   | 'browser-default'
@@ -132,6 +134,20 @@ export async function buildViews(command: string[], inspector: Inspector): Promi
 
     if (depth >= MAX_SCRIPT_DEPTH) return;
 
+    // `sh -c 'npx playwright test --headed'` hides the whole command inside one
+    // argv token. Reading only the outer tokens sees a shell and no browser,
+    // which is exactly backwards: the flag that decides the lane is in there.
+    // Tokenizing the string is reading, not executing — the same thing the
+    // router does to a package script.
+    const shellScript = shellDashC(invocation);
+    if (shellScript !== null) {
+      view.binIsMeaningful = false;
+      for (const segment of tokenizeShellish(shellScript)) {
+        await walk(segment, `${invocation.bin} -c`, depth + 1);
+      }
+      return;
+    }
+
     const script = parseScriptInvocation(invocation);
     if (script === null) return;
 
@@ -156,6 +172,25 @@ export async function buildViews(command: string[], inspector: Inspector): Promi
 
   await walk(command, 'argv', 0);
   return views;
+}
+
+/** Shells whose `-c` argument is a command string worth reading. */
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']);
+
+/**
+ * The command string behind `sh -c '<string>'`, or `null` when this is not a
+ * shell invocation. Combined short flags (`sh -lc '<string>'`) count.
+ */
+export function shellDashC(invocation: Invocation): string | null {
+  if (!SHELLS.has(invocation.bin)) return null;
+  for (let index = 0; index < invocation.args.length; index += 1) {
+    const token = invocation.args[index] as string;
+    if (!token.startsWith('-') || token.startsWith('--')) continue;
+    if (!token.includes('c')) continue;
+    const script = invocation.args[index + 1];
+    return typeof script === 'string' && script.trim() !== '' ? script : null;
+  }
+  return null;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -550,6 +585,7 @@ export async function collectSignals(
 
   for (const view of views) {
     signals.push(...macosSignals(view));
+    signals.push(...envPrefixSignals(view));
     signals.push(...flagSignals(view));
     signals.push(...(await toolSignals(view, inspector)));
     signals.push(...(await referencedScriptSignals(view, inspector)));
@@ -744,6 +780,84 @@ function macosSignals(view: CommandView): Signal[] {
 }
 
 /* --------------------------------- flags --------------------------------- */
+
+/**
+ * Environment assignments carried in the command itself.
+ *
+ * `env PWDEBUG=1 npx playwright test` normalizes to bin `playwright` with
+ * `env` and `PWDEBUG=1` peeled into `prefixes`, so every flag-based signal
+ * correctly sees a plain Playwright run — and would route it headless, at high
+ * confidence, straight onto the user's screen. The assignment is the whole
+ * signal, so it has to be read where it actually is.
+ *
+ * These are read from argv, never from `process.env`: the router's promise is
+ * that its inputs are the ones the caller can see. The CLI maps the ambient
+ * `PWDEBUG` onto the `headed` hint separately.
+ */
+function envPrefixSignals(view: CommandView): Signal[] {
+  const found: Signal[] = [];
+  const at = (text: string): string => `${view.label}: ${text}`;
+
+  for (const prefix of view.invocation.prefixes) {
+    const eq = prefix.indexOf('=');
+    if (eq === -1) continue;
+    const name = prefix.slice(0, eq).toUpperCase();
+    const value = prefix.slice(eq + 1);
+
+    if (name === 'PWDEBUG' && value !== '' && value !== '0') {
+      found.push(
+        signal({
+          kind: 'headed-env',
+          argues: 'container',
+          origin: view.label,
+          detail: at(prefix),
+          clause:
+            'PWDEBUG opens the Playwright Inspector, which is a real window on a real display whatever the config says; the container lane gives it an Xvfb display to open into instead of your screen.',
+          priority: 19,
+          inferred: false,
+          confidence: 'high',
+        }),
+      );
+      continue;
+    }
+
+    if (name === 'HEADLESS' || name === 'HEADED') {
+      const asks = name === 'HEADED' ? isTrueish(value) : isFalseish(value);
+      const denies = name === 'HEADED' ? isFalseish(value) : isTrueish(value);
+      if (asks) {
+        found.push(
+          signal({
+            kind: 'headed-env',
+            argues: 'container',
+            origin: view.label,
+            detail: at(prefix),
+            clause:
+              `The command sets ${prefix}, which is how this repository asks for a visible browser; the container lane opens that window against an Xvfb virtual display instead of yours.`,
+            priority: 22,
+            inferred: false,
+            confidence: 'high',
+          }),
+        );
+      } else if (denies) {
+        found.push(
+          signal({
+            kind: 'headless-env',
+            argues: 'headless',
+            origin: view.label,
+            detail: at(prefix),
+            clause:
+              `The command sets ${prefix}, pinning the run headless, so no window opens and there is nothing to isolate.`,
+            priority: 39,
+            inferred: false,
+            confidence: 'high',
+          }),
+        );
+      }
+    }
+  }
+
+  return found;
+}
 
 function flagSignals(view: CommandView): Signal[] {
   const found: Signal[] = [];
