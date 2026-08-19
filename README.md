@@ -128,9 +128,7 @@ doctor` output of the machine it was recorded on.
 ## Try it
 
 ```bash
-git clone https://github.com/viraatdas/offstage && cd offstage
-npm ci            # `prepare` builds dist/ for you
-npm link          # puts `offstage` and `offstage-mcp` on your PATH
+npm i -g @viraatdas/offstage                # or: npx @viraatdas/offstage doctor
 
 offstage doctor                             # which lanes work here, and the fix for the rest
 offstage route -- npx playwright test       # where would this go? (nothing runs)
@@ -138,8 +136,8 @@ offstage run   -- npx playwright test       # send it there, hand back one resul
 offstage probe MyApp.xcodeproj              # is ad-hoc VM testing enough for this app?
 ```
 
-Without `npm link`, use `node dist/cli/index.js …` from the clone — the binary
-is only on your PATH once it is linked or installed.
+Working from a clone instead? `npm ci && npm link` — `prepare` builds `dist/`
+on install, and `npm link` puts both binaries on your PATH.
 
 `--json` on any of them puts the contract envelope on stdout and every human
 line on stderr, so `offstage run --json -- npm test | jq .status` is safe.
@@ -158,9 +156,11 @@ The same four operations are MCP tools — `offstage_doctor`, `offstage_route`,
 call `src/cli/api.ts`, the same code `offstage run` calls, so an agent and a
 human cannot get different answers about what is safe to run in place.
 
-- **Claude Code**: install the plugin in this repository (`.claude-plugin/`).
-  It ships the `offstage` skill, which triggers on browser, UI, simulator and
-  macOS app work, and registers the MCP server via `.mcp.json`.
+- **Claude Code**: `/plugin marketplace add viraatdas/offstage` then
+  `/plugin install offstage@offstage`. It ships the `offstage` skill — which
+  triggers on browser, UI, simulator and macOS app work — and registers the MCP
+  server, which runs the published package with `npx`, so a plugin install needs
+  no build step of its own.
 - **Codex**: [`docs/codex.md`](docs/codex.md) has the `~/.codex/config.toml`
   block and the `AGENTS.md` text that tells it when to reach for the tools.
 

@@ -223,14 +223,26 @@ let cachedVersion: string | undefined;
 
 async function readVersion(): Promise<string> {
   if (cachedVersion !== undefined) return cachedVersion;
-  try {
-    const here = path.dirname(fileURLToPath(import.meta.url));
-    const raw = await fs.readFile(path.resolve(here, '..', '..', 'package.json'), 'utf8');
-    const parsed = JSON.parse(raw) as { version?: unknown };
-    cachedVersion = typeof parsed.version === 'string' ? parsed.version : 'unknown';
-  } catch {
-    cachedVersion = 'unknown';
+  // Walk up rather than assuming a depth: this module runs from
+  // `dist/cli/api.js` when built, and from `bundle/offstage.mjs` when bundled
+  // for the plugin. A fixed `../../` is right for exactly one of those.
+  let dir = path.dirname(fileURLToPath(import.meta.url));
+  for (let up = 0; up < 5; up += 1) {
+    try {
+      const raw = await fs.readFile(path.join(dir, 'package.json'), 'utf8');
+      const parsed = JSON.parse(raw) as { version?: unknown };
+      if (typeof parsed.version === 'string') {
+        cachedVersion = parsed.version;
+        return cachedVersion;
+      }
+    } catch {
+      // Not here; keep walking.
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
   }
+  cachedVersion = 'unknown';
   return cachedVersion;
 }
 

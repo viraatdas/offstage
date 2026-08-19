@@ -137,11 +137,11 @@ point — tests gated on an absent substrate skip rather than pass vacuously.
 ```console
 $ npm ci && npm run build && npm test      # with no container runtime
 Test Files  26 passed (26)
-     Tests  805 passed | 2 expected fail | 7 skipped (814)
+     Tests  807 passed | 2 expected fail | 7 skipped (816)
 
 $ orb start && npm test                    # with a container runtime up
 Test Files  26 passed (26)
-     Tests  807 passed | 2 expected fail | 5 skipped (814)
+     Tests  809 passed | 2 expected fail | 5 skipped (816)
 ```
 
 The two extra passes are the container lane's live tests: they build the Xvfb

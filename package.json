@@ -1,6 +1,6 @@
 {
-  "name": "offstage",
-  "version": "0.1.2",
+  "name": "@viraatdas/offstage",
+  "version": "0.2.0",
   "description": "Routing layer that keeps UI, browser and macOS app work off your screen by sending each command to the cheapest isolation substrate that can honestly run it.",
   "keywords": [
     "testing",
@@ -15,6 +15,17 @@
     "claude-code"
   ],
   "license": "MIT",
+  "author": {
+    "name": "Viraat Das"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/viraatdas/offstage.git"
+  },
+  "bugs": {
+    "url": "https://github.com/viraatdas/offstage/issues"
+  },
+  "homepage": "https://github.com/viraatdas/offstage#readme",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -40,6 +51,9 @@
     "README.md",
     "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "prepare": "npm run build",
     "prepack": "npm run build",

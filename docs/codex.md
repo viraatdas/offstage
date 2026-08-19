@@ -4,20 +4,22 @@ Codex gets the same four tools Claude Code gets, over the same stdio MCP server.
 Nothing about the behaviour differs between the two agents — both call
 `src/cli/api.ts`, which is also what `offstage run` calls.
 
-## 1. Build the server
+## 1. Register it
 
-```bash
-cd /path/to/offstage
-npm ci && npm run build
+Add this to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.offstage]
+command = "npx"
+args = ["-y", "@viraatdas/offstage@latest", "offstage-mcp"]
 ```
 
-`dist/mcp/index.js` is the server entry point. It is a build output and is not
-committed, so this step is required before either agent can start it.
+Nothing to build or clone — the first call fetches the package. Pin a version by
+replacing `@latest`.
 
-## 2. Register it
-
-Add this to `~/.codex/config.toml`, with a real absolute path — Codex does not
-expand `~` or resolve relative paths here:
+To drive a local checkout instead, build it once (`npm ci` runs the build
+through `prepare`) and use a real absolute path — Codex does not expand `~` or
+resolve relative paths here:
 
 ```toml
 [mcp_servers.offstage]
@@ -25,18 +27,10 @@ command = "node"
 args = ["/absolute/path/to/offstage/dist/mcp/index.js"]
 ```
 
-If you ran `npm link`, the published bin works too:
-
-```toml
-[mcp_servers.offstage]
-command = "offstage-mcp"
-args = []
-```
-
 Restart Codex. `offstage_doctor`, `offstage_route`, `offstage_run` and
 `offstage_probe` appear in its tool list.
 
-## 3. Tell it when to reach for them
+## 2. Tell it when to reach for them
 
 Codex has no skill system, so the trigger has to live in a prompt file. Add this
 to the repository's `AGENTS.md` (or `~/.codex/AGENTS.md` for every repository):

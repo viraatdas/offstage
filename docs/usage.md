@@ -7,17 +7,21 @@ agent and a human cannot get different answers for the same command.
 ## Install
 
 ```bash
+npm i -g @viraatdas/offstage       # both binaries on your PATH
+npx @viraatdas/offstage doctor     # or run it without installing
+```
+
+From a clone:
+
+```bash
 git clone https://github.com/viraatdas/offstage && cd offstage
 npm ci                 # the `prepare` script builds dist/ as part of this
 npm link               # puts `offstage` and `offstage-mcp` on your PATH
 ```
 
-`dist/` is a build output and is not committed. `npm ci` builds it through
-`prepare`, and `npm install github:viraatdas/offstage` builds it the same way —
-but a bare `git clone` with no install does not, which matters for the Claude
-Code plugin (see below). Without `npm link`, invoke the CLI as
-`node dist/cli/index.js …` from inside the clone; `offstage` is only a command
-once it is linked or installed.
+`dist/` is a build output and is not committed; `prepare` builds it on any
+install, including `npm install github:viraatdas/offstage`. The published
+package ships `dist/` already built, so nothing is required of you there.
 
 ## `offstage route -- <command>`
 
@@ -131,19 +135,24 @@ Read three things, not one:
 ## As MCP tools
 
 ```bash
+claude mcp add offstage -- npx -y @viraatdas/offstage@latest offstage-mcp
+```
+
+Or, to drive a local checkout you are editing:
+
+```bash
 claude mcp add offstage -- node /absolute/path/to/offstage/dist/mcp/index.js
 ```
 
 That registers `offstage_doctor`, `offstage_route`, `offstage_run` and
 `offstage_probe`. See [`docs/codex.md`](codex.md) for the Codex equivalent.
 
-**The Claude Code plugin has a caveat worth knowing before you install it.**
-A plugin install clones the repository — it does not run `npm install`, and it
-does not build. So the server path in `.mcp.json` points at a `dist/` the
-cloned plugin does not have, and the tools will not start. Until offstage is
-published to a registry, the working setup is the `claude mcp add` line above,
-pointing at a clone you built yourself. The skill in `skills/offstage/` is
-useful on its own and loads fine either way.
+The Claude Code plugin works the same way:
+`/plugin marketplace add viraatdas/offstage`, then
+`/plugin install offstage@offstage`. A plugin install only *clones* — it runs no
+`npm install` and no build — which is why the server is declared as
+`npx -y @viraatdas/offstage@latest offstage-mcp` rather than a path into the
+plugin directory. The first call fetches the package; later ones are cached.
 
 `offstage_run` returns the full outcome — the routing decision, the run id, the
 path to `result.json`, and the `LaneResult` — plus any screenshot the container

@@ -20,7 +20,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const readJson = <T>(relative: string): T =>
   JSON.parse(readFileSync(path.join(ROOT, relative), 'utf8')) as T;
 
-const pkg = readJson<{ version: string; files: string[]; bin: Record<string, string> }>(
+const pkg = readJson<{ name: string; version: string; files: string[]; bin: Record<string, string> }>(
   'package.json',
 );
 
@@ -58,25 +58,39 @@ describe('.mcp.json', () => {
   it('registers one stdio server called offstage', () => {
     expect(Object.keys(mcp.mcpServers)).toEqual(['offstage']);
     expect(mcp.mcpServers.offstage?.type).toBe('stdio');
-    expect(mcp.mcpServers.offstage?.command).toBe('node');
   });
 
-  it('points at the same entry point package.json publishes as offstage-mcp', () => {
-    const arg = mcp.mcpServers.offstage?.args.at(-1) ?? '';
-    const published = pkg.bin['offstage-mcp'];
-    expect(published).toBeDefined();
-    expect(arg).toBe(published);
+  it('runs the published package, which is the only form that survives a plugin install', () => {
+    // A plugin install *clones* — it runs no npm install and no build — so a
+    // server pointing at `dist/` is dead on arrival, and a path under
+    // `${CLAUDE_PLUGIN_ROOT}` only names a file that was never built.
+    // `npx <published package>` needs neither, and works at project scope too.
+    const server = mcp.mcpServers.offstage;
+    expect(server?.command).toBe('npx');
+    expect(server?.args).toContain('-y');
+    expect(server?.args.some((arg) => arg.startsWith(pkg.name))).toBe(true);
+    expect(server?.args.at(-1)).toBe('offstage-mcp');
   });
 
-  it('uses a path Claude Code can actually resolve at project scope', () => {
-    // `${CLAUDE_PLUGIN_ROOT}` is only substituted for a server a *plugin*
-    // provides. In a project-scoped .mcp.json — which is what this file is
-    // when someone opens the repository — it is passed through literally and
-    // Claude Code reports a missing environment variable. A path relative to
-    // the project root is the form that works where this file is actually read.
-    const arg = mcp.mcpServers.offstage?.args.at(-1) ?? '';
-    expect(arg).not.toContain('${');
-    expect(path.isAbsolute(arg)).toBe(false);
+  it('names a bin the package actually publishes', () => {
+    expect(Object.keys(pkg.bin)).toContain(mcp.mcpServers.offstage?.args.at(-1));
+  });
+
+  it('resolves without any variable the host has to substitute', () => {
+    // `${CLAUDE_PLUGIN_ROOT}` is substituted only for a plugin-provided server.
+    // At project scope it is passed through literally and Claude Code reports a
+    // missing environment variable, so the same file cannot use it and work in
+    // both places.
+    for (const arg of mcp.mcpServers.offstage?.args ?? []) {
+      expect(arg).not.toContain('${');
+    }
+  });
+
+  it('is published under a scope its owner controls', () => {
+    // The unscoped name `offstage` belongs to an unrelated package on npm, so
+    // publishing under it is impossible; the plugin depends on the published
+    // package existing, which makes the name part of the wiring.
+    expect(pkg.name).toBe('@viraatdas/offstage');
   });
 
   it('names a real source file, so the server exists before it is built', () => {

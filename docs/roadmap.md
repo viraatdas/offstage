@@ -2,8 +2,8 @@
 
 The build was an 11-node plan. **All eleven nodes are done**, along with twelve
 follow-up hardening passes. The suite is green from a clean clone
-(`npm ci && npm run build && npm test`: 26 files, 805 passed, 2 expected fail,
-7 skipped — 807 passed with a container runtime running).
+(`npm ci && npm run build && npm test`: 26 files, 807 passed, 2 expected fail,
+7 skipped — 809 passed with a container runtime running).
 
 What remains is not design work. It is evidence, and one release decision.
 
@@ -49,13 +49,12 @@ bundle a real run produced. Closing it means installing Tart and the
 through `offstage run`. Until someone does that, the README, `docs/verified.md`
 and `DECISIONS.md` all say "fixture-tested only" in those words.
 
-### Publish, so the plugin does not need a build step
+### ~~Publish, so the plugin does not need a build step~~ — done in 0.2.0
 
-`.mcp.json` points at `${CLAUDE_PLUGIN_ROOT}/dist/mcp/index.js`, and `dist/` is
-a build output that is not committed — so a plugin installed from git needs one
-`npm ci && npm run build` in the plugin root. Publishing to npm would let the
-manifest say `npx -y offstage-mcp` instead. That is a release decision, not a
-code change.
+Published as **`@viraatdas/offstage`** (the unscoped `offstage` belongs to an
+unrelated package). `.mcp.json` now declares the server as
+`npx -y @viraatdas/offstage@latest offstage-mcp`, so a plugin install — which
+only clones — gets a working server with no build step.
 
 ### Smaller, and each already written down where it bites
 
