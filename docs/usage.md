@@ -171,3 +171,24 @@ Each run owns `.offstage/runs/<id>/` in the repository under test:
 
 Run ids are timestamp-prefixed, so `ls .offstage/runs` is already in
 chronological order. The directory is self-contained: archive it or delete it.
+
+## Releasing
+
+Publishing is a tag push. `.github/workflows/release.yml` authenticates to npm
+through GitHub's OIDC identity — there is no token in the repository, in CI
+secrets, or on anyone's laptop, and npm attaches a provenance attestation
+automatically.
+
+```bash
+npm version patch      # or minor / major — writes package.json and tags
+git push --follow-tags
+```
+
+The workflow refuses to publish if the tag disagrees with `package.json`, so a
+mistagged commit fails loudly instead of shipping a surprising version.
+
+One-time setup on npmjs.com, under the package's settings → Trusted Publisher →
+GitHub Actions: repository `viraatdas/offstage`, workflow `release.yml`. npm
+cannot configure a trusted publisher for a name that has never been published,
+so the very first version has to go out from a terminal (`npm publish
+--access public`); every one after that is a tag push.
