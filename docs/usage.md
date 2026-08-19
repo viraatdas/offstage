@@ -135,7 +135,7 @@ Read three things, not one:
 ## As MCP tools
 
 ```bash
-claude mcp add offstage -- npx -y @viraatdas/offstage@latest offstage-mcp
+claude mcp add offstage -- npx -y --package=@viraatdas/offstage@latest offstage-mcp
 ```
 
 Or, to drive a local checkout you are editing:
@@ -151,8 +151,8 @@ The Claude Code plugin works the same way:
 `/plugin marketplace add viraatdas/offstage`, then
 `/plugin install offstage@offstage`. A plugin install only *clones* — it runs no
 `npm install` and no build — which is why the server is declared as
-`npx -y @viraatdas/offstage@latest offstage-mcp` rather than a path into the
-plugin directory. The first call fetches the package; later ones are cached.
+`npx -y --package=@viraatdas/offstage@latest offstage-mcp` rather than a path
+into the plugin directory. The first call fetches the package; later ones are cached.
 
 `offstage_run` returns the full outcome — the routing decision, the run id, the
 path to `result.json`, and the `LaneResult` — plus any screenshot the container

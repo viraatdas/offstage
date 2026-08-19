@@ -11,7 +11,7 @@ Add this to `~/.codex/config.toml`:
 ```toml
 [mcp_servers.offstage]
 command = "npx"
-args = ["-y", "@viraatdas/offstage@latest", "offstage-mcp"]
+args = ["-y", "--package=@viraatdas/offstage@latest", "offstage-mcp"]
 ```
 
 Nothing to build or clone — the first call fetches the package. Pin a version by

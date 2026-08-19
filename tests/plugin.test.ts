@@ -68,8 +68,20 @@ describe('.mcp.json', () => {
     const server = mcp.mcpServers.offstage;
     expect(server?.command).toBe('npx');
     expect(server?.args).toContain('-y');
-    expect(server?.args.some((arg) => arg.startsWith(pkg.name))).toBe(true);
     expect(server?.args.at(-1)).toBe('offstage-mcp');
+  });
+
+  it('names the package with --package=, which npx requires to pick a second bin', () => {
+    // npx resolves a binary by PACKAGE name. `npx -y @viraatdas/offstage
+    // offstage-mcp` therefore runs the `offstage` CLI with `offstage-mcp` as an
+    // argument — it prints help and never speaks MCP, which looks like a broken
+    // server rather than a wrong command. Verified against the published
+    // package: the bare form returns no tools, the --package= form returns 4.
+    const args = mcp.mcpServers.offstage?.args ?? [];
+    const named = args.find((arg) => arg.startsWith('--package='));
+    expect(named, '.mcp.json must pass --package=<name> so npx picks the right bin').toBeDefined();
+    expect(named).toContain(pkg.name);
+    expect(args.some((arg) => !arg.startsWith('--') && arg.startsWith(pkg.name))).toBe(false);
   });
 
   it('names a bin the package actually publishes', () => {

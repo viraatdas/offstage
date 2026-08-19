@@ -3,8 +3,8 @@
     "offstage": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@viraatdas/offstage@latest", "offstage-mcp"],
-      "note": "Runs the published package, so this works from a plain plugin install — which clones without running npm install or a build — and from any project. Pin a version by replacing @latest. To run a local checkout instead: claude mcp add offstage -- node /absolute/path/to/offstage/dist/mcp/index.js"
+      "args": ["-y", "--package=@viraatdas/offstage@latest", "offstage-mcp"],
+      "note": "--package= is required, not optional: npx resolves a binary by PACKAGE name, so `npx -y @viraatdas/offstage offstage-mcp` runs the offstage CLI with 'offstage-mcp' as an argument and prints help instead of speaking MCP. Runs the published package, so a plugin install — which clones without building — gets a working server. To drive a local checkout instead: claude mcp add offstage -- node /absolute/path/to/offstage/dist/mcp/index.js"
     }
   }
 }
