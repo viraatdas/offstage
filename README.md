@@ -1,5 +1,9 @@
 # offstage
 
+[![CI](https://github.com/viraatdas/offstage/actions/workflows/ci.yml/badge.svg)](https://github.com/viraatdas/offstage/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@viraatdas/offstage)](https://www.npmjs.com/package/@viraatdas/offstage)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 **Keep UI work off your screen.**
 
 You ask an agent to check a UI change. It runs `npx playwright test --headed`, a
