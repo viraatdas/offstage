@@ -5,6 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult, ImageContent, TextContent } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
+import { offstageVersion } from '../cli/api.js';
 import { LaneSchema } from '../contract/index.js';
 import type { LaneResult } from '../contract/index.js';
 import type { OffstageCore } from './core.js';
@@ -100,7 +101,7 @@ async function screenshotContent(result: LaneResult): Promise<ImageContent[]> {
 export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()): McpServer {
   const server = new McpServer({
     name: 'offstage',
-    version: '0.1.0',
+    version: offstageVersion(),
   });
 
   server.registerTool(

@@ -19,6 +19,7 @@
  * rule 2, hoisted one level up so the CLI and the MCP server can share it.
  */
 
+import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -221,15 +222,24 @@ export interface DoctorReport {
 
 let cachedVersion: string | undefined;
 
-async function readVersion(): Promise<string> {
+/**
+ * This package's own version, read from the nearest `package.json`.
+ *
+ * Walk up rather than assuming a depth: this module runs from
+ * `dist/cli/api.js` when built, and from `bundle/offstage.mjs` when bundled
+ * for the plugin. A fixed `../../` is right for exactly one of those.
+ *
+ * Synchronous because the MCP server must name its version while constructing
+ * the server object, before anything can be awaited. It is the single source
+ * for both, so the two cannot drift — they did once: the server introduced
+ * itself as 0.1.0 over the wire while doctor correctly reported 0.2.1.
+ */
+export function offstageVersion(): string {
   if (cachedVersion !== undefined) return cachedVersion;
-  // Walk up rather than assuming a depth: this module runs from
-  // `dist/cli/api.js` when built, and from `bundle/offstage.mjs` when bundled
-  // for the plugin. A fixed `../../` is right for exactly one of those.
   let dir = path.dirname(fileURLToPath(import.meta.url));
   for (let up = 0; up < 5; up += 1) {
     try {
-      const raw = await fs.readFile(path.join(dir, 'package.json'), 'utf8');
+      const raw = readFileSync(path.join(dir, 'package.json'), 'utf8');
       const parsed = JSON.parse(raw) as { version?: unknown };
       if (typeof parsed.version === 'string') {
         cachedVersion = parsed.version;
@@ -277,7 +287,7 @@ export async function doctor(deps?: Partial<ApiDeps>): Promise<DoctorReport> {
   );
 
   return {
-    offstageVersion: await readVersion(),
+    offstageVersion: offstageVersion(),
     node: process.version,
     platform: process.platform,
     arch: process.arch,
