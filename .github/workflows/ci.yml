@@ -56,10 +56,14 @@ jobs:
       - run: npm ci
       # `prepack` builds, so this must produce a tarball containing dist/ even
       # though dist/ is gitignored and absent from the checkout.
-      - run: npm pack
       - name: the tarball contains the entry points it publishes
         run: |
-          tar tzf offstage-*.tgz > files.txt
+          # Ask npm for the filename rather than globbing it: a scoped package
+          # packs to viraatdas-offstage-<v>.tgz, and an `offstage-*.tgz` glob
+          # silently stops matching the moment the name changes.
+          TARBALL="$(npm pack --silent)"
+          echo "packed $TARBALL"
+          tar tzf "$TARBALL" > files.txt
           grep -q 'package/dist/cli/index.js' files.txt || { echo "MISSING dist/cli/index.js"; exit 1; }
           grep -q 'package/dist/mcp/index.js' files.txt || { echo "MISSING dist/mcp/index.js"; exit 1; }
           grep -q 'package/skills/offstage/SKILL.md' files.txt || { echo "MISSING the skill"; exit 1; }
