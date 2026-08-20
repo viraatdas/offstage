@@ -769,6 +769,35 @@ interface ResolvedTarget {
  * what Xcode opens) or `.xcodeproj` inside it, so `offstage probe .` does the
  * obvious thing.
  */
+/**
+ * Where a build leaves its `.app` relative to a repository root. Deliberately
+ * short: this is a convenience for `offstage probe .`, not a filesystem search.
+ */
+const BUILD_OUTPUT_DIRS = ['build', '.build', 'DerivedData'] as const;
+
+/**
+ * Resolve to a single bundle, or refuse.
+ *
+ * Picking one of several silently is the wrong failure for an entitlements
+ * probe: the answer would be about a different binary than the caller meant,
+ * and nothing in the output would say so.
+ */
+function oneBundle(from: string, candidates: string[], base: string): ResolvedTarget {
+  if (candidates.length > 1) {
+    throw new ProbeError(
+      'unsupported-target',
+      `${from} contains ${candidates.length} app bundles, so offstage cannot tell which one you mean. ` +
+        `Name one:\n${candidates.map((candidate) => `  ${path.relative(base, candidate) || candidate}`).join('\n')}`,
+    );
+  }
+  const only = candidates[0]!;
+  return {
+    path: only,
+    kind: 'app',
+    note: `Resolved directory ${from} to the bundle ${path.relative(from, only)} inside it.`,
+  };
+}
+
 export async function resolveProbeTarget(target: string): Promise<ResolvedTarget> {
   const absolute = path.resolve(target);
   if (!(await pathExists(absolute))) {
@@ -802,6 +831,30 @@ export async function resolveProbeTarget(target: string): Promise<ResolvedTarget
         note: `Resolved directory ${absolute} to the project ${project} inside it.`,
       };
     }
+
+    // A built bundle, which the error below has always promised a directory
+    // could be resolved to and which this branch nevertheless used to ignore.
+    // It ranks under the project files on purpose: those describe intent,
+    // while a `.app` is one output that may be stale.
+    const bundles = entries.filter((name) => name.toLowerCase().endsWith('.app'));
+    if (bundles.length > 0) {
+      return oneBundle(absolute, bundles.map((name) => path.join(absolute, name)), absolute);
+    }
+
+    // SwiftPM and Xcode leave the bundle one level down, so a repository root
+    // has no `.app` in it at all — which is the shape `offstage probe .` meets
+    // in practice. Look in the conventional output directories only: an
+    // unbounded search would be slow and would happily find someone else's app.
+    const nested: string[] = [];
+    for (const dir of BUILD_OUTPUT_DIRS) {
+      if (!entries.includes(dir)) continue;
+      const inside = path.join(absolute, dir);
+      if (!(await isDirectory(inside))) continue;
+      for (const name of (await fs.readdir(inside)).sort()) {
+        if (name.toLowerCase().endsWith('.app')) nested.push(path.join(inside, name));
+      }
+    }
+    if (nested.length > 0) return oneBundle(absolute, nested, absolute);
   }
 
   throw new ProbeError(

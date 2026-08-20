@@ -505,9 +505,23 @@ describe('stale build detection', () => {
 
   it('says nothing when the build is newer than its sources', async () => {
     const { root, module, source } = await checkout();
+    // Set every input explicitly. Creation order is not a reliable ordering:
+    // the filesystem records sub-millisecond mtimes that `utimes` cannot write.
+    await setMtime(path.join(root, 'package.json'), 60_000);
     await setMtime(source, 60_000);
     await setMtime(module, 0);
 
+    expect(detectStaleBuild(root, module, '9.9.9')).toBeUndefined();
+  });
+
+  it('ignores a sub-second difference, which is timestamp noise rather than a stale build', async () => {
+    const { root, module, source } = await checkout();
+    await setMtime(path.join(root, 'package.json'), 0);
+    await setMtime(module, 100);
+    await setMtime(source, 0);
+
+    // The source is 100ms ahead of the build. A tool that rewrites package.json
+    // as it finishes lands exactly here, and it is not what stale means.
     expect(detectStaleBuild(root, module, '9.9.9')).toBeUndefined();
   });
 

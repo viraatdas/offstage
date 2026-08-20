@@ -10,6 +10,7 @@
 
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -656,6 +657,68 @@ describe('resolveProbeTarget', () => {
     const resolved = await resolveProbeTarget(relative);
     expect(path.isAbsolute(resolved.path)).toBe(true);
     expect(resolved.path).toBe(ent('sandbox-only.entitlements'));
+  });
+
+  /**
+   * The error for an unsupported target has always offered "or a directory
+   * containing one of those", while the directory branch only ever looked for
+   * `.xcworkspace` and `.xcodeproj`. Pointing at the folder holding a built
+   * app — or at a SwiftPM repository root, where the app lands under `build/`
+   * and there is no project file at all — failed with that same message.
+   */
+  async function tree(layout: Record<string, string>): Promise<string> {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-probe-'));
+    for (const [relative, contents] of Object.entries(layout)) {
+      const full = path.join(root, relative);
+      await fs.mkdir(path.dirname(full), { recursive: true });
+      await fs.writeFile(full, contents);
+    }
+    return root;
+  }
+
+  it('resolves a directory to the app bundle sitting in it', async () => {
+    const root = await tree({ 'Demo.app/Contents/Info.plist': '<plist/>' });
+
+    const resolved = await resolveProbeTarget(root);
+    expect(resolved.kind).toBe('app');
+    expect(resolved.path).toBe(path.join(root, 'Demo.app'));
+    expect(resolved.note).toContain('Demo.app');
+  });
+
+  it('finds the bundle one level down in a build directory, which is where SwiftPM leaves it', async () => {
+    const root = await tree({ 'Package.swift': '// swift-tools-version:5.9', 'build/Demo.app/Contents/Info.plist': '<plist/>' });
+
+    const resolved = await resolveProbeTarget(root);
+    expect(resolved.kind).toBe('app');
+    expect(resolved.path).toBe(path.join(root, 'build', 'Demo.app'));
+  });
+
+  it('still prefers the project file, which describes intent where a build output may be stale', async () => {
+    const root = await tree({
+      'SampleApp.xcodeproj/project.pbxproj': '// project',
+      'build/Demo.app/Contents/Info.plist': '<plist/>',
+    });
+
+    await expect(resolveProbeTarget(root)).resolves.toMatchObject({ kind: 'xcodeproj' });
+  });
+
+  it('refuses rather than guessing when a directory holds more than one bundle', async () => {
+    const root = await tree({
+      'build/Alpha.app/Contents/Info.plist': '<plist/>',
+      'build/Beta.app/Contents/Info.plist': '<plist/>',
+    });
+
+    // Silently picking one would report entitlements for a different binary
+    // than the caller meant, with nothing in the output saying so.
+    await expect(resolveProbeTarget(root)).rejects.toThrow(/2 app bundles/);
+    await expect(resolveProbeTarget(root)).rejects.toThrow(/Alpha\.app/);
+    await expect(resolveProbeTarget(root)).rejects.toThrow(/Beta\.app/);
+  });
+
+  it('does not go hunting outside the conventional output directories', async () => {
+    const root = await tree({ 'vendor/Someone-Elses.app/Contents/Info.plist': '<plist/>' });
+
+    await expect(resolveProbeTarget(root)).rejects.toThrow(/does not know how to probe/);
   });
 });
 

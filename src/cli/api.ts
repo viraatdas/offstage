@@ -341,7 +341,7 @@ export function detectStaleBuild(root: string, modulePath: string, version: stri
   const inputs = newestMtime(path.join(root, 'src'), 0);
   const manifest = mtimeOf(path.join(root, 'package.json'));
   const newestInput = Math.max(inputs, manifest);
-  if (newestInput <= builtAt) return undefined;
+  if (newestInput - builtAt <= STALE_GRACE_MS) return undefined;
 
   const behind = formatAge(newestInput - builtAt);
   return (
@@ -350,6 +350,17 @@ export function detectStaleBuild(root: string, modulePath: string, version: stri
     `whatever started this process — a long-lived MCP server keeps the build it launched with.`
   );
 }
+
+/**
+ * How far ahead of the build an input may be before it counts as stale.
+ *
+ * Timestamps are not precise enough to compare exactly: APFS records mtimes
+ * below the millisecond while `utimes` writes whole ones, and a build tool that
+ * rewrites `package.json` on its way out can land a hair after the output it
+ * just produced. Sub-second differences are noise. A build that is genuinely
+ * behind its sources is behind by minutes or hours, so nothing real is lost.
+ */
+const STALE_GRACE_MS = 2_000;
 
 /** Newest mtime anywhere under `dir`, bounded so a deep tree cannot stall startup. */
 function newestMtime(dir: string, depth: number): number {
