@@ -17,18 +17,25 @@ args = ["-y", "--package=@viraatdas/offstage@latest", "offstage-mcp"]
 Nothing to build or clone — the first call fetches the package. Pin a version by
 replacing `@latest`.
 
-To drive a local checkout instead, build it once (`npm ci` runs the build
-through `prepare`) and use a real absolute path — Codex does not expand `~` or
-resolve relative paths here:
+To drive a local checkout instead, register it under a *different* name, so it
+sits beside the published server rather than silently replacing it:
 
 ```toml
-[mcp_servers.offstage]
+[mcp_servers.offstage-dev]
 command = "node"
 args = ["/absolute/path/to/offstage/dist/mcp/index.js"]
 ```
 
-Restart Codex. `offstage_doctor`, `offstage_route`, `offstage_run` and
-`offstage_probe` appear in its tool list.
+Codex does not expand `~` or resolve relative paths here, so the path has to be
+real and absolute. `npm run dev:register -- --print`, run from the checkout,
+builds nothing and prints that block with the path already filled in.
+
+`offstage_doctor` reports the directory it is running from, which is how you
+confirm which of the two answered.
+
+Restart Codex — an MCP server is spawned once per session and keeps the build it
+launched with. `offstage_doctor`, `offstage_route`, `offstage_run` and
+`offstage_probe` then appear in its tool list.
 
 ## 2. Tell it when to reach for them
 

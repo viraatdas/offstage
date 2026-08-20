@@ -138,11 +138,22 @@ Read three things, not one:
 claude mcp add offstage -- npx -y --package=@viraatdas/offstage@latest offstage-mcp
 ```
 
-Or, to drive a local checkout you are editing:
+Or, to drive a local checkout you are editing — from inside that checkout:
 
 ```bash
-claude mcp add offstage -- node /absolute/path/to/offstage/dist/mcp/index.js
+npm run dev:register        # builds, then registers it as `offstage-dev`
 ```
+
+The name is the point. A local build registered as `offstage` displaces the
+published server that `.mcp.json` and the plugin both declare, and the
+displacement is invisible: same tool names, same version field, different code.
+`offstage-dev` sits beside the real one, so `offstage_doctor` can tell you which
+you are talking to. `npm run dev:register -- --print` shows the commands without
+running them, including the Codex form.
+
+An MCP server is spawned once per session and keeps the build it launched with,
+so rebuild *and* restart the agent when you change the source. `offstage doctor`
+warns when the `dist/` it is running predates the `src/` beside it.
 
 That registers `offstage_doctor`, `offstage_route`, `offstage_run` and
 `offstage_probe`. See [`docs/codex.md`](codex.md) for the Codex equivalent.

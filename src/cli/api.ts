@@ -19,7 +19,7 @@
  * rule 2, hoisted one level up so the CLI and the MCP server can share it.
  */
 
-import { readFileSync } from 'node:fs';
+import { type Dirent, readFileSync, readdirSync, statSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -212,6 +212,18 @@ export interface LaneHealth {
 
 export interface DoctorReport {
   offstageVersion: string;
+  /**
+   * Which copy of offstage produced this report.
+   *
+   * A version number alone cannot answer "is this the published package or my
+   * checkout?", and that question has cost real debugging time: a long-lived
+   * MCP process pinned to a stale local `dist/` reported one version while npm,
+   * the npx cache and the plugin cache all held another. Naming the directory
+   * makes the answer readable instead of reachable only through `ps`.
+   */
+  install: OffstageInstall;
+  /** Problems with the installation itself, as opposed to a lane's substrate. */
+  warnings: string[];
   node: string;
   platform: string;
   arch: string;
@@ -220,30 +232,63 @@ export interface DoctorReport {
   ready: Lane[];
 }
 
-let cachedVersion: string | undefined;
+/** Where the running offstage lives, and what version that copy claims. */
+export interface OffstageInstall {
+  /** The version string from the `package.json` this build was read out of. */
+  version: string;
+  /**
+   * Directory holding that `package.json`, or `''` when none was found.
+   *
+   * This is the whole point of the interface: two installs reporting `0.2.3`
+   * are only the same code if they came from the same directory.
+   */
+  root: string;
+  /**
+   * True when `root` looks like a source checkout (it has a `src/`) rather than
+   * an installed package. Only a checkout can carry a stale build.
+   */
+  fromSource: boolean;
+  /**
+   * Set when a checkout's compiled `dist/` predates the sources or the version
+   * it claims — meaning the running code is not what the repository says.
+   */
+  staleBuild?: string;
+}
+
+let cachedInstall: OffstageInstall | undefined;
 
 /**
- * This package's own version, read from the nearest `package.json`.
+ * Identify the copy of offstage that is currently executing.
  *
  * Walk up rather than assuming a depth: this module runs from
  * `dist/cli/api.js` when built, and from `bundle/offstage.mjs` when bundled
  * for the plugin. A fixed `../../` is right for exactly one of those.
  *
- * Synchronous because the MCP server must name its version while constructing
- * the server object, before anything can be awaited. It is the single source
- * for both, so the two cannot drift — they did once: the server introduced
- * itself as 0.1.0 over the wire while doctor correctly reported 0.2.1.
+ * Synchronous because the MCP server must name itself while constructing the
+ * server object, before anything can be awaited. It is the single source for
+ * the CLI and the server both, so the two cannot drift — they did once: the
+ * server introduced itself as 0.1.0 over the wire while doctor correctly
+ * reported 0.2.1.
  */
-export function offstageVersion(): string {
-  if (cachedVersion !== undefined) return cachedVersion;
-  let dir = path.dirname(fileURLToPath(import.meta.url));
+export function offstageInstall(): OffstageInstall {
+  if (cachedInstall !== undefined) return cachedInstall;
+
+  const modulePath = fileURLToPath(import.meta.url);
+  let dir = path.dirname(modulePath);
   for (let up = 0; up < 5; up += 1) {
     try {
       const raw = readFileSync(path.join(dir, 'package.json'), 'utf8');
       const parsed = JSON.parse(raw) as { version?: unknown };
       if (typeof parsed.version === 'string') {
-        cachedVersion = parsed.version;
-        return cachedVersion;
+        const root = dir;
+        const fromSource = isDirectory(path.join(root, 'src'));
+        cachedInstall = {
+          version: parsed.version,
+          root,
+          fromSource,
+          staleBuild: fromSource ? detectStaleBuild(root, modulePath, parsed.version) : undefined,
+        };
+        return cachedInstall;
       }
     } catch {
       // Not here; keep walking.
@@ -252,8 +297,102 @@ export function offstageVersion(): string {
     if (parent === dir) break;
     dir = parent;
   }
-  cachedVersion = 'unknown';
-  return cachedVersion;
+
+  cachedInstall = { version: 'unknown', root: '', fromSource: false };
+  return cachedInstall;
+}
+
+/** This package's own version. Kept as its own name because it reads better at call sites. */
+export function offstageVersion(): string {
+  return offstageInstall().version;
+}
+
+function isDirectory(target: string): boolean {
+  try {
+    return statSync(target).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Catch the failure mode where a checkout's `dist/` is older than the `src/`
+ * that produced it, so the process is honestly reporting a version that its
+ * running code predates.
+ *
+ * Only meaningful for a source checkout, and only when we are actually running
+ * the compiled output: under `tsx` the module *is* the source, so there is no
+ * build to be stale. Returns a sentence for a human, or `undefined`.
+ *
+ * Exported for tests: this is a diagnostic, so it fails by going quiet, and a
+ * quiet failure is exactly what a test has to catch.
+ */
+export function detectStaleBuild(root: string, modulePath: string, version: string): string | undefined {
+  const built = modulePath.split(path.sep).includes('dist');
+  if (!built) return undefined;
+
+  let builtAt: number;
+  try {
+    builtAt = statSync(modulePath).mtimeMs;
+  } catch {
+    return undefined;
+  }
+
+  const inputs = newestMtime(path.join(root, 'src'), 0);
+  const manifest = mtimeOf(path.join(root, 'package.json'));
+  const newestInput = Math.max(inputs, manifest);
+  if (newestInput <= builtAt) return undefined;
+
+  const behind = formatAge(newestInput - builtAt);
+  return (
+    `this build is ${behind} older than its sources, so the running code is not what ` +
+    `${root} currently says it is (it reports ${version}). Run \`npm run build\` and restart ` +
+    `whatever started this process — a long-lived MCP server keeps the build it launched with.`
+  );
+}
+
+/** Newest mtime anywhere under `dir`, bounded so a deep tree cannot stall startup. */
+function newestMtime(dir: string, depth: number): number {
+  if (depth > 6) return 0;
+  let newest = 0;
+  const entries = readDirSafely(dir);
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      newest = Math.max(newest, newestMtime(full, depth + 1));
+    } else if (entry.isFile()) {
+      newest = Math.max(newest, mtimeOf(full));
+    }
+  }
+  return newest;
+}
+
+/** `readdirSync` that yields nothing for a directory it cannot read. */
+function readDirSafely(dir: string): Dirent[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+function mtimeOf(target: string): number {
+  try {
+    return statSync(target).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+/** `3 minutes`, `2 hours`, `4 days` — enough precision to tell "just now" from "forgot to rebuild". */
+function formatAge(ms: number): string {
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 1) return 'less than a minute';
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'}`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'}`;
 }
 
 /**
@@ -286,8 +425,12 @@ export async function doctor(deps?: Partial<ApiDeps>): Promise<DoctorReport> {
     }),
   );
 
+  const install = offstageInstall();
+
   return {
-    offstageVersion: offstageVersion(),
+    offstageVersion: install.version,
+    install,
+    warnings: install.staleBuild ? [install.staleBuild] : [],
     node: process.version,
     platform: process.platform,
     arch: process.arch,

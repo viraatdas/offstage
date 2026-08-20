@@ -1,6 +1,6 @@
 {
   "name": "@viraatdas/offstage",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Routing layer that keeps UI, browser and macOS app work off your screen by sending each command to the cheapest isolation substrate that can honestly run it.",
   "keywords": [
     "testing",
@@ -62,7 +62,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "dev:register": "node scripts/dev-register.mjs",
+    "release:check": "node scripts/release-guard.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

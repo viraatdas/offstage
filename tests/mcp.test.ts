@@ -34,6 +34,8 @@ class FakeCore implements OffstageCore {
   async doctor(): Promise<DoctorReport> {
     return {
       offstageVersion: '0.1.0',
+      install: { version: '0.1.0', root: '/fake/offstage', fromSource: false },
+      warnings: [],
       node: 'v20.0.0',
       platform: 'darwin',
       arch: 'arm64',

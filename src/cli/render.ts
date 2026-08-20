@@ -76,10 +76,21 @@ export function formatDuration(ms: number): string {
 /* -------------------------------------------------------------------------- */
 
 export function renderDoctor(report: DoctorReport): string[] {
+  // Name the directory, not just the version: two installs both claiming the
+  // same version are only the same code if they came from the same place.
+  const where = report.install.root ? ` (${report.install.root})` : '';
   const lines: string[] = [
-    `offstage ${report.offstageVersion} — node ${report.node}, ${report.platform}/${report.arch}`,
+    `offstage ${report.offstageVersion}${where} — node ${report.node}, ${report.platform}/${report.arch}`,
     '',
   ];
+
+  // An install that is lying about itself outranks any lane report, so it goes
+  // first — a stale build makes everything below it untrustworthy.
+  for (const warning of report.warnings) {
+    lines.push(`  ${CROSS} stale build`);
+    lines.push(...block(warning, '      ', '      '));
+    lines.push('');
+  }
 
   for (const health of report.lanes) {
     const mark = health.availability.available ? CHECK : CROSS;

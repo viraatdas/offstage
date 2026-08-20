@@ -1,7 +1,7 @@
 {
   "name": "offstage",
   "description": "Keep UI, browser and macOS app work off your screen. Routes each test command to the cheapest isolation that can honestly run it — in place when it is already headless, a Linux container with Xvfb when a real window is needed, a macOS VM for xcodebuild and simulators.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "author": {
     "name": "Viraat Das"
   },

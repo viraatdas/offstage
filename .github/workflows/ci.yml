@@ -44,6 +44,24 @@ jobs:
           node dist/cli/index.js route --json -- npx playwright test
           node dist/cli/index.js route --json -- npx playwright test --headed
 
+  # A shipped file that changes without a version bump is undeliverable: Claude
+  # Code's `plugin update` compares the declared version, not the commit, so
+  # everyone already installed keeps the old copy forever. This catches that
+  # class of change at the only point where it is still cheap to fix.
+  deliverable:
+    name: shipped changes carry a version bump
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The guard diffs against the last version tag, which a shallow
+          # default checkout does not fetch.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+      - run: node scripts/release-guard.mjs
+
   package:
     name: packs cleanly from a clean checkout
     runs-on: ubuntu-latest
@@ -69,3 +87,4 @@ jobs:
           grep -q 'package/skills/offstage/SKILL.md' files.txt || { echo "MISSING the skill"; exit 1; }
           grep -q 'package/LICENSE' files.txt || { echo "MISSING LICENSE"; exit 1; }
           ! grep -q 'package/tests/' files.txt || { echo "tests/ must not ship"; exit 1; }
+          ! grep -q 'package/scripts/' files.txt || { echo "scripts/ are development aids and must not ship"; exit 1; }

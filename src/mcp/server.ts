@@ -5,7 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult, ImageContent, TextContent } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
-import { offstageVersion } from '../cli/api.js';
+import { offstageInstall } from '../cli/api.js';
 import { LaneSchema } from '../contract/index.js';
 import type { LaneResult } from '../contract/index.js';
 import type { OffstageCore } from './core.js';
@@ -99,9 +99,14 @@ async function screenshotContent(result: LaneResult): Promise<ImageContent[]> {
 }
 
 export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()): McpServer {
+  const install = offstageInstall();
   const server = new McpServer({
     name: 'offstage',
-    version: offstageVersion(),
+    version: install.version,
+    // `version` alone cannot distinguish the published package from a local
+    // build, and a client sees `serverInfo` before it can call any tool. Say
+    // where this process came from at the point of introduction.
+    title: install.root ? `offstage ${install.version} (${install.root})` : `offstage ${install.version}`,
   });
 
   server.registerTool(

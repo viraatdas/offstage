@@ -18,7 +18,16 @@ import type { Lane, LaneAvailability, LaneRequest, LaneResult, LaneRunner } from
 import { createLaneResult } from '../src/contract/index.js';
 import { readResult } from '../src/contract/artifacts.js';
 import type { ApiDeps } from '../src/cli/api.js';
-import { OffstageUsageError, doctor, hintsFromEnv, probe, route, run } from '../src/cli/api.js';
+import {
+  OffstageUsageError,
+  detectStaleBuild,
+  doctor,
+  hintsFromEnv,
+  offstageInstall,
+  probe,
+  route,
+  run,
+} from '../src/cli/api.js';
 
 const temps: string[] = [];
 
@@ -109,6 +118,26 @@ describe('doctor', () => {
     expect(report.ready).toEqual(['headless']);
     expect(report.lanes[1]?.availability.fix).toBe('colima start');
     expect(report.offstageVersion).toMatch(/^\d+\.\d+\.\d+$|^unknown$/);
+  });
+
+  it('names the directory it is running out of, not just the version it claims', async () => {
+    const report = await doctor(deps({}));
+
+    // Two installs both reporting the same version are only the same code if
+    // they came from the same place. Version alone cannot answer "is this the
+    // published package or my checkout?" — which is the question that cost a
+    // debugging session when a stale MCP process outlived its build.
+    expect(report.install.version).toBe(report.offstageVersion);
+    expect(report.install.root).not.toBe('');
+    expect(path.isAbsolute(report.install.root)).toBe(true);
+
+    // Running the suite means running out of the checkout, by definition.
+    expect(report.install.fromSource).toBe(true);
+  });
+
+  it('carries warnings as a list so a clean install has an empty one, not a missing field', async () => {
+    const report = await doctor(deps({}));
+    expect(Array.isArray(report.warnings)).toBe(true);
   });
 
   it('survives a lane whose isAvailable() throws, and says which lane broke its contract', async () => {
@@ -430,5 +459,86 @@ describe('probe', () => {
 
   it('rejects an empty path', async () => {
     await expect(probe({ path: '' }, deps({}))).rejects.toBeInstanceOf(OffstageUsageError);
+  });
+});
+
+describe('offstageInstall', () => {
+  it('is stable across calls, because the MCP server reads it while constructing itself', () => {
+    // Sync and cached on purpose: the server must name its version before
+    // anything can be awaited. Two different answers would mean the CLI and
+    // the server could disagree about what is running — they did once.
+    expect(offstageInstall()).toBe(offstageInstall());
+  });
+
+  it('resolves to a directory that actually holds the package.json it read', async () => {
+    const install = offstageInstall();
+    const manifest = JSON.parse(await fs.readFile(path.join(install.root, 'package.json'), 'utf8')) as {
+      version: string;
+    };
+    expect(manifest.version).toBe(install.version);
+  });
+
+  it('does not call a source checkout stale while the suite runs from source', () => {
+    // Under vitest the module IS the source, so there is no compiled output to
+    // be behind it. Flagging this case would make the warning noise.
+    expect(offstageInstall().staleBuild).toBeUndefined();
+  });
+});
+
+describe('stale build detection', () => {
+  /** A checkout-shaped temp tree: package.json, src/, and a built dist/. */
+  async function checkout(): Promise<{ root: string; module: string; source: string }> {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-stale-'));
+    await fs.mkdir(path.join(root, 'src', 'cli'), { recursive: true });
+    await fs.mkdir(path.join(root, 'dist', 'cli'), { recursive: true });
+    const source = path.join(root, 'src', 'cli', 'api.ts');
+    const module = path.join(root, 'dist', 'cli', 'api.js');
+    await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '9.9.9' }));
+    await fs.writeFile(source, 'export const x = 1;');
+    await fs.writeFile(module, 'export const x = 1;');
+    return { root, module, source };
+  }
+
+  /** mtimes have coarse resolution on some filesystems; set them explicitly. */
+  const setMtime = (target: string, msAgo: number) =>
+    fs.utimes(target, new Date(), new Date(Date.now() - msAgo));
+
+  it('says nothing when the build is newer than its sources', async () => {
+    const { root, module, source } = await checkout();
+    await setMtime(source, 60_000);
+    await setMtime(module, 0);
+
+    expect(detectStaleBuild(root, module, '9.9.9')).toBeUndefined();
+  });
+
+  it('names the directory and the version when the sources have moved on', async () => {
+    const { root, module, source } = await checkout();
+    await setMtime(module, 3 * 60 * 60_000);
+    await setMtime(source, 0);
+
+    const warning = detectStaleBuild(root, module, '9.9.9');
+    expect(warning).toContain('3 hours older');
+    expect(warning).toContain(root);
+    expect(warning).toContain('9.9.9');
+    // The fix has two halves and the second is the one people miss.
+    expect(warning).toContain('npm run build');
+    expect(warning).toContain('restart');
+  });
+
+  it('counts a version bump as a source change, which is how the 0.2.1/0.2.2 confusion happened', async () => {
+    const { root, module, source } = await checkout();
+    await setMtime(module, 60 * 60_000);
+    await setMtime(source, 2 * 60 * 60_000);
+    await setMtime(path.join(root, 'package.json'), 0);
+
+    expect(detectStaleBuild(root, module, '9.9.9')).toContain('older than its sources');
+  });
+
+  it('stays quiet when the running module is not a build at all', async () => {
+    const { root, source } = await checkout();
+    await setMtime(source, 0);
+
+    // Running under tsx: the module IS the source. Nothing can be stale.
+    expect(detectStaleBuild(root, source, '9.9.9')).toBeUndefined();
   });
 });
