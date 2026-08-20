@@ -310,6 +310,21 @@ export class VmLane implements LaneRunner {
         return skippedResult(this.lane, req.artifactsDir, availability);
       }
 
+      // `discoverToolchain` only stats the filesystem, so it proves Tart and
+      // the runner are installed and nothing more. Whether the golden image
+      // has actually been built is known solely to `tart-runner doctor` —
+      // which `isAvailable()` consults and this path used to skip. Delegating
+      // without it produced `errored` for a lane that doctor was already
+      // calling unavailable, and the two statuses mean opposite things to a
+      // caller: `skipped` says show the user the fix, `errored` says the run
+      // cannot be trusted and may be worth retrying. Retrying never helps here.
+      if (this.options.probeDoctor !== false) {
+        const ready = await this.probeWithDoctor(toolchain);
+        if (!ready.available) {
+          return skippedResult(this.lane, req.artifactsDir, ready);
+        }
+      }
+
       const invocation = planInvocation(req.command);
       const diagnostics: string[] = [
         `vm lane: delegating to tart-xcode-runner at ${toolchain.runner}.`,

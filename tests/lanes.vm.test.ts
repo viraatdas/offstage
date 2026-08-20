@@ -1238,6 +1238,43 @@ describe('VmLane.run', () => {
     expect(result.diagnostics.join(' ')).toContain('claude plugin install');
   });
 
+  it('skips rather than delegating when the golden image is missing', async () => {
+    // Reachable only with Tart and the runner installed but no image built —
+    // a state a file check cannot see, because only `tart-runner doctor`
+    // knows it. run() used to delegate anyway and report `errored`, while
+    // doctor called the same lane unavailable. The two say opposite things to
+    // a caller: `skipped` means show the user the fix, `errored` means the run
+    // cannot be trusted and may be worth retrying. Retrying never helps here.
+    const { env, homeDir } = await fakeInstall(scratch);
+    const doctor = await readFixture('runner-stdout', 'doctor-no-image.txt');
+    const spawn = recordedSpawn({ stdout: doctor, exitCode: 1 });
+    const req = await makeRequest({ command: ['xcodebuild', '-scheme', 'App', 'test'] });
+
+    const lane = new VmLane({ env, cwd: scratch, homeDir, platform: 'darwin', arch: 'arm64', spawn });
+    const result = await lane.run(req);
+
+    expect(result.status).toBe('skipped');
+    expect(result.exitCode).toBeNull();
+    expect(result.diagnostics.join(' ')).toContain('prepare');
+    expect(result.diagnostics.join(' ')).toContain('does not fall back to your real screen');
+    // It asked the runner whether it was ready, and then stopped: no `run`.
+    expect(spawn.calls.map((call) => call.args[0])).toEqual(['doctor']);
+  });
+
+  it('agrees with isAvailable about the same machine, so doctor and run cannot disagree', async () => {
+    const { env, homeDir } = await fakeInstall(scratch);
+    const doctor = await readFixture('runner-stdout', 'doctor-no-image.txt');
+    const options = { env, cwd: scratch, homeDir, platform: 'darwin' as const, arch: 'arm64' as const };
+    const req = await makeRequest();
+
+    const available = (await new VmLane({ ...options, spawn: recordedSpawn({ stdout: doctor, exitCode: 1 }) }).isAvailable())
+      .available;
+    const status = (await new VmLane({ ...options, spawn: recordedSpawn({ stdout: doctor, exitCode: 1 }) }).run(req)).status;
+
+    expect(available).toBe(false);
+    expect(status).toBe('skipped');
+  });
+
   it('translates a failing test run end to end', async () => {
     const { env, homeDir, runner } = await fakeInstall(scratch);
     const req = await makeRequest({ command: ['xcodebuild', '-scheme', 'SmokeAppUITests', 'test'] });
