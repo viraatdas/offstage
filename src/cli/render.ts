@@ -154,9 +154,13 @@ export function renderDoctor(report: DoctorReport): string[] {
 /* -------------------------------------------------------------------------- */
 
 export function renderRoute(decision: RouteDecision, command: string[]): string[] {
+  /* A refused command never reaches a lane, so naming one here would be read as
+     "this will run headless" by anyone skimming the first lines. The best-fit
+     lane is still carried in the JSON for callers that want it; what a reader
+     needs to see first is that nothing is going to run. */
   const lines = [
     ...field('command', command.join(' ')),
-    ...field('lane', decision.lane),
+    ...field('lane', decision.refuse === undefined ? decision.lane : 'REFUSED (no lane can isolate this)'),
     ...field('confidence', decision.confidence),
     ...field('reason', decision.reason),
   ];
