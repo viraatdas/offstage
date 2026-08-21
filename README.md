@@ -99,14 +99,24 @@ inject input, all inside the other account.
 offstage session setup --create
 ```
 
-This is the only step that touches `sudo`. It installs the daemon binary and
-bootstraps a LaunchAgent into the helper account's GUI domain. Everything
-after this needs no root and no password.
+This is the only step that touches `sudo`. It installs the daemon binary into
+the helper account's own home, at `~/.offstage/bin/offstage-sessiond`, and
+bootstraps a LaunchAgent into that account's GUI domain. Everything after this
+needs no root and no password.
 
-<!-- TODO(session-lane install path): the install layout is changing so the
-     daemon can update itself without root; the paragraph above deliberately
-     does not name an install path. Do not add one until that work lands.
-     See docs/session-lane.md. -->
+That location is deliberate. The account that runs the daemon owns it, so
+updates are a file copy the daemon performs on itself:
+
+```bash
+offstage session update
+```
+
+That rebuilds the daemon, installs it, and restarts it, without a password. A
+binary the helper account owns is one that anything running as that account
+could swap, so it is worth being precise about what that does and does not
+give away: it would not inherit the daemon's Screen Recording or Accessibility
+grants, because those are keyed to the binary's code signature, not its path.
+An unsigned or differently signed replacement gets nothing.
 
 ### Two permissions only a human can grant
 
