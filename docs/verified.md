@@ -26,6 +26,7 @@ the intent does.
 | --- | --- | --- | --- |
 | `headless` | ✅ real child processes, real vitest runs, real timeouts and log backpressure | ✅ recorded Playwright/Vitest/Jest reporter output | — |
 | `container` | ✅ **the headline claim, demonstrated** — a genuinely headed Chromium ran inside the container while the host screen stayed untouched (evidence below) | ✅ run-plan construction, runtime detection, guest-path mapping, failure parsing | a Linux host (the `--user $(id -u)` path), and a run that produces video |
+| `session` | ⚠️ partly — the daemon compiles and every op round-trips over the socket, but **as uid 501, the developer's own console session** (`native/sessiond/smoke.sh`, details below). Nothing has yet run inside the helper session | ✅ discovery parsers against recorded `ioreg`/`dscl` output, the RPC client against a scripted socket, the lane's whole availability ladder and run path through injected seams | the helper session itself: no run, no screenshot and no injected event has happened in the `computeruse` session |
 | `vm` | ❌ Tart is not installed and no VM has been booted | ✅ 28 recorded fixtures: `tart-runner` stdout, `xcodebuild.log`, `Result.xcresult` shapes, `xcresulttool` JSON | a real macOS guest, a real golden image, a real XCUITest run |
 | `probe` | ⚠️ partly — real file parsing against real `.xcodeproj` / `.app` fixtures, and one real `codesign` invocation by hand (see below) | ✅ hand-written entitlements plists covering every verdict path; `codesign` and `hdiutil` are driven through an injected runner so the suite is platform-independent | a real signed Developer ID app, and a real `hdiutil` mount |
 
@@ -42,6 +43,79 @@ produced.** That is the largest single gap in the project, and it is worth
 stating plainly rather than burying: the adapter is written to the documented
 contract of [`novotnyllc/tart-xcode-runner`](https://github.com/novotnyllc/tart-xcode-runner)
 (plugin v0.4.11) and its README, and has never driven a guest.
+
+## The session lane's ladder, and where it stops
+
+`docs/session-lane.md` sets out five rungs. **Rungs 1 and 2 are passed. Rungs
+3–5 are not yet.** Rung 1 was measured against a daemon running as uid 501 —
+the developer's own session — and proves the protocol, the spawn semantics and
+the capture path. Rung 2 was measured on 2026-08-20 against the real thing:
+`offstage session setup` compiled the daemon, the printed root script ran under
+`sudo`, and `launchctl bootstrap gui/502` started `offstage-sessiond` as
+`computeruse` (pid 39310) inside session 258. `hello` reported
+`onConsole: false`, a 1728×1117-point display at 2×, and both TCC grants
+absent. `offstage run --lane session -- open -a TextEdit` then started
+TextEdit under uid 502 (`ps` shows `computeruse 48372 …/TextEdit`),
+`offstage session apps` listed it beside Setup Assistant, and `IOConsoleUsers`
+still showed `viraat` on console throughout. The run's own diagnostics said
+"No screenshot was taken: Screen Recording is not granted" — the lane degraded
+exactly as designed rather than failing the run.
+
+One bug surfaced on that first live run and is fixed: the post-install hello
+poll slept on an **unref'd** timer, so Node exited with "unsettled top-level
+await" while waiting for the socket. `defaultSleep` now keeps the loop alive
+and `tests/cli.session.test.ts` holds the regression.
+
+| Rung | State |
+| --- | --- |
+| 1. daemon compiles; `--once` round-trips every op | ✅ passed, on uid 501 |
+| 2. LaunchAgent bootstrapped into the helper session; `hello` reports `onConsole: false`; `open -a TextEdit` starts under the helper uid | ✅ passed, 2026-08-20, session 258 / uid 502 |
+| 3. Screen Recording granted → `screenshot` returns a PNG of a desktop that is not the console's | ✅ passed, 2026-08-20 — a 3456×2234 PNG of the `computeruse` desktop (TextEdit + its own Dock) captured while `viraat` stayed on console |
+| 4. Accessibility granted → `input` types into TextEdit and the next screenshot shows it | fix built, live-verify pending — Accessibility granted and the daemon accepts input, but the first live attempt exposed the HID-tap routing bug above; `postToPid` is implemented and compiled, and confirmation awaits redeploying the daemon on the test machine |
+| 5. `offstage run --lane session -- npx playwright test --headed` against a shared repo | not yet |
+
+### A real finding: input must be delivered per-pid, not through the HID tap
+
+Rung 4 exposed the one thing fixture tests could never have caught. The daemon
+first posted synthetic events with `CGEvent.post(tap: .cghidEventTap)` — the
+global HID tap. From a **background** session that is wrong: the window server
+routes HID-tap events to whichever session is *on the console* (the user's), so
+`cmd+space` opened no Spotlight and keystrokes reached no TextEdit in the helper
+session, even though the daemon reported them posted. The fix is
+`CGEvent.postToPid(<frontmost app pid>)`, which delivers straight to a process
+and bypasses session routing. This is inherent to driving a non-console
+session and is now how `native/sessiond/Input.swift` posts every event.
+
+`bash native/sessiond/smoke.sh` builds the daemon into a temp directory, starts
+it as the current uid against a private socket directory, drives it, and stops
+it. It passed on the machine above, uid 501, exercising:
+
+- `hello` — protocol 1, uid matches, display `1728×1117 @2x`, permissions read
+  without prompting (`{screenCapture: true, accessibility: true}` for *that*
+  session's grants, which say nothing about the helper session's).
+- `access` — readable directory, unreadable directory (`readable: false`),
+  missing path (`exists: false`).
+- `run` — `started` event with a pid; stdout and stderr merged in order; exit
+  code passthrough; `argv[0]` resolved through `PATH`; `cwd` honoured and
+  `DISPLAY` stripped; timeout reporting `timedOut: true` / `exitCode: null` and
+  killing the whole process group promptly (SIGTERM, not the 5 s SIGKILL
+  grace); `spawn-failed` for a missing binary and for a missing `cwd`; a client
+  disconnect mid-run killing the child.
+- `apps` — the regular-activation-policy app list.
+- `screenshot` — a real PNG, and `maxDimension` honoured.
+- `input` — **validation only**: an unknown key name comes back
+  `bad-request, performed: 0`, and a non-array `actions` is refused. **No event
+  was posted.** The smoke test deliberately never injects into a live session,
+  because on this machine that session is the developer's own.
+- protocol edges — unknown op, missing op, non-JSON, and a request over 1 MiB
+  all `bad-request`.
+- `--once` — answers one `hello` over `nc -U` and exits.
+- `request-permissions` — **skipped**, deliberately: it would raise TCC prompts
+  on the visible screen.
+
+The `offstage session status` output on this machine, with nothing installed,
+is the one in `docs/usage.md`: account present, session logged in and off the
+console, socket absent, `fix: offstage session setup`.
 
 ## The container lane, demonstrated live
 
@@ -124,10 +198,14 @@ offstage 0.1.0 — node v26.7.0, darwin/arm64
 that needs them rather than run it on your screen.
 ```
 
+Recorded at 0.1.0, before the session lane existed; the same machine at 0.3.0
+reports four lanes, with `session` unavailable and
+`fix: offstage session setup`.
+
 This is the honest state of a normal laptop, and it is worth reading as a
-feature rather than an embarrassment: two of three lanes are unavailable, and
-the consequence is that offstage **refuses** the work those lanes would have
-taken — it does not run it here instead.
+feature rather than an embarrassment: most lanes are unavailable, and the
+consequence is that offstage **refuses** the work those lanes would have taken
+— it does not run it here instead.
 
 ## The suite
 
@@ -147,6 +225,15 @@ Test Files  26 passed (26)
 The two extra passes are the container lane's live tests: they build the Xvfb
 image and run a headed browser in it. CI runs the first form, because a hosted
 runner has no daemon.
+
+At 0.3.0, with the session lane and its tests added and a container runtime up,
+the same command reports:
+
+```console
+$ npx vitest run
+Test Files  33 passed (33)
+     Tests  1029 passed | 2 expected fail | 5 skipped (1036)
+```
 
 - **2 expected fail** — negative tests asserting that something *does* fail.
 - **skipped** — every one is gated on a substrate that may be absent, and each
@@ -188,6 +275,12 @@ been built, since `npm test` on a clean clone legitimately runs before
 - **container → verified live**: start a runtime (`orb start`), then
   `npm test` — the 2 gated tests build the Xvfb image and run a headed browser
   in it. Expect the first run to take several minutes for the image build.
+- **session → verified live**: run `offstage session setup` on a Mac with a
+  logged-in helper account, grant Screen Recording and Accessibility to
+  `offstage-sessiond` inside that account's session, then climb rungs 2–5 in
+  order. Rung 2 alone would settle the load-bearing question — whether a
+  background session with `onConsole: false` really spawns GUI apps into its own
+  framebuffer.
 - **vm → verified live**: install Tart and the tart-xcode-runner plugin, prepare
   a golden image, and run an XCUITest through `offstage run`. Until someone does
   that, every claim about the vm lane rests on fixtures.

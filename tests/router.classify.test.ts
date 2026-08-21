@@ -257,12 +257,12 @@ const TABLE: Row[] = [
     reason: 'You asked for a headed run',
   },
 
-  /* ---------------------------------- vm ---------------------------------- */
+  /* -------------------------------- session -------------------------------- */
   {
     what: 'xcodebuild',
     repo: 'xcode',
     command: ['xcodebuild', '-project', 'App.xcodeproj', '-scheme', 'App', 'build'],
-    lane: 'vm',
+    lane: 'session',
     confidence: 'high',
     signal: 'argv: xcodebuild',
     reason: 'only exists on macOS',
@@ -271,7 +271,7 @@ const TABLE: Row[] = [
     what: 'xcrun simctl',
     repo: 'plain',
     command: ['xcrun', 'simctl', 'boot', 'iPhone 15'],
-    lane: 'vm',
+    lane: 'session',
     confidence: 'high',
     signal: 'argv: xcrun simctl',
     reason: 'iOS Simulator',
@@ -287,7 +287,7 @@ const TABLE: Row[] = [
       '-destination',
       'platform=iOS Simulator,name=iPhone 15',
     ],
-    lane: 'vm',
+    lane: 'session',
     confidence: 'high',
     signal: 'argv: -scheme MyAppUITests',
     reason: 'macOS',
@@ -296,11 +296,31 @@ const TABLE: Row[] = [
     what: 'launching a built .app',
     repo: 'plain',
     command: ['open', './build/Release/MyApp.app'],
-    lane: 'vm',
+    lane: 'session',
     confidence: 'high',
     signal: 'open ./build/Release/MyApp.app',
     reason: 'window',
   },
+  {
+    what: 'the executable inside an .app bundle',
+    repo: 'plain',
+    command: ['./build/MyApp.app/Contents/MacOS/MyApp', '--smoke-test'],
+    lane: 'session',
+    confidence: 'high',
+    signal: '.app/Contents/MacOS/MyApp',
+    reason: '.app bundle',
+  },
+  {
+    what: 'launching Safari by name',
+    repo: 'plain',
+    command: ['open', '-a', 'Safari'],
+    lane: 'session',
+    confidence: 'high',
+    signal: 'argv: open Safari',
+    reason: 'session lane',
+  },
+
+  /* ---------------------------------- vm ---------------------------------- */
   {
     what: 'a .dmg path anywhere in the command',
     repo: 'plain',
@@ -311,20 +331,31 @@ const TABLE: Row[] = [
     reason: 'disk-image',
   },
   {
-    what: 'the executable inside an .app bundle',
+    what: 'a .pkg path anywhere in the command',
     repo: 'plain',
-    command: ['./build/MyApp.app/Contents/MacOS/MyApp', '--smoke-test'],
+    command: ['sudo', 'installer', '-pkg', './dist/MyApp.pkg', '-target', '/'],
     lane: 'vm',
     confidence: 'high',
-    signal: '.app/Contents/MacOS/MyApp',
-    reason: '.app bundle',
+    signal: 'argv: ./dist/MyApp.pkg',
+    reason: 'installer package',
+  },
+  {
+    what: 'opening a disk image',
+    repo: 'plain',
+    command: ['open', './dist/MyApp-1.2.0.dmg'],
+    lane: 'vm',
+    confidence: 'high',
+    signal: 'argv: ./dist/MyApp-1.2.0.dmg',
+    reason: 'disk-image',
   },
 ];
 
 describe('classify() routing table', () => {
-  it('covers at least fifteen commands across all three lanes', () => {
+  it('covers at least fifteen commands across all four lanes', () => {
     expect(TABLE.length).toBeGreaterThanOrEqual(15);
-    expect(new Set(TABLE.map((row) => row.lane))).toEqual(new Set(['headless', 'container', 'vm']));
+    expect(new Set(TABLE.map((row) => row.lane))).toEqual(
+      new Set(['headless', 'session', 'container', 'vm']),
+    );
   });
 
   for (const row of TABLE) {
@@ -541,46 +572,64 @@ describe('container is for web work that genuinely needs a head', () => {
   });
 });
 
-describe('vm is for macOS-native work', () => {
+describe('session is for macOS-native GUI work', () => {
   it('routes bare xcrun', async () => {
     const decision = await route('plain', ['xcrun', 'xcresulttool', 'get', '--path', 'out.xcresult']);
-    expect(decision.lane).toBe('vm');
+    expect(decision.lane).toBe('session');
     expect(signalText(decision)).toContain('xcrun xcresulttool');
   });
 
   it('routes -only-testing on a UITests target', async () => {
     const decision = await route('plain', ['xcodebuild', 'test', '-only-testing:MyAppUITests/LoginTests']);
-    expect(decision.lane).toBe('vm');
+    expect(decision.lane).toBe('session');
     expect(signalText(decision)).toContain('-only-testing:MyAppUITests/LoginTests');
+  });
+
+  it('routes an XCUITest scheme', async () => {
+    const decision = await route('plain', ['xcodebuild', 'test', '-scheme', 'AppUITests']);
+    expect(decision.lane).toBe('session');
+    expect(signalText(decision)).toContain('-scheme AppUITests');
   });
 
   it('routes a targeted .xcworkspace', async () => {
     const decision = await route('plain', ['xcodebuild', '-workspace', 'App.xcworkspace', '-scheme', 'App']);
     expect(signalText(decision)).toContain('App.xcworkspace');
-    expect(decision.lane).toBe('vm');
+    expect(decision.lane).toBe('session');
   });
 
   it('routes open -a', async () => {
     const decision = await route('plain', ['open', '-a', 'Simulator']);
-    expect(decision.lane).toBe('vm');
+    expect(decision.lane).toBe('session');
+  });
+
+  it('routes open -a Safari', async () => {
+    const decision = await route('plain', ['open', '-a', 'Safari']);
+    expect(decision.lane).toBe('session');
+    expect(decision.confidence).toBe('high');
   });
 
   it('routes open of anything else, with low confidence', async () => {
     const decision = await route('plain', ['open', 'http://localhost:3000']);
-    expect(decision.lane).toBe('vm');
+    expect(decision.lane).toBe('session');
     expect(decision.confidence).toBe('low');
   });
 
   it('routes simctl invoked directly', async () => {
     const decision = await route('plain', ['simctl', 'list', 'devices']);
-    expect(decision.lane).toBe('vm');
+    expect(decision.lane).toBe('session');
     expect(signalText(decision)).toContain('xcrun simctl');
   });
 
   it('routes macOS GUI tooling', async () => {
     const decision = await route('plain', ['osascript', '-e', 'tell application "Finder" to activate']);
-    expect(decision.lane).toBe('vm');
+    expect(decision.lane).toBe('session');
     expect(signalText(decision)).toContain('osascript');
+  });
+
+  it('routes instruments', async () => {
+    const decision = await route('plain', ['instruments', '-t', 'Time Profiler', 'MyApp']);
+    expect(decision.lane).toBe('session');
+    expect(signalText(decision)).toContain('instruments');
   });
 
   it('confirms the decision with the repository when it is an Xcode project', async () => {
@@ -588,8 +637,73 @@ describe('vm is for macOS-native work', () => {
     expect(signalText(decision)).toContain('App.xcodeproj present, and this command targets it');
   });
 
+  it('tells the reader how to ask for a disposable machine instead', async () => {
+    for (const command of [
+      ['xcodebuild', 'test', '-scheme', 'AppUITests'],
+      ['open', '-a', 'Safari'],
+      ['osascript', '-e', 'beep'],
+      ['safaridriver', '--port', '4444'],
+    ]) {
+      const decision = await route('plain', command);
+      expect(decision.lane, command.join(' ')).toBe('session');
+      expect(decision.reason, command.join(' ')).toContain('--lane vm');
+      expect(decision.reason, command.join(' ')).toContain('second, logged-in macOS account');
+    }
+  });
+
   it('wins over a headed web signal, and says so', async () => {
     const decision = await route('plain', ['xcodebuild', 'test', '-scheme', 'App', '--headed']);
+    expect(decision.lane).toBe('session');
+    expect(decision.confidence).toBe('low');
+    expect(decision.reason).toMatch(/a Linux container cannot run macOS apps/);
+  });
+
+  it('wins over a headed web signal when the app is opened by name too', async () => {
+    const decision = await route('plain', ['open', '-a', 'Safari', '--args', '--headed']);
+    expect(decision.lane).toBe('session');
+    expect(decision.confidence).toBe('low');
+    expect(decision.reason).toContain(
+      'This also carries headed-browser signals; the session lane wins because a Linux container cannot run macOS apps.',
+    );
+  });
+});
+
+describe('vm is for macOS work that can change the machine', () => {
+  it('routes a .pkg path', async () => {
+    const decision = await route('plain', ['open', './dist/MyApp.pkg']);
+    expect(decision.lane).toBe('vm');
+    expect(signalText(decision)).toContain('argv: ./dist/MyApp.pkg');
+  });
+
+  it('routes the installer command', async () => {
+    const decision = await route('plain', ['installer', '-pkg', 'MyApp.pkg', '-target', '/']);
+    expect(decision.lane).toBe('vm');
+    expect(decision.confidence).toBe('high');
+    expect(signalText(decision)).toContain('argv: installer');
+    expect(decision.reason).toMatch(/installer package to a target volume/);
+  });
+
+  it('routes hdiutil attach', async () => {
+    const decision = await route('plain', ['hdiutil', 'attach', 'MyApp.dmg']);
+    expect(decision.lane).toBe('vm');
+    expect(signalText(decision)).toContain('argv: MyApp.dmg');
+  });
+
+  it('routes open of a .dmg', async () => {
+    const decision = await route('plain', ['open', 'Foo.dmg']);
+    expect(decision.lane).toBe('vm');
+  });
+
+  it('beats a session signal on the same command line, and says why', async () => {
+    const decision = await route('plain', ['sh', '-c', 'xcodebuild build && open ./dist/MyApp.dmg']);
+    expect(decision.lane).toBe('vm');
+    expect(decision.reason).toContain(
+      'The command also carries macOS GUI signals that the session lane could run, but an installer/disk image needs a disposable machine, so the VM lane wins.',
+    );
+  });
+
+  it('still beats a headed web signal, and says why', async () => {
+    const decision = await route('plain', ['hdiutil', 'attach', 'MyApp.dmg', '--headed']);
     expect(decision.lane).toBe('vm');
     expect(decision.confidence).toBe('low');
     expect(decision.reason).toMatch(/Linux container cannot run macOS tooling/);

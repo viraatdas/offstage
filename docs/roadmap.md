@@ -1,11 +1,12 @@
 # offstage — roadmap
 
 The build was an 11-node plan. **All eleven nodes are done**, along with twelve
-follow-up hardening passes. The suite is green from a clean clone
-(`npm ci && npm run build && npm test`: 26 files, 807 passed, 2 expected fail,
-7 skipped — 809 passed with a container runtime running).
+follow-up hardening passes, and in 0.3.0 a fourth lane — the macOS **session**
+lane. The suite is green from a clean clone (`npx vitest run`: 33 files, 1029
+passed, 2 expected fail, 5 skipped with a container runtime running).
 
-What remains is not design work. It is evidence, and one release decision.
+What remains is not design work. It is evidence — for the session lane first,
+and for the vm lane behind it.
 
 ## Done
 
@@ -29,6 +30,10 @@ What remains is not design work. It is evidence, and one release decision.
 - **n10** — Review pass: two real routing holes found and closed
   (`env PWDEBUG=1 …` and `sh -c '… --headed'`, both of which routed work that
   opens a window into the lane with no display). Findings in `docs/review.md`.
+- **the session lane (0.3.0)** — `native/sessiond/` (the Swift daemon),
+  `src/session/` (discovery, RPC client, setup), `src/lanes/session/`, the
+  router's macOS split, `offstage session …` and four MCP tools. Design in
+  [session-lane.md](session-lane.md).
 - **followup-1..12** — hardening: the two-tsconfig split, dependency pins, the
   4MB capture budget, the reporter-coverage boundary, WebDriver capability
   reading, video-vs-screen capture, runtime-computed capability honesty, and log
@@ -36,13 +41,49 @@ What remains is not design work. It is evidence, and one release decision.
 
 ## Left
 
+### The session lane has never run inside the helper session — this is the headline
+
+The fourth lane landed in 0.3.0: a second, logged-in macOS account
+(`computeruse`, uid 502) sitting in the background with its own window server,
+framebuffer and HID stream, driven through a small Swift daemon
+(`offstage-sessiond`) over a unix socket. It replaces the vm lane as the default
+for every macOS-native command that opens a window but changes nothing —
+`xcodebuild`, `xcrun simctl`, XCUITests, `open -a`, `osascript`, `safaridriver`.
+The vm lane keeps exactly the work that could change the machine: `.dmg`,
+`.pkg`, `installer`, `hdiutil`. Design in [session-lane.md](session-lane.md);
+the daemon's own notes in [`native/sessiond/README.md`](../native/sessiond/README.md).
+
+What is done: the daemon, the host-side discovery/RPC/setup modules, the lane,
+the router rules, the CLI (`offstage session status|setup|share|screenshot|
+input|click|type|key|apps|open`), four MCP tools, and the skill section that
+tells an agent to loop screenshot → input → screenshot.
+
+What is left is **evidence**, and it is the same shape as the vm lane's gap.
+The verification ladder from `session-lane.md`, with its current state:
+
+| Rung | State |
+| --- | --- |
+| 1. daemon compiles; `--once` round-trips every op | ✅ done — `native/sessiond/smoke.sh`, but as uid 501, the developer's own session |
+| 2. LaunchAgent bootstrapped into the helper session; `hello` reports `onConsole: false`; `open -a TextEdit` starts under the helper uid while the console shows nothing | **Left** |
+| 3. Screen Recording granted → `screenshot` returns a PNG of a desktop that is not the console's | **Left** |
+| 4. Accessibility granted → `input` types into TextEdit and the next screenshot shows the text | **Left** |
+| 5. `offstage run --lane session -- npx playwright test --headed` against a shared repo: a Chromium window in the helper session, `failures[]` parsed, console untouched | **Left** |
+
+Rung 2 is the load-bearing one: everything else assumes a background session
+keeps a live framebuffer and spawns GUI apps into it. Until it is climbed,
+README and [verified.md](verified.md) say "daemon verified live on the
+developer's own session; not yet verified inside the helper session" in those
+words.
+
 ### The vm lane has never driven a real macOS guest
 
 (The container lane no longer belongs on this list: as of 2026-08-18 it has run
 a genuinely headed Chromium with the host screen verifiably untouched — see
 [docs/verified.md](verified.md).)
 
-This is the one gap that matters. Every claim about the vm lane rests on 28
+Narrower than it was, now that the session lane has taken `xcodebuild` and the
+simulators: what is left here is installers and anything else that changes the
+machine. Every claim about the vm lane rests on 28
 recorded fixtures and `xcresulttool`'s published JSON Schema 0.1.0 — not on a
 bundle a real run produced. Closing it means installing Tart and the
 `tart-xcode-runner` plugin, preparing a golden image, and driving one XCUITest

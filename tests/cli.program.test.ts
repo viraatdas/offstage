@@ -65,7 +65,7 @@ async function cli(argv: string[], options: { cwd?: string; deps?: Partial<ApiDe
     cwd: () => options.cwd ?? process.cwd(),
     env: options.env ?? {},
     deps: {
-      lanes: { headless: lane('headless'), container: lane('container'), vm: lane('vm') },
+      lanes: { headless: lane('headless'), session: lane('session'), container: lane('container'), vm: lane('vm') },
       env: options.env ?? {},
       ...options.deps,
     },
@@ -130,7 +130,7 @@ describe('offstage run', () => {
     const failing = lane('headless', 'failed');
     const result = await cli(['run', '--', 'npm', 'test'], {
       cwd,
-      deps: { lanes: { headless: failing, container: lane('container'), vm: lane('vm') } },
+      deps: { lanes: { headless: failing, session: lane('session'), container: lane('container'), vm: lane('vm') } },
     });
 
     expect(result.code).toBe(1);
@@ -153,7 +153,7 @@ describe('offstage run', () => {
     const headless = lane('headless');
     const result = await cli(['run', '--lane', 'sandbox', '--', 'npm', 'test'], {
       cwd,
-      deps: { lanes: { headless, container: lane('container'), vm: lane('vm') } },
+      deps: { lanes: { headless, session: lane('session'), container: lane('container'), vm: lane('vm') } },
     });
 
     expect(result.code).toBe(64);
@@ -171,7 +171,7 @@ describe('offstage run', () => {
     const headless = lane('headless');
     const result = await cli(['run', '--lane', 'headless', '--', 'xcodebuild', 'test'], {
       cwd,
-      deps: { lanes: { headless, container: lane('container'), vm: lane('vm') } },
+      deps: { lanes: { headless, session: lane('session'), container: lane('container'), vm: lane('vm') } },
     });
 
     expect(result.code).toBe(70);
@@ -194,14 +194,14 @@ describe('offstage doctor', () => {
     expect(result.out).toContain('headless');
     expect(result.out).toContain('fix: install container');
     expect(result.out).toContain('fix: install vm');
-    expect(result.out).toContain('2 of 3 lanes cannot run right now');
+    expect(result.out).toContain('3 of 4 lanes cannot run right now');
   });
 
   it('emits a machine-readable report under --json', async () => {
     const result = await cli(['doctor', '--json']);
     const parsed = JSON.parse(result.out) as { ready: string[]; lanes: unknown[] };
     expect(parsed.ready).toEqual(['headless']);
-    expect(parsed.lanes).toHaveLength(3);
+    expect(parsed.lanes).toHaveLength(4);
   });
 });
 

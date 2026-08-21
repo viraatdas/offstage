@@ -151,3 +151,30 @@ That experiment needs root once, and is the correct next step.
 - A user created with `sysadminctl -addUser` but no `-password` gets **no**
   `AuthenticationAuthority` and **no** SecureToken. Under FileVault that account
   cannot authenticate. Setting the password through System Settings repairs both.
+
+## Outcome
+
+This document ends at "that experiment needs root once, and is the correct next
+step". The experiment was run, and it settled the question in the cheap
+direction: **a backgrounded session can be driven**, so none of the Screen
+Sharing protocol work above is needed. What was built instead is the session
+lane — a helper account logged in and left in the background, with a small Swift
+daemon inside its session that offstage talks to over a unix socket. See
+[session-lane.md](session-lane.md) for the design and
+[`native/sessiond/README.md`](../native/sessiond/README.md) for the daemon.
+
+### One reading above was wrong, and it is worth correcting in place
+
+Earlier in this file the second account's session is described as "sitting at
+the login window". It was not. `IOConsoleUsers` reports
+`kCGSessionLoginDoneKey: true` for that entry — a completed login and a full
+Aqua session — alongside `kCGSSessionOnConsoleKey: false`. What was actually on
+that session's screen was **Setup Assistant**, which the account had been parked
+in and which looks like a login window from the outside. The distinction is the
+whole lane: a login window has no window server connection to spawn apps into,
+and a logged-in background session has one. Reading `LoginDone` rather than
+guessing from a screenshot is why `src/session/discover.ts` parses that key and
+why the lane's availability ladder gates on it.
+
+The Screen Sharing findings above stay as they are. They remain true, and they
+remain the fallback if Apple ever takes the multi-session behaviour away.

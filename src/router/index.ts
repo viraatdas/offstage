@@ -38,10 +38,26 @@
  *   keeps the default lane, drops to `confidence: 'low'`, and names the
  *   expression it could not evaluate, instead of reporting the tool's default
  *   as though it had read yours.
- * - **vm for macOS-native work**: `xcodebuild`, `xcrun simctl`, XCUITest
- *   schemes, `open` of a `.app`, a `.dmg`, a targeted `.xcodeproj`,
- *   `safaridriver`. No container can run these at all.
+ * - **session for macOS-native GUI work**: `xcodebuild`, `xcrun`, `xcrun
+ *   simctl`, XCUITest schemes, a targeted `.xcodeproj`, `open -a`, the binary
+ *   inside a `.app`, `safaridriver`, `osascript`, `instruments`. No Linux
+ *   container can run any of these — they need a real macOS window server. But
+ *   they do not need a *fresh machine*, only a display that is not yours, and
+ *   macOS already has one: a second local account, logged in and sitting in the
+ *   background with its own framebuffer, its own keyboard and mouse stream and
+ *   its own running apps. That is the session lane, and it costs a socket
+ *   connection rather than a 27–69 GB VM image. See `docs/session-lane.md`.
+ * - **vm for work that can change the machine**: a `.dmg`, a `.pkg`, the
+ *   `installer` command, `hdiutil`. The session lane is session isolation, not
+ *   machine isolation — same OS, same kernel, same disk — so an installer that
+ *   damages the system would damage *your* system. Those get a disposable macOS
+ *   guest instead, and they outrank every session signal for exactly that
+ *   reason.
  * - **everything else is headless**, because no display is involved anywhere.
+ *
+ * Precedence when signals disagree: `vm` > `session` > `container` >
+ * `headless`. A disposable machine beats a spare display, a spare macOS display
+ * beats a Linux one, and any of them beats running on your screen.
  *
  * When the evidence is thin or contradictory the answer comes back with
  * `confidence: 'low'` and a `reason` that says so, rather than a confident
@@ -186,8 +202,9 @@ function decide(collected: Signal[]): RouteDecision {
   if (!signals.some((item) => item.argues !== null)) signals.push({ ...NOTHING_FOUND });
 
   const hasVm = signals.some((item) => item.argues === 'vm');
+  const hasSession = signals.some((item) => item.argues === 'session');
   const hasContainer = signals.some((item) => item.argues === 'container');
-  const lane: Lane = hasVm ? 'vm' : hasContainer ? 'container' : 'headless';
+  const lane: Lane = hasVm ? 'vm' : hasSession ? 'session' : hasContainer ? 'container' : 'headless';
 
   const kept = signals.filter((item) => lane === 'headless' || !FRAMING_KINDS.has(item.kind));
   const forLane = kept.filter((item) => item.argues === lane).sort((a, b) => a.priority - b.priority);
@@ -196,10 +213,21 @@ function decide(collected: Signal[]): RouteDecision {
   const notes: string[] = [];
   let confidence: 'high' | 'low' = primary.confidence;
 
+  if (hasVm && hasSession) {
+    notes.push(
+      'The command also carries macOS GUI signals that the session lane could run, but an installer/disk image needs a disposable machine, so the VM lane wins.',
+    );
+  }
   if (hasVm && hasContainer) {
     confidence = 'low';
     notes.push(
       'This command also carries headed-browser signals; the macOS VM lane wins because a Linux container cannot run macOS tooling at all.',
+    );
+  }
+  if (lane === 'session' && hasContainer) {
+    confidence = 'low';
+    notes.push(
+      'This also carries headed-browser signals; the session lane wins because a Linux container cannot run macOS apps.',
     );
   }
   if (lane === 'container' && override !== undefined) {

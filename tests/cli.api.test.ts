@@ -77,6 +77,7 @@ function deps(
   return {
     lanes: {
       headless: lanes.headless ?? fakeLane('headless'),
+      session: lanes.session ?? fakeLane('session'),
       container: lanes.container ?? fakeLane('container'),
       vm: lanes.vm ?? fakeLane('vm'),
     },
@@ -114,9 +115,14 @@ describe('doctor', () => {
       }),
     );
 
-    expect(report.lanes.map((health) => health.lane)).toEqual(['headless', 'container', 'vm']);
-    expect(report.ready).toEqual(['headless']);
-    expect(report.lanes[1]?.availability.fix).toBe('colima start');
+    expect(report.lanes.map((health) => health.lane)).toEqual([
+      'headless',
+      'session',
+      'container',
+      'vm',
+    ]);
+    expect(report.ready).toEqual(['headless', 'session']);
+    expect(report.lanes[2]?.availability.fix).toBe('colima start');
     expect(report.offstageVersion).toMatch(/^\d+\.\d+\.\d+$|^unknown$/);
   });
 
@@ -316,7 +322,7 @@ describe('run', () => {
 
       const persisted = await readResult(outcome.resultPath as string);
       expect(persisted.status).toBe('errored');
-      expect(persisted.diagnostics.join(' ')).toContain('routed it to the vm lane');
+      expect(persisted.diagnostics.join(' ')).toContain('routed it to the session lane');
     });
 
     it('allows --lane headless when the router agreed, because that is not a downgrade', async () => {

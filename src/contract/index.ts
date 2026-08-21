@@ -3,7 +3,7 @@
  *
  * Everything in offstage is a routing decision followed by a lane execution.
  * This module is the single place where "what a lane is" and "what a lane
- * returns" are defined. The router (`src/router/`), all three lanes
+ * returns" are defined. The router (`src/router/`), all four lanes
  * (`src/lanes/*`), the CLI (`src/cli/`) and the MCP server (`src/mcp/`) all
  * speak exactly these types — nothing else crosses a module boundary.
  *
@@ -33,7 +33,7 @@
  * - **Failure file paths are repository-relative.** They point at the user's
  *   *source*, which exists identically on the host and in the guest at
  *   different absolute prefixes. Repo-relative is the only form that a human,
- *   an editor, and an agent can all resolve, on any of the three lanes.
+ *   an editor, and an agent can all resolve, on any of the four lanes.
  *
  * Use the helpers in `./artifacts.js` (`artifactPath`, `toRepoRelative`) rather
  * than hand-rolling these; they produce values the schema accepts.
@@ -56,17 +56,23 @@ import { z } from 'zod';
 /* -------------------------------------------------------------------------- */
 
 /**
- * The three isolation substrates offstage routes to.
+ * The four isolation substrates offstage routes to.
  *
  * - `headless` — no isolation at all. The command already opens no window, so
  *   it runs in place. This is the cheapest lane and the default for web test
  *   commands; isolating an already-headless command buys nothing.
+ * - `session` — a second, logged-in macOS user account running in the
+ *   background. It has its own framebuffer, its own input stream and its own
+ *   apps, so macOS-native GUI work (`open -a`, `xcodebuild test`, a headed
+ *   browser on real Metal) runs there without touching the console user's
+ *   screen. Session isolation, not machine isolation — same OS, same disk.
+ *   See `docs/session-lane.md`.
  * - `container` — a Linux container with an Xvfb virtual framebuffer, for web
  *   work that genuinely needs a headed browser and a real compositor.
- * - `vm` — a macOS guest (Tart), for macOS-native work: `xcodebuild`,
- *   simulators, XCUITests, launching a built `.app`.
+ * - `vm` — a macOS guest (Tart), for macOS-native work that may change the
+ *   machine: installers, `.dmg`/`.pkg`, anything needing a disposable system.
  */
-export const LANES = ['headless', 'container', 'vm'] as const;
+export const LANES = ['headless', 'session', 'container', 'vm'] as const;
 
 export type Lane = (typeof LANES)[number];
 

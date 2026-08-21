@@ -16,7 +16,16 @@ import path from 'node:path';
 
 import type { LaneResult, RouteDecision } from '../contract/index.js';
 import type { EntitlementsProbeReport } from '../probe/index.js';
-import type { DoctorReport, RunOutcome } from './api.js';
+import type {
+  DoctorReport,
+  RunOutcome,
+  SessionInputResult,
+  SessionScreenshotResult,
+  SessionSetupResult,
+  SessionShareResult,
+  SessionStatus,
+} from './api.js';
+import type { SessionApp } from '../session/index.js';
 
 const CHECK = '✓';
 const CROSS = '✗';
@@ -124,7 +133,10 @@ export function renderDoctor(report: DoctorReport): string[] {
 
   const missing = report.lanes.filter((health) => !health.availability.available);
   if (missing.length === 0) {
-    lines.push('All three lanes are usable on this machine.');
+    // Counted, not spelled out: this sentence said "All three lanes" for one
+    // lane longer than it was true, and a report that miscounts itself is the
+    // last thing that should be reassuring the reader.
+    lines.push(`All ${report.lanes.length} lanes are usable on this machine.`);
   } else {
     lines.push(
       ...wrap(
@@ -301,6 +313,184 @@ export function renderProbe(report: EntitlementsProbeReport): string[] {
     for (const note of report.notes) {
       lines.push(...block(note, '  - ', '    '));
     }
+  }
+  return lines;
+}
+
+/* -------------------------------------------------------------------------- */
+/* session                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `offstage session status`, for a human.
+ *
+ * The order is the order of the availability ladder in `docs/session-lane.md`,
+ * so the first ✗ from the top is the thing to fix — and everything below it is
+ * shown anyway, because "the socket is absent" reads very differently when the
+ * line above it says the account has never been logged in.
+ */
+export function renderSessionStatus(status: SessionStatus): string[] {
+  /* One column width for every label, so the ✓/✗ column and the value column
+     both line up no matter which rows this particular machine produces. */
+  const row = (ok: boolean, label: string, text: string): string =>
+    `  ${ok ? CHECK : CROSS} ${label.padEnd(17)}${text}`;
+  const gui = status.guiSession;
+  const lines: string[] = [
+    `${status.available ? CHECK : CROSS} session lane ${status.available ? 'available' : 'unavailable'} — account "${status.user}"${
+      status.uid === null ? '' : ` (uid ${status.uid})`
+    }`,
+    '',
+    row(
+      status.accountExists,
+      'account',
+      status.accountExists ? `${status.fullName}, home ${status.home ?? 'unknown'}` : 'not on this Mac',
+    ),
+    row(
+      gui.exists && gui.loginDone,
+      'gui session',
+      !gui.exists
+        ? 'none — nothing is logged in under that account'
+        : !gui.loginDone
+          ? 'at the login window, which is not a session'
+          : `logged in${gui.sessionId === null ? '' : ` (session ${gui.sessionId})`}`,
+    ),
+    row(
+      gui.loginDone && !gui.onConsole,
+      'off your screen',
+      gui.onConsole
+        ? 'no — that session is the one on your display right now'
+        : gui.loginDone
+          ? 'yes — it is running in the background'
+          : 'unknown until it is logged in',
+    ),
+    row(
+      status.socketPresent,
+      'socket',
+      `${status.socketPath}${status.socketPresent ? '' : ' (absent)'}`,
+    ),
+    row(
+      status.daemon !== null,
+      'daemon',
+      status.daemon === null
+        ? 'not answering'
+        : `offstage-sessiond ${status.daemon.version}, pid ${status.daemon.pid}, protocol ${status.daemon.protocol}`,
+    ),
+  ];
+
+  if (status.display !== null) {
+    lines.push(
+      `    ${'display'.padEnd(17)}${status.display.width}×${status.display.height} points @${status.display.scale}x (input coordinates are points)`,
+    );
+  }
+  if (status.permissions !== null) {
+    lines.push(
+      row(
+        status.permissions.screenCapture,
+        'Screen Recording',
+        status.permissions.screenCapture ? 'granted' : 'not granted — screenshots will fail',
+      ),
+    );
+    lines.push(
+      row(
+        status.permissions.accessibility,
+        'Accessibility',
+        status.permissions.accessibility ? 'granted' : 'not granted — input injection will fail',
+      ),
+    );
+  }
+
+  if (status.reason !== null) {
+    lines.push('');
+    lines.push(...block(status.reason, '  ', '  '));
+  }
+  if (status.fix !== null) {
+    lines.push(...block(status.fix, '  fix: ', '       '));
+  }
+  for (const note of status.notes) {
+    lines.push('');
+    lines.push(...block(note, '  note: ', '        '));
+  }
+  return lines;
+}
+
+/** `offstage session setup` — what it did, and what the human still has to do. */
+export function renderSessionSetup(result: SessionSetupResult): string[] {
+  const lines: string[] = ['', `${result.ok ? CHECK : CROSS} session setup for "${result.user}"${
+    result.uid === null ? '' : ` (uid ${result.uid})`
+  }`];
+  for (const step of result.steps) {
+    lines.push(`  ${step.ok ? CHECK : CROSS} ${step.step.padEnd(12)}${step.detail}`);
+  }
+  if (result.nextSteps.length > 0) {
+    lines.push('');
+    lines.push(result.ok ? 'Next:' : 'What to do:');
+    let index = 1;
+    for (const step of result.nextSteps) {
+      lines.push(...block(step, `  ${index}. `, '     '));
+      index += 1;
+    }
+  }
+  return lines;
+}
+
+/** `offstage session share` — the ACLs that were applied, verbatim. */
+export function renderSessionShare(result: SessionShareResult): string[] {
+  const lines: string[] = [
+    `${result.ok ? CHECK : CROSS} ${result.ok ? 'shared' : 'could not share'} ${result.target} with "${result.user}" (read-only)`,
+  ];
+  for (const command of result.commands) lines.push(`  ${command}`);
+  for (const failure of result.failures) {
+    lines.push(...block(`failed: ${failure.command} — ${failure.stderr}`, '  ', '    '));
+  }
+  if (result.ok) {
+    lines.push('');
+    lines.push(
+      ...wrap(
+        'Read only, and only this tree: a run writes to its own .offstage/runs/<id> directory, ' +
+          'which the lane opens to the helper account per run.',
+      ),
+    );
+  }
+  return lines;
+}
+
+/** `offstage session screenshot` — where it landed and what it is a picture of. */
+export function renderSessionScreenshot(result: SessionScreenshotResult): string[] {
+  const lines = [
+    `${CHECK} captured the helper session's display: ${result.width}×${result.height} px @${result.scale}x`,
+  ];
+  if (result.path !== null) lines.push(`  ${result.path}`);
+  lines.push(
+    `  ${Math.round(result.width / result.scale)}×${Math.round(result.height / result.scale)} points — divide pixel coordinates by ${result.scale} before passing them to \`offstage session click\`.`,
+  );
+  return lines;
+}
+
+/** `offstage session input` / `click` / `type` / `key`. */
+export function renderSessionInput(result: SessionInputResult): string[] {
+  return [
+    `${CHECK} performed ${result.performed} action${result.performed === 1 ? '' : 's'} in the helper session`,
+    ...result.actions.map((action) => `  - ${JSON.stringify(action)}`),
+    '',
+    ...wrap(
+      'Take a screenshot now: input is fire-and-forget, and the only way to know what it did is to look.',
+    ),
+  ];
+}
+
+/** `offstage session apps`. */
+export function renderSessionApps(apps: SessionApp[]): string[] {
+  if (apps.length === 0) {
+    return ['No regular apps are running in the helper session.'];
+  }
+  const lines = [`${apps.length} app${apps.length === 1 ? '' : 's'} running in the helper session:`];
+  for (const app of apps) {
+    const flags = [app.active ? 'active' : '', app.hidden ? 'hidden' : ''].filter(Boolean).join(', ');
+    lines.push(
+      `  - ${String(app.pid).padEnd(7)}${app.name ?? '(unnamed)'}${
+        app.bundleId ? ` [${app.bundleId}]` : ''
+      }${flags ? ` (${flags})` : ''}`,
+    );
   }
   return lines;
 }

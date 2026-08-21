@@ -61,6 +61,10 @@ const EVERY_SHAPE: string[][] = [
   ['xcrun', 'simctl', 'boot', 'iPhone 15'],
   ['open', './build/MyApp.app'],
   ['open', './dist/MyApp.dmg'],
+  ['open', './dist/MyApp.pkg'],
+  ['installer', '-pkg', './dist/MyApp.pkg', '-target', '/'],
+  ['hdiutil', 'attach', './dist/MyApp.dmg'],
+  ['open', '-a', 'Safari'],
   ['osascript', '-e', 'beep'],
   ['./scripts/mystery.sh'],
 ];
@@ -118,7 +122,7 @@ describe('the classifier is pure', () => {
     for (const repo of ['plain', 'scripts', 'puppeteer', 'xcode'] as const) {
       for (const command of EVERY_SHAPE) {
         const decision = await classify({ cwd: fixtures.path(repo), command });
-        expect(decision.lane, command.join(' ')).toMatch(/^(headless|container|vm)$/);
+        expect(decision.lane, command.join(' ')).toMatch(/^(headless|session|container|vm)$/);
       }
     }
   });

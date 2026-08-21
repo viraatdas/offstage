@@ -1,0 +1,4 @@
+NFSHomeDirectory: /Users/computeruse
+RealName:
+ Computer Use
+UniqueID: 502

@@ -214,6 +214,12 @@ describe('recording never overrides the signals that do decide', () => {
   it('lets macOS-native work win over --video=on', async () => {
     const decision = await route(plainRepo, ['xcodebuild', 'test', '-scheme', 'App', '--video=on']);
 
+    expect(decision.lane).toBe('session');
+  });
+
+  it('lets an installer win over --video=on', async () => {
+    const decision = await route(plainRepo, ['installer', '-pkg', 'MyApp.pkg', '-target', '/', '--video=on']);
+
     expect(decision.lane).toBe('vm');
   });
 });

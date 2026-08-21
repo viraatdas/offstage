@@ -1,7 +1,7 @@
 {
   "name": "@viraatdas/offstage",
-  "version": "0.2.6",
-  "description": "Routing layer that keeps UI, browser and macOS app work off your screen by sending each command to the cheapest isolation substrate that can honestly run it.",
+  "version": "0.3.0",
+  "description": "Routes browser, UI and macOS test commands to the cheapest of four isolation lanes — in place, a Linux container, a second logged-in macOS account, or a disposable VM — so none of them ever touches your screen.",
   "keywords": [
     "testing",
     "playwright",
@@ -12,7 +12,11 @@
     "tart",
     "isolation",
     "mcp",
-    "claude-code"
+    "claude-code",
+    "macos",
+    "screen-isolation",
+    "fast-user-switching",
+    "computer-use"
   ],
   "license": "MIT",
   "author": {
@@ -45,6 +49,7 @@
     "dist",
     "docker",
     "docs",
+    "native",
     "skills",
     ".claude-plugin",
     ".mcp.json",

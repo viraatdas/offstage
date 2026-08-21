@@ -28,17 +28,22 @@ import { basenameOf, normalizeInvocation, parseScriptInvocation, tokenizeShellis
 /* -------------------------------------------------------------------------- */
 
 export type SignalKind =
-  // vm
+  // session — macOS-native GUI work, which needs a real window server but not
+  // a fresh machine. `macos-gui-tool` is the exception that spans both: it
+  // argues `session` for osascript and instruments, `vm` for hdiutil.
   | 'xcodebuild'
   | 'xcrun-simctl'
   | 'xcrun'
   | 'uitest-scheme'
   | 'xcode-target'
   | 'open-app'
-  | 'dmg-path'
   | 'app-binary'
   | 'macos-gui-tool'
   | 'open-other'
+  // vm — anything that can change the machine it runs on
+  | 'dmg-path'
+  | 'pkg-path'
+  | 'installer'
   // container
   | 'headed-flag'
   | 'headed-hint'
@@ -646,11 +651,11 @@ function macosSignals(view: CommandView): Signal[] {
     found.push(
       signal({
         kind: 'xcodebuild',
-        argues: 'vm',
+        argues: 'session',
         origin: view.label,
         detail: at('xcodebuild'),
         clause:
-          'xcodebuild only exists on macOS and drives the Xcode toolchain, so no container can run it; offstage sends it to a macOS VM where its build and simulator windows stay off your screen.',
+          'xcodebuild only exists on macOS and drives the Xcode toolchain against a real window server, so no Linux container can run it; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so its build and simulator windows never reach your desktop. Pass --lane vm for a disposable machine.',
         priority: 10,
         inferred: false,
         confidence: 'high',
@@ -664,11 +669,11 @@ function macosSignals(view: CommandView): Signal[] {
       found.push(
         signal({
           kind: 'xcrun-simctl',
-          argues: 'vm',
+          argues: 'session',
           origin: view.label,
           detail: at('xcrun simctl'),
           clause:
-            'xcrun simctl boots an iOS Simulator, which needs a live macOS window server; the VM lane provides one so the simulator never appears on your desktop.',
+            'xcrun simctl boots an iOS Simulator, which needs a live macOS window server to render into; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so the simulator never appears on your desktop. Pass --lane vm for a disposable machine.',
           priority: 11,
           inferred: false,
           confidence: 'high',
@@ -678,11 +683,11 @@ function macosSignals(view: CommandView): Signal[] {
       found.push(
         signal({
           kind: 'xcrun',
-          argues: 'vm',
+          argues: 'session',
           origin: view.label,
           detail: at(`xcrun ${args[0] ?? ''}`.trim()),
           clause:
-            'xcrun runs a macOS developer tool from the Xcode toolchain, which exists on no other platform, so this goes to the macOS VM lane.',
+            'xcrun runs a macOS developer tool from the Xcode toolchain, which exists on no other platform and may put a window up while it works; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so anything it opens never reaches your desktop. Pass --lane vm for a disposable machine.',
           priority: 17,
           inferred: false,
           confidence: 'high',
@@ -700,11 +705,11 @@ function macosSignals(view: CommandView): Signal[] {
     found.push(
       signal({
         kind: 'uitest-scheme',
-        argues: 'vm',
+        argues: 'session',
         origin: view.label,
         detail: at(scheme !== undefined ? `-scheme ${scheme}` : (onlyTesting as string)),
         clause:
-          'This targets an XCUITest scheme, which drives a real app through the macOS accessibility APIs and needs a live UI session; the VM lane gives it one that is not your desktop.',
+          'This targets an XCUITest scheme, which drives a real macOS app through the accessibility APIs and needs a live UI session with a keyboard and mouse of its own; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so the test types into that session and never into yours. Pass --lane vm for a disposable machine.',
         priority: 12,
         inferred: false,
         confidence: 'high',
@@ -719,12 +724,12 @@ function macosSignals(view: CommandView): Signal[] {
     found.push(
       signal({
         kind: 'xcode-target',
-        argues: 'vm',
+        argues: 'session',
         origin: view.label,
         detail: at(basenameOf(projectToken.replace(/\/$/, ''))),
         clause: `The command targets ${basenameOf(
           projectToken.replace(/\/$/, ''),
-        )}, which only Xcode on macOS can open, so it runs in the macOS VM lane.`,
+        )}, which only Xcode on macOS can open and which builds against a real window server; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so whatever it opens never reaches your desktop. Pass --lane vm for a disposable machine.`,
         priority: 13,
         inferred: false,
         confidence: 'high',
@@ -741,7 +746,7 @@ function macosSignals(view: CommandView): Signal[] {
         origin: view.label,
         detail: at(dmg),
         clause:
-          'A .dmg has to be mounted by the macOS disk-image stack and the app inside it launched with a window server, so this belongs in the macOS VM lane rather than on your machine.',
+          'A .dmg is mounted by the macOS disk-image stack onto the machine that runs the command, and what is inside one is usually an installer that can change that machine; the session lane shares your OS and your disk, so this goes to the vm lane — a disposable macOS guest you can throw away afterwards.',
         priority: 15,
         inferred: false,
         confidence: 'high',
@@ -754,11 +759,11 @@ function macosSignals(view: CommandView): Signal[] {
     found.push(
       signal({
         kind: 'app-binary',
-        argues: 'vm',
+        argues: 'session',
         origin: view.label,
         detail: at(appBinary),
         clause:
-          'This launches the executable inside a macOS .app bundle, which puts a real window on whatever screen it finds; the VM lane keeps that window inside the guest.',
+          'This launches the executable inside a macOS .app bundle, which puts a real window on whatever screen it finds; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so the window opens on that other framebuffer and never reaches your desktop. Pass --lane vm for a disposable machine.',
         priority: 16,
         inferred: false,
         confidence: 'high',
@@ -773,11 +778,11 @@ function macosSignals(view: CommandView): Signal[] {
       found.push(
         signal({
           kind: 'open-app',
-          argues: 'vm',
+          argues: 'session',
           origin: view.label,
           detail: at(`open ${appArg ?? flagValue(args, ['-a']) ?? ''}`.trim()),
           clause:
-            'open launches a macOS app, and a launched app puts a real window on the real screen; the VM lane runs it inside a macOS guest so your desktop stays untouched.',
+            'open launches a macOS app, and a launched app puts a real window on the real screen and takes the keyboard focus with it; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so the window never reaches your desktop. Pass --lane vm for a disposable machine.',
           priority: 14,
           inferred: false,
           confidence: 'high',
@@ -787,11 +792,11 @@ function macosSignals(view: CommandView): Signal[] {
       found.push(
         signal({
           kind: 'open-other',
-          argues: 'vm',
+          argues: 'session',
           origin: view.label,
           detail: at(`open ${args[0] as string}`),
           clause:
-            'open hands its argument to whatever macOS app is registered for it, which means a window appears somewhere; offstage routes it to the macOS VM lane so that somewhere is not your desktop.',
+            'open hands its argument to whatever macOS app is registered for it, which means a window appears somewhere; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so that somewhere is never your desktop. Pass --lane vm for a disposable machine.',
           priority: 18,
           inferred: false,
           confidence: 'low',
@@ -800,15 +805,67 @@ function macosSignals(view: CommandView): Signal[] {
     }
   }
 
-  if (MACOS_GUI_BINS.has(bin) && bin !== 'simctl') {
+  // hdiutil is the one MACOS_GUI_BIN that argues for a fresh machine rather
+  // than a spare display: attaching a disk image mounts a volume on whatever
+  // system runs the command, and the session lane is that same system.
+  if (bin === 'hdiutil') {
     found.push(
       signal({
         kind: 'macos-gui-tool',
         argues: 'vm',
         origin: view.label,
         detail: at(bin),
-        clause: `${bin} is a macOS-only tool that talks to the system's GUI or disk-image services, so it runs in the macOS VM lane.`,
+        clause:
+          'hdiutil attaches and creates macOS disk images, which mounts volumes on the machine that runs it and is usually a step in installing something; the session lane is a second account on your own OS and disk, not a second machine, so this goes to the vm lane where a bad mount costs you nothing but the guest.',
         priority: 17,
+        inferred: false,
+        confidence: 'high',
+      }),
+    );
+  } else if (MACOS_GUI_BINS.has(bin) && bin !== 'simctl') {
+    found.push(
+      signal({
+        kind: 'macos-gui-tool',
+        argues: 'session',
+        origin: view.label,
+        detail: at(bin),
+        clause: `${bin} is a macOS-only tool that talks to the system's GUI services, so no Linux container can run it; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so whatever it drives or draws never touches your desktop. Pass --lane vm for a disposable machine.`,
+        priority: 17,
+        inferred: false,
+        confidence: 'high',
+      }),
+    );
+  }
+
+  // Installer packages and the installer command change the machine they run
+  // on. That is precisely the line between the session lane and the vm lane.
+  const pkg = tokens.find((token) => /\.pkg$/i.test(token));
+  if (pkg !== undefined) {
+    found.push(
+      signal({
+        kind: 'pkg-path',
+        argues: 'vm',
+        origin: view.label,
+        detail: at(pkg),
+        clause:
+          'A .pkg is a macOS installer package, and installing one writes into system locations, runs preinstall and postinstall scripts as root, and cannot be cleanly undone; the session lane shares your OS and your disk with you, so this goes to the vm lane — a disposable macOS guest you can discard afterwards.',
+        priority: 15,
+        inferred: false,
+        confidence: 'high',
+      }),
+    );
+  }
+
+  if (bin === 'installer') {
+    found.push(
+      signal({
+        kind: 'installer',
+        argues: 'vm',
+        origin: view.label,
+        detail: at('installer'),
+        clause:
+          'The installer command applies a macOS installer package to a target volume, which is a deliberate change to the machine it runs on; the session lane is only a second account on your own OS and disk, so this goes to the vm lane, where the machine being changed is a disposable guest.',
+        priority: 14,
         inferred: false,
         confidence: 'high',
       }),
@@ -1288,11 +1345,11 @@ async function toolSignals(view: CommandView, inspector: Inspector): Promise<Sig
     found.push(
       signal({
         kind: 'macos-gui-tool',
-        argues: 'vm',
+        argues: 'session',
         origin: view.label,
         detail: at('safaridriver'),
         clause:
-          'safaridriver drives Safari, which ships only with macOS and has no headless mode at all, so no Linux container can run this; the macOS VM lane gives it a window server that is not your desktop.',
+          'safaridriver drives Safari, which ships only with macOS and has no headless mode at all, so no Linux container can run this; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so the Safari window it opens never reaches your desktop. Pass --lane vm for a disposable machine.',
         priority: 17,
         inferred,
         confidence: 'high',
@@ -1921,7 +1978,7 @@ async function repositorySignals(existing: Signal[], inspector: Inspector): Prom
   if (projects.length === 0) return [];
 
   const names = projects.join(', ');
-  const targeted = existing.some((item) => item.argues === 'vm');
+  const targeted = existing.some((item) => item.argues === 'session' || item.argues === 'vm');
 
   if (targeted) {
     return [

@@ -4,16 +4,21 @@
 [![npm](https://img.shields.io/npm/v/@viraatdas/offstage)](https://www.npmjs.com/package/@viraatdas/offstage)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-**Keep UI work off your screen.**
+**Keep UI and macOS work off your screen — including the work that needs a
+real, logged-in macOS session.**
 
 You ask an agent to check a UI change. It runs `npx playwright test --headed`, a
 Chromium window jumps in front of what you were doing and steals your keyboard.
 Or it runs `xcodebuild test`, and a Simulator takes over your desktop for four
-minutes. The work is legitimate. The screen theft is not.
+minutes. Or it needs `open -a Xcode`, `osascript`, or an XCUITest against a
+built `.app` — none of which run inside a Linux container, because they are not
+Linux. The work is legitimate. The screen theft is not.
 
-offstage is the routing layer that fixes that. Give it a command, and it decides
-which isolation substrate should run it — then runs it there and hands back one
-normalized result.
+offstage is the routing layer that fixes that: it is not a new sandbox, it
+routes to the cheapest isolation that can honestly run each command. Give it a
+command, and it decides which of four substrates should run it — including,
+new in this release, a second logged-in macOS account that runs GUI work in the
+background — then runs it there and hands back one normalized result.
 
 ## offstage is not a new sandbox
 
@@ -28,15 +33,36 @@ focus. Wrapping it in a container buys you nothing and costs you container
 startup on every run. offstage's most common answer is "run it right here, and
 here is why that was already safe."
 
-## The three lanes
+## The four lanes
 
 | Lane        | Substrate                     | When it is chosen                                                                                            |
 | ----------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `headless`  | none — runs in place          | The default for web test commands. Playwright and Puppeteer are headless unless told otherwise; no window opens, so no isolation is needed. |
+| `session`   | a second logged-in macOS account | macOS-native work that opens windows but changes nothing: `xcodebuild`, `xcrun simctl`, XCUITests, `open -a`, `osascript`, `safaridriver`. A helper account sits logged in in the background with its own window server, framebuffer and HID stream; [`docs/session-lane.md`](docs/session-lane.md) has the design. |
 | `container` | Linux container + Xvfb        | Web work that genuinely needs a headed browser: `--headed`, `headless: false`, WebGL/GPU flags, Chrome extension loading, video capture. Renders to a virtual framebuffer that never touches your display. |
-| `vm`        | macOS guest via Tart          | macOS-native work: `xcodebuild`, `xcrun simctl`, XCUITests, launching a built `.app`. Delegated to [`novotnyllc/tart-xcode-runner`](https://github.com/novotnyllc/tart-xcode-runner). |
+| `vm`        | macOS guest via Tart          | macOS work that could **change the machine**: `.dmg`, `.pkg`, `installer`, `hdiutil`. Delegated to [`novotnyllc/tart-xcode-runner`](https://github.com/novotnyllc/tart-xcode-runner). |
 
-One rule holds across all three: **offstage never silently falls back to your
+### The session lane
+
+macOS has no Xvfb. What it does have is fast user switching: a second, ordinary
+macOS account (`computeruse` by default) can stay logged in in the background,
+with its own window server, framebuffer and keyboard/mouse stream, while you
+keep working on your own screen. offstage drives that account through a small
+Swift daemon, `offstage-sessiond`, installed as a LaunchAgent inside it — the
+host side connects over a unix socket to launch commands, take screenshots, and
+inject input, all inside the other session. [`docs/session-lane.md`](docs/session-lane.md)
+has the full design, wire protocol and verification ladder; [`docs/install.md`](docs/install.md)
+has the one-time setup, which needs `sudo` once (`offstage session setup`) and
+then a manual switch to the helper account once, to approve Screen Recording
+and Accessibility — Apple gives no way to grant those from another account.
+
+Plainly: **this is session isolation, not machine isolation.** Same OS, same
+kernel, same disk — a different display and a different input stream, nothing
+more. It does not protect against an installer or anything else that changes
+the machine; `.dmg`, `.pkg`, `installer`, and `hdiutil` still route to the `vm`
+lane, which is what a real boundary costs.
+
+One rule holds across all four: **offstage never silently falls back to your
 real screen.** If a lane's substrate is unavailable, the run stops and tells you
 the exact command that would fix it. A headed browser appearing on your desktop
 because Colima was not running would defeat the entire point.
@@ -115,12 +141,22 @@ worth more than a progress bar:
 | `src/contract/` — lane contract | implemented; the interface below is stable |
 | `src/router/` — `classify()` | implemented; exercised against real repositories and adversarial commands |
 | `src/lanes/headless/` | implemented; **verified live** — real processes, real timeouts, real log backpressure |
+| `src/session/` — discovery, RPC client, setup | implemented; daemon verified live on the developer's own session; not yet verified inside the helper session |
+| `src/lanes/session/` | implemented; daemon verified live on the developer's own session; not yet verified inside the helper session |
+| `native/sessiond/` — the Swift daemon | implemented; daemon verified live on the developer's own session; not yet verified inside the helper session |
 | `src/lanes/container/` + `docker/` | implemented; **verified live** — a headed Chromium ran inside it while the host screen stayed untouched |
 | `src/lanes/vm/` | implemented; **fixture-tested only** — no real macOS guest has ever been booted |
 | `src/probe/` — entitlements probe | implemented; real parsing of real `.xcodeproj`/`.app` fixtures, `codesign`/`hdiutil` paths driven through an injected runner |
-| `src/cli/` — `offstage` CLI | implemented; `doctor` / `route` / `run` / `probe`, with `--json` on each |
-| `src/mcp/` — MCP server | implemented; the four tools call the CLI's own API, so they cannot diverge |
+| `src/cli/` — `offstage` CLI | implemented; `doctor` / `route` / `run` / `probe` / `session`, with `--json` on each |
+| `src/mcp/` — MCP server | implemented; the eight tools call the CLI's own API, so they cannot diverge |
 | `.claude-plugin/`, `skills/` | implemented; plugin, skill and `.mcp.json` for Claude Code, Codex wiring documented |
+
+The session lane's gap is narrower and worth stating precisely: the daemon
+compiles and every op round-trips over the socket — but that was measured
+against a daemon running as uid 501, the developer's own session. No rung above
+it has been climbed: nothing has yet run inside the `computeruse` session, no
+screenshot of a non-console framebuffer exists, and no event has been injected
+there. The ladder is in [`docs/verified.md`](docs/verified.md).
 
 The vm lane is the honest gap: its adapter is written to the documented contract
 of `tart-xcode-runner` and validated against recorded fixtures and
@@ -132,12 +168,23 @@ doctor` output of the machine it was recorded on.
 ## Try it
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/viraatdas/offstage/main/scripts/install.sh | sh
+```
+
+Installs the CLI, checks Node >= 20 and your PATH, runs `offstage doctor`, and
+on macOS offers to set up the session lane — see [`docs/install.md`](docs/install.md)
+for what that involves and why. Already have Node, or prefer to do it by hand?
+
+```bash
 npm i -g @viraatdas/offstage                # or: npx @viraatdas/offstage doctor
 
 offstage doctor                             # which lanes work here, and the fix for the rest
 offstage route -- npx playwright test       # where would this go? (nothing runs)
 offstage run   -- npx playwright test       # send it there, hand back one result
 offstage probe MyApp.xcodeproj              # is ad-hoc VM testing enough for this app?
+
+offstage session status                     # macOS: is the helper account's session ready?
+offstage session setup                      # install the daemon into it (asks for sudo once)
 ```
 
 Working from a clone instead? `npm ci && npm link` — `prepare` builds `dist/`
@@ -155,10 +202,13 @@ there is deliberately no flag that overrides the refusal.
 
 ## For agents
 
-The same four operations are MCP tools — `offstage_doctor`, `offstage_route`,
-`offstage_run`, `offstage_probe` — served over stdio by `offstage-mcp`. They
-call `src/cli/api.ts`, the same code `offstage run` calls, so an agent and a
-human cannot get different answers about what is safe to run in place.
+The core operations are MCP tools — `offstage_doctor`, `offstage_route`,
+`offstage_run`, `offstage_probe` — plus four more for the session lane —
+`offstage_session_status`, `offstage_session_screenshot`,
+`offstage_session_input`, `offstage_session_apps` — all served over stdio by
+`offstage-mcp`. They call `src/cli/api.ts`, the same code the CLI calls, so an
+agent and a human cannot get different answers about what is safe to run in
+place.
 
 - **Claude Code**: `/plugin marketplace add viraatdas/offstage` then
   `/plugin install offstage@offstage`. It ships the `offstage` skill — which
@@ -192,7 +242,7 @@ Everything crossing a module boundary in offstage is defined in
 
 ```ts
 interface LaneRunner {
-  readonly lane: Lane;                                 // 'headless' | 'container' | 'vm'
+  readonly lane: Lane;                                 // 'headless' | 'session' | 'container' | 'vm'
   isAvailable(): Promise<LaneAvailability>;            // { available, reason?, fix? }
   run(req: LaneRequest): Promise<LaneResult>;
 }
@@ -312,10 +362,12 @@ command actually earned. **The log degrades; the answer does not.**
 ```
 src/contract/     the lane + result contract, and run-directory helpers
 src/router/       classify(command) -> lane + reason
-src/lanes/        headless | container | vm implementations of LaneRunner
+src/lanes/        headless | session | container | vm implementations of LaneRunner
+src/session/      the session lane's host side: discovery, RPC client, setup
 src/probe/        entitlements probe: is a signing lane required?
 src/cli/          the offstage CLI
 src/mcp/          MCP server wrapping the CLI's programmatic API
+native/sessiond/  offstage-sessiond: the Swift daemon that runs in the helper session
 docker/           the Xvfb image for the container lane
 skills/           Claude Code skill
 tests/            vitest; tests/fixtures/** is never collected as tests

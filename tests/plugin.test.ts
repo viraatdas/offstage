@@ -154,4 +154,14 @@ describe('what npm ships', () => {
       expect(pkg.files, `package.json files must include ${entry}`).toContain(entry);
     }
   });
+
+  it('ships native/, because the session daemon is compiled from source on the user machine', () => {
+    // `offstage session setup` builds offstage-sessiond with swiftc from the
+    // sources in native/sessiond. A package without them installs a session
+    // lane that can never be set up — and the failure surfaces only when a user
+    // runs setup, long after publish.
+    expect(pkg.files, 'package.json files must include native').toContain('native');
+    expect(existsSync(path.join(ROOT, 'native/sessiond/build.sh'))).toBe(true);
+    expect(existsSync(path.join(ROOT, 'native/sessiond/main.swift'))).toBe(true);
+  });
 });

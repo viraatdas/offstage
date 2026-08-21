@@ -108,6 +108,14 @@ describe('a whole command hidden inside a shell string', () => {
       cwd: await repo(),
       command: ['sh', '-c', 'xcodebuild test -scheme App'],
     });
+    expect(decision.lane).toBe('session');
+  });
+
+  it('sees an installer inside a shell string, and prefers the disposable machine', async () => {
+    const decision = await classify({
+      cwd: await repo(),
+      command: ['sh', '-c', 'installer -pkg dist/MyApp.pkg -target /'],
+    });
     expect(decision.lane).toBe('vm');
   });
 
@@ -182,7 +190,7 @@ describe('commands wrapped in something else', () => {
     });
 
     const decision = await classify({ cwd, command: ['npm', 'run', 'ios'] });
-    expect(decision.lane).toBe('vm');
+    expect(decision.lane).toBe('session');
     expect(decision.signals.join(' ')).toContain('scripts.ios');
   });
 
@@ -209,7 +217,7 @@ describe('a repository that is both a web app and a macOS app', () => {
     expect(web.lane).toBe('container');
 
     const native = await classify({ cwd, command: ['xcodebuild', 'test'] });
-    expect(native.lane).toBe('vm');
+    expect(native.lane).toBe('session');
   });
 
   it('still records the other half of the repository as context', async () => {

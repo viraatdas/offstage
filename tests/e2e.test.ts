@@ -205,23 +205,38 @@ describe('route → run → result.json, for real', () => {
     expect(result.logPath).toBeNull();
   });
 
-  it('skips rather than falls back when the vm lane is unavailable on this machine', async () => {
+  it('skips rather than falls back when the macOS lane is unavailable on this machine', async () => {
     const cwd = await stageFixture('vitest-pass');
 
+    // xcodebuild opens windows but changes nothing about the machine, so it
+    // routes to the session lane — the second logged-in account — not to a VM.
     const ran = await cli(['run', '--json', '--', 'xcodebuild', 'test', '-scheme', 'App'], cwd);
     const result = JSON.parse(ran.out) as LaneResult;
 
-    // On a machine with Tart and the runner installed this legitimately tries
-    // to run; anywhere else the only acceptable outcome is a skip that says so.
+    // On a machine with the helper session set up this legitimately tries to
+    // run; anywhere else the only acceptable outcome is a skip that says so.
     if (result.status === 'skipped') {
       expect(ran.code).toBe(69);
       expect(result.diagnostics.join(' ')).toContain('nothing was executed');
       expect(result.diagnostics.join(' ')).toMatch(/Fix:/);
-    } else {
-      expect(result.lane).toBe('vm');
     }
     // Whatever happened, it did not happen in the headless lane.
+    expect(result.lane).toBe('session');
+  });
+
+  it('still sends work that could change the machine to the vm lane', async () => {
+    const cwd = await stageFixture('vitest-pass');
+
+    // The split the session lane rests on: session isolation is not machine
+    // isolation, so an installer keeps its disposable guest.
+    const ran = await cli(['run', '--json', '--', 'hdiutil', 'attach', 'App.dmg'], cwd);
+    const result = JSON.parse(ran.out) as LaneResult;
+
     expect(result.lane).toBe('vm');
+    if (result.status === 'skipped') {
+      expect(ran.code).toBe(69);
+      expect(result.diagnostics.join(' ')).toContain('nothing was executed');
+    }
   });
 });
 

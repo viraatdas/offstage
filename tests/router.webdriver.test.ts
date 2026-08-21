@@ -530,16 +530,17 @@ describe('a driver server opens nothing until a client asks it to', () => {
 /* -------------------------------------------------------------------------- */
 
 describe('safaridriver is macOS-only, so no container can run it', () => {
-  it('routes to the vm lane', async () => {
+  it('routes to the session lane', async () => {
     const decision = await route('bare', ['safaridriver', '--port', '4444']);
-    expect(decision.lane).toBe('vm');
+    expect(decision.lane).toBe('session');
     expect(decision.confidence).toBe('high');
     expect(decision.reason).toMatch(/only with macOS/);
+    expect(decision.reason).toContain('--lane vm');
   });
 
-  it('routes to the vm lane even from a package script', async () => {
+  it('routes to the session lane even from a package script', async () => {
     const decision = await route('bare', ['npx', 'safaridriver', '--enable']);
-    expect(decision.lane).toBe('vm');
+    expect(decision.lane).toBe('session');
   });
 });
 
@@ -569,7 +570,7 @@ describe('WebDriver classification keeps the router’s other promises', () => {
     for (const repo of Object.keys(REPOS) as RepoName[]) {
       for (const command of SHAPES) {
         const decision = await route(repo, command);
-        expect(decision.lane).toMatch(/^(headless|container|vm)$/);
+        expect(decision.lane).toMatch(/^(headless|session|container|vm)$/);
         expect(decision.reason.length).toBeGreaterThan(0);
         expect(decision.signals.length).toBeGreaterThan(0);
       }
