@@ -207,6 +207,10 @@ what was checked by hand versus only through the test suite.
 
 ## For agents
 
+Working on this repository yourself? Read [`AGENTS.md`](AGENTS.md) first;
+it's the single source of truth for build, test, and the hard rules. This
+section is about using offstage from another project, as a tool.
+
 The same four operations are exposed as MCP tools over stdio by
 `offstage-mcp`: `offstage_doctor`, `offstage_route`, `offstage_run`,
 `offstage_probe`, plus four for the session lane: `offstage_session_status`,
@@ -229,6 +233,7 @@ npm ci          # Node 20+
 npm run build   # tsc -> dist/
 npm test        # vitest
 npm run typecheck
+bash native/sessiond/smoke.sh   # builds and drives the session daemon locally
 ```
 
 Two things worth knowing:
