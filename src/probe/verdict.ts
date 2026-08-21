@@ -16,15 +16,18 @@
  * those with an ad-hoc signature and the capability silently does not work —
  * or the app refuses to launch — no matter how the VM is configured.
  *
- * `novotnyllc/tart-xcode-runner` (the substrate offstage's `vm` lane delegates
- * to) states this plainly: "The current runner does not automate host signing.
+ * [`novotnyllc/tart-xcode-runner`](https://github.com/novotnyllc/tart-xcode-runner)
+ * states this plainly: "The current runner does not automate host signing.
  * […] The default VM path uses ad-hoc signing and needs no Apple credentials.
  * A test that exercises a restricted entitlement such as Keychain Sharing
  * instead needs a host-side Developer ID Application identity and a matching
  * Developer ID provisioning profile." That lane is described as future work.
  *
- * So: `adhoc-ok` means the VM lane works today. `needs-signing-lane` means the
- * signing lane *is* your project. See `docs/signing-lane.md`.
+ * So: `adhoc-ok` means a disposable Tart VM works today. `needs-signing-lane`
+ * means the signing lane *is* your project. See `docs/signing-lane.md`. This
+ * probe answers the question independently of how you run the VM; offstage
+ * has no lane of its own for it (see `docs/verified.md`), so pair the verdict
+ * with the `tart-xcode-runner` skill or your own Tart setup.
  *
  * The registries below are deliberately explicit rather than clever. An
  * entitlement offstage does not recognize is reported as unclassified rather
@@ -42,8 +45,8 @@ import { z } from 'zod';
 
 /**
  * - `adhoc-ok` — every entitlement this product requests is satisfied by
- *   ad-hoc signing. The Tart VM lane can build, sign and test it today, with no
- *   Apple credentials anywhere near the machine.
+ *   ad-hoc signing. A disposable Tart VM can build, sign and test it today,
+ *   with no Apple credentials anywhere near the machine.
  * - `needs-signing-lane` — at least one entitlement requires a
  *   provisioning-profile-backed identity. Nothing runs honestly until a
  *   build-on-guest / sign-on-host / return-to-guest lane exists.
@@ -485,8 +488,8 @@ export function classifyEntitlements(
 function summarize(verdict: Verdict, triggers: EntitlementTrigger[], total: number): string {
   if (verdict === 'adhoc-ok') {
     return total === 0
-      ? 'adhoc-ok — no entitlements found. Nothing here needs a signing identity; the Tart VM lane can run this today.'
-      : `adhoc-ok — all ${total} entitlement${total === 1 ? '' : 's'} are satisfied by ad-hoc signing. The Tart VM lane can run this today.`;
+      ? 'adhoc-ok — no entitlements found. Nothing here needs a signing identity; a disposable Tart VM can run this today.'
+      : `adhoc-ok — all ${total} entitlement${total === 1 ? '' : 's'} are satisfied by ad-hoc signing. A disposable Tart VM can run this today.`;
   }
   const names = triggers.map((t) => t.key).join(', ');
   const guessed = triggers.filter((t) => t.certainty === 'namespace-heuristic').length;

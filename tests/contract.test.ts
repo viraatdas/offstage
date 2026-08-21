@@ -193,7 +193,7 @@ describe('LaneResult schema rejection', () => {
   });
 
   it('rejects a completely wrong shape without throwing', () => {
-    for (const value of [null, undefined, 42, 'result', [], { lane: 'vm' }]) {
+    for (const value of [null, undefined, 42, 'result', [], { lane: 'session' }]) {
       expect(safeParseLaneResult(value).success).toBe(false);
       expect(isLaneResult(value)).toBe(false);
     }
@@ -339,7 +339,7 @@ describe('createLaneResult', () => {
 
   it('lets the caller override any defaulted field', () => {
     const result = createLaneResult({
-      lane: 'vm',
+      lane: 'session',
       status: 'failed',
       artifactsDir: ARTIFACTS_DIR,
       exitCode: 65,
@@ -380,7 +380,7 @@ describe('skippedResult', () => {
   });
 
   it('works when the availability probe offered no reason', () => {
-    const result = skippedResult('vm', ARTIFACTS_DIR, { available: false });
+    const result = skippedResult('session', ARTIFACTS_DIR, { available: false });
     expect(LaneResultSchema.safeParse(result).success).toBe(true);
     expect(result.diagnostics).toHaveLength(1);
   });

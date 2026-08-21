@@ -1,7 +1,0 @@
-host:       arm64
-tart:       2.34.0
-base VM:    tart-xcui-base (ready)
-active runs: 0
-interrupted runs: 2
-host safety: recovery required (run reset before another VM)
-keychain:   WARNING: unlock login.keychain before headless VM starts

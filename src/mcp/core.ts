@@ -8,7 +8,7 @@
  * the only way to guarantee that is for there to be nothing here to diverge.
  *
  * The interface exists so tests can hand the server a fake core without a
- * container runtime or a VM.
+ * container runtime or a live macOS helper session.
  */
 
 import type { RouteDecision } from '../contract/index.js';

@@ -43,6 +43,12 @@ interface Row {
   signal: string;
   /** A substring that must appear in the human-readable `reason`. */
   reason: string;
+  /**
+   * A substring that must appear in `decision.refuse` for commands that could
+   * change the machine: offstage refuses these rather than pick a lane, so
+   * `lane` above only names what the rest of the command argues for.
+   */
+  refuse?: string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -320,46 +326,50 @@ const TABLE: Row[] = [
     reason: 'session lane',
   },
 
-  /* ---------------------------------- vm ---------------------------------- */
+  /* ------------------------------- refused --------------------------------- */
   {
     what: 'a .dmg path anywhere in the command',
     repo: 'plain',
     command: ['hdiutil', 'attach', './dist/MyApp-1.2.0.dmg'],
-    lane: 'vm',
+    lane: 'headless',
     confidence: 'high',
     signal: 'argv: ./dist/MyApp-1.2.0.dmg',
     reason: 'disk-image',
+    refuse: 'disk-image',
   },
   {
     what: 'a .pkg path anywhere in the command',
     repo: 'plain',
     command: ['sudo', 'installer', '-pkg', './dist/MyApp.pkg', '-target', '/'],
-    lane: 'vm',
+    lane: 'headless',
     confidence: 'high',
     signal: 'argv: ./dist/MyApp.pkg',
     reason: 'installer package',
+    refuse: 'installer package',
   },
   {
     what: 'opening a disk image',
     repo: 'plain',
     command: ['open', './dist/MyApp-1.2.0.dmg'],
-    lane: 'vm',
+    lane: 'headless',
     confidence: 'high',
     signal: 'argv: ./dist/MyApp-1.2.0.dmg',
     reason: 'disk-image',
+    refuse: 'disk-image',
   },
 ];
 
 describe('classify() routing table', () => {
-  it('covers at least fifteen commands across all four lanes', () => {
+  it('covers at least fifteen commands across all three lanes, plus a refusal', () => {
     expect(TABLE.length).toBeGreaterThanOrEqual(15);
     expect(new Set(TABLE.map((row) => row.lane))).toEqual(
-      new Set(['headless', 'session', 'container', 'vm']),
+      new Set(['headless', 'session', 'container']),
     );
+    expect(TABLE.some((row) => row.refuse !== undefined)).toBe(true);
   });
 
   for (const row of TABLE) {
-    it(`${row.lane}: ${row.what}`, async () => {
+    it(`${row.refuse !== undefined ? 'refused' : row.lane}: ${row.what}`, async () => {
       const decision = await classify({
         cwd: fixtures.path(row.repo),
         command: row.command,
@@ -369,6 +379,11 @@ describe('classify() routing table', () => {
       expect(decision.lane, row.what).toBe(row.lane);
       expect(decision.confidence, row.what).toBe(row.confidence);
       expect(decision.signals.join(' | '), row.what).toContain(row.signal);
+      if (row.refuse !== undefined) {
+        expect(decision.refuse, row.what).toContain(row.refuse);
+      } else {
+        expect(decision.refuse, row.what).toBeUndefined();
+      }
       expect(decision.reason, row.what).toContain(row.reason);
     });
   }
@@ -637,7 +652,7 @@ describe('session is for macOS-native GUI work', () => {
     expect(signalText(decision)).toContain('App.xcodeproj present, and this command targets it');
   });
 
-  it('tells the reader how to ask for a disposable machine instead', async () => {
+  it('explains the session lane without an escape hatch that no longer exists', async () => {
     for (const command of [
       ['xcodebuild', 'test', '-scheme', 'AppUITests'],
       ['open', '-a', 'Safari'],
@@ -646,8 +661,8 @@ describe('session is for macOS-native GUI work', () => {
     ]) {
       const decision = await route('plain', command);
       expect(decision.lane, command.join(' ')).toBe('session');
-      expect(decision.reason, command.join(' ')).toContain('--lane vm');
       expect(decision.reason, command.join(' ')).toContain('second, logged-in macOS account');
+      expect(decision.reason, command.join(' ')).not.toContain('--lane vm');
     }
   });
 
@@ -668,45 +683,47 @@ describe('session is for macOS-native GUI work', () => {
   });
 });
 
-describe('vm is for macOS work that can change the machine', () => {
-  it('routes a .pkg path', async () => {
+describe('macOS work that can change the machine is refused, not routed', () => {
+  it('refuses a .pkg path', async () => {
     const decision = await route('plain', ['open', './dist/MyApp.pkg']);
-    expect(decision.lane).toBe('vm');
+    expect(decision.refuse).toBeDefined();
+    expect(decision.refuse).toContain('installer package');
     expect(signalText(decision)).toContain('argv: ./dist/MyApp.pkg');
   });
 
-  it('routes the installer command', async () => {
+  it('refuses the installer command', async () => {
     const decision = await route('plain', ['installer', '-pkg', 'MyApp.pkg', '-target', '/']);
-    expect(decision.lane).toBe('vm');
     expect(decision.confidence).toBe('high');
     expect(signalText(decision)).toContain('argv: installer');
+    expect(decision.refuse).toMatch(/installer package to a target volume/);
     expect(decision.reason).toMatch(/installer package to a target volume/);
   });
 
-  it('routes hdiutil attach', async () => {
+  it('refuses hdiutil attach', async () => {
     const decision = await route('plain', ['hdiutil', 'attach', 'MyApp.dmg']);
-    expect(decision.lane).toBe('vm');
+    expect(decision.refuse).toBeDefined();
     expect(signalText(decision)).toContain('argv: MyApp.dmg');
   });
 
-  it('routes open of a .dmg', async () => {
+  it('refuses open of a .dmg', async () => {
     const decision = await route('plain', ['open', 'Foo.dmg']);
-    expect(decision.lane).toBe('vm');
+    expect(decision.refuse).toBeDefined();
   });
 
-  it('beats a session signal on the same command line, and says why', async () => {
+  it('refuses even when the command also carries a session signal', async () => {
     const decision = await route('plain', ['sh', '-c', 'xcodebuild build && open ./dist/MyApp.dmg']);
-    expect(decision.lane).toBe('vm');
-    expect(decision.reason).toContain(
-      'The command also carries macOS GUI signals that the session lane could run, but an installer/disk image needs a disposable machine, so the VM lane wins.',
-    );
+    // The rest of the command still argues session, so offstage names that
+    // lane even though nothing will run there. The refusal is what decides
+    // whether anything executes.
+    expect(decision.lane).toBe('session');
+    expect(decision.refuse).toBeDefined();
+    expect(decision.reason).toContain('disk-image');
   });
 
-  it('still beats a headed web signal, and says why', async () => {
+  it('still refuses alongside a headed web signal', async () => {
     const decision = await route('plain', ['hdiutil', 'attach', 'MyApp.dmg', '--headed']);
-    expect(decision.lane).toBe('vm');
-    expect(decision.confidence).toBe('low');
-    expect(decision.reason).toMatch(/Linux container cannot run macOS tooling/);
+    expect(decision.refuse).toBeDefined();
+    expect(decision.confidence).toBe('high');
   });
 });
 

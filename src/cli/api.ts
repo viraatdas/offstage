@@ -46,7 +46,6 @@ import { containerLane, describeRuntimeProbe } from '../lanes/container/index.js
 import { headlessLane } from '../lanes/headless/index.js';
 import type { SessionLane, SessionLaneOptions, SessionProbe } from '../lanes/session/index.js';
 import { createSessionLane, describeSessionProbe, sessionLane } from '../lanes/session/index.js';
-import { vmLane } from '../lanes/vm/index.js';
 import type { EntitlementsProbeReport } from '../probe/index.js';
 import { probeEntitlements } from '../probe/index.js';
 import type { ClassifyHints } from '../router/index.js';
@@ -143,7 +142,7 @@ const directoryExists = async (target: string): Promise<boolean> => {
 };
 
 export const defaultDeps: ApiDeps = {
-  lanes: { headless: headlessLane, session: sessionLane, container: containerLane, vm: vmLane },
+  lanes: { headless: headlessLane, session: sessionLane, container: containerLane },
   classify,
   probeEntitlements,
   allocateRunDir,
@@ -454,8 +453,8 @@ function formatAge(ms: number): string {
  * Ask every lane whether its substrate is usable right now, and collect the
  * fix for the ones that are not.
  *
- * This probes and never mutates: it does not start Colima, install Tart, or
- * pull an image. A lane whose `isAvailable()` throws — a contract violation —
+ * This probes and never mutates: it does not start Colima or pull an image.
+ * A lane whose `isAvailable()` throws — a contract violation —
  * is reported as unavailable with the thrown message rather than taking the
  * whole report down.
  */
@@ -580,15 +579,21 @@ export interface RunOutcome {
 /**
  * Classify, dispatch, persist, and hand back the normalized envelope.
  *
- * ## The one refusal
+ * ## The two refusals
  *
  * `--lane` is an override, not a bypass. Over-isolating is always allowed: ask
- * for `container` or `vm` on a command the router would have run in place and
- * you get it, with a diagnostic. But forcing `headless` on a command the router
- * routed *away* from headless is the one move that could put a window on the
- * user's real screen, so it is refused: nothing is executed, the result is
- * `errored`, and the diagnostics name the flag to drop. There is deliberately
- * no flag that makes offstage do it anyway.
+ * for `container` on a command the router would have run in place and you get
+ * it, with a diagnostic. But forcing `headless` on a command the router routed
+ * *away* from headless is one move that could put a window on the user's real
+ * screen, so it is refused: nothing is executed, the result is `errored`, and
+ * the diagnostics name the flag to drop.
+ *
+ * The other refusal has no flag to drop, because no override fixes it:
+ * `decision.refuse` means the command could change the machine itself (an
+ * installer, a `.dmg`/`.pkg`, `hdiutil`), and offstage has no lane, not even
+ * `container` or `session`, that isolates a change like that. This refusal is
+ * unconditional: it applies even to an explicit `--lane`, because "more
+ * isolation" is not on offer here.
  */
 export async function run(input: RunInput, deps?: Partial<ApiDeps>): Promise<RunOutcome> {
   const d = withDefaults(deps);
@@ -629,7 +634,7 @@ export async function run(input: RunInput, deps?: Partial<ApiDeps>): Promise<Run
     ...decision.signals.map((signal) => `Signal: ${signal}`),
   ];
 
-  const refusal = refuseDowngrade({ lane, laneSource, decision });
+  const refusal = refuseMachineChange(decision) ?? refuseDowngrade({ lane, laneSource, decision });
   if (refusal !== null) {
     return finish(d, {
       runDir,
@@ -713,6 +718,25 @@ export async function run(input: RunInput, deps?: Partial<ApiDeps>): Promise<Run
     laneSource,
     result: { ...parsed.data, diagnostics: [...parsed.data.diagnostics, ...preamble] },
   });
+}
+
+/**
+ * The unconditional gate. `decision.refuse` means the router found something
+ * in the command that could change the machine itself, and offstage has no
+ * lane that isolates a change like that, not even `container`, which the
+ * caller might otherwise reach for. Unlike {@link refuseDowngrade}, this
+ * check does not look at `laneSource`: a caller passing `--lane container`
+ * cannot buy their way past it, because there is no lane on offer that would
+ * make the command safe to run.
+ */
+function refuseMachineChange(decision: RouteDecision): string[] | null {
+  if (decision.refuse === undefined) return null;
+
+  return [
+    `Refused: ${decision.refuse}`,
+    'Nothing was executed, on any lane. There is no --lane override for this refusal: ' +
+      'offstage has no substrate that isolates a change to the machine itself.',
+  ];
 }
 
 /**

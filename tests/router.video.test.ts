@@ -217,10 +217,10 @@ describe('recording never overrides the signals that do decide', () => {
     expect(decision.lane).toBe('session');
   });
 
-  it('lets an installer win over --video=on', async () => {
+  it('lets an installer refuse the run over --video=on', async () => {
     const decision = await route(plainRepo, ['installer', '-pkg', 'MyApp.pkg', '-target', '/', '--video=on']);
 
-    expect(decision.lane).toBe('vm');
+    expect(decision.refuse).toBeDefined();
   });
 });
 

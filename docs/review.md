@@ -1,5 +1,12 @@
 # Review pass — correctness, honesty, and the routing thesis
 
+> **2026-08-21, the `vm` lane this review pass discusses was later removed**
+> (see `docs/roadmap.md`). Everything below is left as it was written: it is
+> the record of a review that happened while the lane still existed, and
+> rewriting it would make it describe a review that did not happen. Commands
+> that used to route to `vm` (`hdiutil`, `.dmg`/`.pkg`, `installer`) are now
+> refused outright instead.
+
 The last node in the plan is adversarial: read the assembled tree as someone
 trying to break its central promise, and fix what is actually wrong rather than
 what is merely untidy. This is the record — every finding, its severity, and

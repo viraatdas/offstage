@@ -75,7 +75,15 @@ describe('explain', () => {
   it('renders every lane', () => {
     expect(explain(decision({ lane: 'headless' }), { maxLength: 500 })).toMatch(/^headless \(high\)/);
     expect(explain(decision({ lane: 'session' }), { maxLength: 500 })).toMatch(/^session \(high\)/);
-    expect(explain(decision({ lane: 'vm', confidence: 'low' }), { maxLength: 500 })).toMatch(/^vm \(low\)/);
+    expect(explain(decision({ lane: 'container', confidence: 'low' }), { maxLength: 500 })).toMatch(
+      /^container \(low\)/,
+    );
+  });
+
+  it('renders REFUSED instead of a lane when the decision refuses', () => {
+    const line = explain(decision({ refuse: 'A .dmg could change the machine.' }), { maxLength: 500 });
+    expect(line.startsWith('REFUSED')).toBe(true);
+    expect(line).not.toContain('container (high)');
   });
 
   it('renders a real decision end to end', async () => {
@@ -86,17 +94,19 @@ describe('explain', () => {
     expect(line.length).toBeLessThanOrEqual(160);
   });
 
-  it('keeps the escape hatch in the full session reason, as `offstage route` prints it', async () => {
+  it('renders the full session reason, as `offstage route` prints it, with no vm escape hatch', async () => {
     const command = ['open', '-a', 'Safari'];
     const decided = await classify({ cwd: process.cwd(), command });
     expect(decided.lane).toBe('session');
-    expect(explain(decided, { command, maxLength: 4000 })).toContain('--lane vm');
+    expect(explain(decided, { command, maxLength: 4000 })).toContain('second, logged-in macOS account');
+    expect(explain(decided, { command, maxLength: 4000 })).not.toContain('--lane vm');
   });
 
-  it('renders a real vm decision end to end', async () => {
+  it('renders a real refused decision end to end', async () => {
     const command = ['installer', '-pkg', 'MyApp.pkg', '-target', '/'];
     const line = explain(await classify({ cwd: process.cwd(), command }), { command });
-    expect(line.startsWith('vm (high)')).toBe(true);
+    expect(line.startsWith('REFUSED')).toBe(true);
+    expect(line).toContain('installer package to a target volume');
     expect(line.length).toBeLessThanOrEqual(160);
   });
 });

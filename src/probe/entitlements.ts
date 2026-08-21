@@ -5,8 +5,8 @@
  * `.xcworkspace`, a bare `.entitlements` file, a built `.app`, or a `.dmg` —
  * this module collects the entitlements that product effectively requests, then
  * hands them to {@link classifyEntitlements} for the verdict that decides
- * whether the Tart VM lane works today (`adhoc-ok`) or needs a host-side
- * signing lane built first (`needs-signing-lane`).
+ * whether a disposable, ad-hoc-signed Tart VM works today (`adhoc-ok`) or
+ * needs a host-side signing lane built first (`needs-signing-lane`).
  *
  * ## Evidence, ranked
  *

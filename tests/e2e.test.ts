@@ -224,19 +224,21 @@ describe('route → run → result.json, for real', () => {
     expect(result.lane).toBe('session');
   });
 
-  it('still sends work that could change the machine to the vm lane', async () => {
+  it('refuses work that could change the machine, on every lane, with no --lane override', async () => {
     const cwd = await stageFixture('vitest-pass');
 
     // The split the session lane rests on: session isolation is not machine
-    // isolation, so an installer keeps its disposable guest.
+    // isolation, and offstage has no lane that is, so an installer is refused
+    // outright rather than sent anywhere.
     const ran = await cli(['run', '--json', '--', 'hdiutil', 'attach', 'App.dmg'], cwd);
     const result = JSON.parse(ran.out) as LaneResult;
 
-    expect(result.lane).toBe('vm');
-    if (result.status === 'skipped') {
-      expect(ran.code).toBe(69);
-      expect(result.diagnostics.join(' ')).toContain('nothing was executed');
-    }
+    expect(result.status).toBe('errored');
+    expect(ran.code).toBe(70);
+    expect(result.diagnostics[0]).toContain('Refused:');
+    expect(result.diagnostics.join(' ')).toContain('Nothing was executed, on any lane');
+    // No hdiutil was spawned, so there is nothing in the log: there is no log.
+    expect(result.logPath).toBeNull();
   });
 });
 

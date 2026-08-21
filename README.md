@@ -21,14 +21,19 @@ offstage route -- npx playwright test  # where would this go? (nothing runs)
 offstage run   -- npx playwright test  # send it there, get one normalized result
 ```
 
-## The four lanes
+## The three lanes
 
 | Lane | What runs it | Used for |
 | --- | --- | --- |
 | `headless` | nothing extra, runs in place | Playwright/Puppeteer without `--headed`. Already safe. |
 | `container` | a Linux container with Xvfb | `--headed`, `headless: false`, WebGL/GPU flags, extension loading. |
 | `session` | a second logged-in macOS account | `xcodebuild`, `xcrun simctl`, XCUITests, `open -a`, `osascript`. macOS-native work that opens windows but doesn't touch the machine itself. |
-| `vm` | a disposable macOS VM (Tart) | Anything that could change the machine: `.dmg`, `.pkg`, `installer`, `hdiutil`. |
+
+Anything that could change the machine itself, an installer, a `.dmg`/`.pkg`,
+`hdiutil`, is refused outright instead of routed anywhere. Session isolation
+shares your OS and disk with you, so it can't honestly contain that, and
+offstage has no lane that can. Nothing runs, on any lane, and the reason says
+why. Run the command directly yourself if you accept the risk.
 
 `offstage route` tells you which lane a command would use and why, without
 running it. `offstage run` actually runs it there. Asking for *more* isolation
@@ -36,7 +41,7 @@ than the router picked always works (`--lane container` on something routed to
 `headless`); asking for less is refused outright, nothing runs, and there's no
 flag to override the refusal.
 
-If a lane's substrate isn't available (no Docker running, VM image not built),
+If a lane's substrate isn't available (no Docker running, session not set up),
 the run stops and tells you the fix. offstage never falls back to running the
 command on your real screen.
 
@@ -196,7 +201,6 @@ been run for real, not just tested against fixtures:
 | `headless` | verified live: real processes, real timeouts, real log backpressure |
 | `container` | verified live: a headed Chromium ran inside it while the host screen stayed untouched |
 | `session` | live-verified inside the actual helper (`computeruse`) session: Accessibility is granted, input lands on the helper session's frontmost app (confirmed against the window server's own delivery log, and none reached the console session), and a grant made mid-run is picked up by the socket `restart` op with no root. Screen Recording is not yet granted on the test machine, so the full screenshot-of-typed-input loop is **not yet verified end to end**, and the headed-Playwright-through-session path specifically is **not proven**. |
-| `vm` | fixture-tested only. No real macOS guest has ever been booted through it. |
 
 [`docs/verified.md`](docs/verified.md) has the detail, lane by lane, including
 what was checked by hand versus only through the test suite.
@@ -243,7 +247,7 @@ Every module boundary in offstage is defined in
 
 ```ts
 interface LaneRunner {
-  readonly lane: Lane;                       // 'headless' | 'session' | 'container' | 'vm'
+  readonly lane: Lane;                       // 'headless' | 'session' | 'container'
   isAvailable(): Promise<LaneAvailability>;  // { available, reason?, fix? }
   run(req: LaneRequest): Promise<LaneResult>;
 }
@@ -280,7 +284,8 @@ still correct, and `diagnostics` says plainly that nothing was recognized. See
 ### Path conventions
 
 The same result has to describe a run that happened on the host, in a
-container, or inside a VM, so path fields have fixed rules:
+container, or in the session lane's other account, so path fields have fixed
+rules:
 
 | Field | Kind | Rule |
 | --- | --- | --- |
@@ -292,7 +297,7 @@ container, or inside a VM, so path fields have fixed rules:
 | `LaneResult.failures[].file` | repository-relative | POSIX separators, relative to `cwd`, never absolute |
 
 Artifacts are things the run produced, so an absolute host path is the only
-one still valid once the substrate (container, VM) is gone. Failure paths
+one still valid once the substrate (container) is gone. Failure paths
 point at your source, which lives at different absolute prefixes on the host
 and in the guest, so repository-relative is the only form everyone can
 resolve. `parseLaneResult()` enforces this; use `artifactPath()` and
@@ -338,7 +343,7 @@ buffer the result is computed from. A run whose log was cut short says so in
 ```
 src/contract/     the lane + result contract, and run-directory helpers
 src/router/       classify(command) -> lane + reason
-src/lanes/        headless | session | container | vm implementations of LaneRunner
+src/lanes/        headless | session | container implementations of LaneRunner
 src/session/      the session lane's host side: discovery, RPC client, setup
 src/probe/        entitlements probe: is a signing lane required?
 src/cli/          the offstage CLI

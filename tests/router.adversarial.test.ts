@@ -111,12 +111,12 @@ describe('a whole command hidden inside a shell string', () => {
     expect(decision.lane).toBe('session');
   });
 
-  it('sees an installer inside a shell string, and prefers the disposable machine', async () => {
+  it('sees an installer inside a shell string, and refuses', async () => {
     const decision = await classify({
       cwd: await repo(),
       command: ['sh', '-c', 'installer -pkg dist/MyApp.pkg -target /'],
     });
-    expect(decision.lane).toBe('vm');
+    expect(decision.refuse).toBeDefined();
   });
 
   it('does not invent a signal from a shell string that has none', async () => {

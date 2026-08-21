@@ -195,10 +195,11 @@ export class HeadlessLane implements LaneRunner {
    * Always available — and that is a fact about this lane, not an optimism.
    *
    * The other two lanes probe something that can genuinely be missing: Docker
-   * may not be running, Tart may not be installed. This lane's substrate is the
-   * machine offstage is already executing on. If it were unavailable, this
-   * method could not have been called. There is nothing to probe, nothing that
-   * can fail, and therefore no honest way for it to return `available: false`.
+   * may not be running, the session daemon may not be set up. This lane's
+   * substrate is the machine offstage is already executing on. If it were
+   * unavailable, this method could not have been called. There is nothing to
+   * probe, nothing that can fail, and therefore no honest way for it to return
+   * `available: false`.
    *
    * Never throws and never mutates anything, per the contract.
    */

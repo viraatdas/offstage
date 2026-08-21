@@ -66,11 +66,6 @@ class FakeCore implements OffstageCore {
           availability: { available: false, reason: 'no container runtime', fix: 'install Docker or start Colima' },
           detail: [],
         },
-        {
-          lane: 'vm',
-          availability: { available: false, reason: 'tart is not installed', fix: 'brew install openai/tools/tart' },
-          detail: [],
-        },
       ],
     };
   }
@@ -317,7 +312,7 @@ describe('offstage MCP server', () => {
     expect(apps[0]?.bundleId).toBe('com.apple.Safari');
   });
 
-  it('answers an offstage_route tools/call round trip without container or tart', async () => {
+  it('answers an offstage_route tools/call round trip without a container runtime', async () => {
     const { client, server } = await connect();
     cleanup.push(() => client.close(), () => server.close());
 
@@ -412,12 +407,14 @@ describe('the default core is the CLI api', () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-core-'));
     cleanup.push(() => fs.rm(cwd, { recursive: true, force: true }));
 
-    // xcodebuild is macOS-native but changes nothing about the machine, so as
-    // of the session lane it routes there rather than to a 27GB VM.
+    // xcodebuild is macOS-native but changes nothing about the machine, so it
+    // routes to the session lane.
     const decision = await createDefaultCore().route({ cwd, command: ['xcodebuild', 'test'] });
     expect(decision.lane).toBe('session');
+    // hdiutil could change the machine itself, and offstage has no lane that
+    // isolates that, so it is refused rather than routed anywhere.
     const installer = await createDefaultCore().route({ cwd, command: ['hdiutil', 'attach', 'App.dmg'] });
-    expect(installer.lane).toBe('vm');
+    expect(installer.refuse).toBeDefined();
   });
 
   it('enforces the CLI\'s refusal: forcing headless onto isolated work runs nothing', async () => {

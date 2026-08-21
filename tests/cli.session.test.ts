@@ -135,6 +135,10 @@ function fakeClient(options: {
       calls.push({ op: 'request-permissions' });
       return options.permissions ?? { screenCapture: true, accessibility: true };
     },
+    async restart() {
+      calls.push({ op: 'restart' });
+      return { restarting: true };
+    },
   };
 }
 
@@ -241,7 +245,6 @@ describe('doctor', () => {
           createClient: session.createClient as never,
         }),
         container: fakeLane('container'),
-        vm: fakeLane('vm'),
       },
     });
 
@@ -405,7 +408,6 @@ describe('sessionOpen', () => {
           headless: fakeLane('headless'),
           session: lane,
           container: fakeLane('container'),
-          vm: fakeLane('vm'),
         },
       },
     );

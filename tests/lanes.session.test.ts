@@ -442,7 +442,7 @@ describe('SessionLane.run', () => {
     expect(diagnostics).toContain('session id 258');
     expect(diagnostics).toContain('Nothing was drawn on your screen');
     expect(diagnostics).toContain(ISOLATION_NOTE);
-    expect(diagnostics).toContain('session isolation, not a VM');
+    expect(diagnostics).toContain('session isolation, not machine isolation');
   });
 
   it('captures the helper session screen as a screenshot artifact', async () => {

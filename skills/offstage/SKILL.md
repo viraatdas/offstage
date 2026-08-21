@@ -1,6 +1,6 @@
 ---
 name: offstage
-description: Run browser, UI and macOS app work without taking over the user's screen. Use before any command that could open a window or steal focus — Playwright, Puppeteer, Cypress, WebDriver, `--headed` or `headless: false` runs, screen or video capture, `xcodebuild`, `xcrun simctl`, XCUITests, iOS/macOS simulators, `open -a`, `osascript`, or launching a built `.app`. offstage decides whether the command is already safe to run in place, needs a Linux container with a virtual display, needs the macOS session lane (a second logged-in account whose display, focus and input are its own), or needs a disposable macOS VM — and refuses to run it on the real screen when the isolation it needs is missing.
+description: Run browser, UI and macOS app work without taking over the user's screen. Use before any command that could open a window or steal focus — Playwright, Puppeteer, Cypress, WebDriver, `--headed` or `headless: false` runs, screen or video capture, `xcodebuild`, `xcrun simctl`, XCUITests, iOS/macOS simulators, `open -a`, `osascript`, or launching a built `.app`. offstage decides whether the command is already safe to run in place, needs a Linux container with a virtual display, or needs the macOS session lane (a second logged-in account whose display, focus and input are its own) — and refuses to run it on the real screen, or at all, when the isolation it needs is missing.
 ---
 
 # offstage
@@ -44,7 +44,7 @@ reach for a plain `Bash` call.
 offstage run -- npx playwright test              # headless: runs in place
 offstage run -- npx playwright test --headed     # container: Xvfb, not your screen
 offstage run -- xcodebuild test -scheme App      # session: the other macOS account's screen
-offstage run -- hdiutil attach App.dmg           # vm: disposable macOS guest
+offstage run -- hdiutil attach App.dmg           # refused: could change the machine, no lane isolates that
 ```
 
 ## Reading the answer
@@ -59,6 +59,13 @@ Every run returns the same envelope, whichever substrate produced it:
   report a `skipped` run as a pass, and never re-run the command outside
   offstage to "get past it" — that is exactly the screen theft offstage
   prevents. Show the user the `fix` line from `diagnostics` instead.
+- `offstage_route` can also come back with `refuse` set: the command could
+  change the machine itself (an installer, a `.dmg`/`.pkg`, `hdiutil`), and
+  offstage has no lane that isolates that. `offstage_run` on that command
+  comes back `errored` with `diagnostics[0]` starting `Refused:` and nothing
+  executed, on any lane. There is no `lane` argument that gets past it. Tell
+  the user offstage will not run it; running it directly is their call to
+  make, not something to do on their behalf.
 - `failures[]` is populated for **Playwright, Vitest and Jest only**. Empty for
   Mocha, pytest, `go test`, Cypress, `xcodebuild` and everything else — that is
   deliberate abstention, not a bug. `status` and `command.log` are still true.
@@ -115,8 +122,11 @@ offstage run --lane session -- npx playwright test --headed
 ```
 
 It is **session isolation, not machine isolation** — same kernel, same disk.
-Anything that could change the machine (`.dmg`, `.pkg`, `installer`, `hdiutil`)
-still routes to `vm`, and you should not force it into `session`.
+Anything that could change the machine (`.dmg`, `.pkg`, `installer`,
+`hdiutil`) is refused outright: offstage has no lane that isolates that, so it
+does not run the command anywhere rather than force it into `session`. If the
+user needs that, tell them offstage cannot do it and to run it directly
+themselves if they accept the risk.
 
 ### The loop: screenshot → decide → input → screenshot
 

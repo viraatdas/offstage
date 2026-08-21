@@ -1,9 +1,10 @@
 /**
  * offstage — the entitlements probe.
  *
- * One question, answered before anyone invests in the macOS lane: can a
- * disposable Tart VM test this app with ad-hoc signing (`adhoc-ok`), or does it
- * need a host-side signing lane built first (`needs-signing-lane`)?
+ * One question, answered before anyone invests in macOS app testing
+ * infrastructure: can a disposable Tart VM test this app with ad-hoc signing
+ * (`adhoc-ok`), or does it need a host-side signing lane built first
+ * (`needs-signing-lane`)?
  *
  * ```ts
  * import { probeEntitlements } from '../probe/index.js';

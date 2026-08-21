@@ -166,7 +166,12 @@ export function renderRoute(decision: RouteDecision, command: string[]): string[
       lines.push(...block(signal, '  - ', '    '));
     }
   }
-  if (decision.confidence === 'low') {
+  if (decision.refuse !== undefined) {
+    lines.push('');
+    lines.push(
+      ...wrap('offstage will refuse to run this automatically, on any lane. See reason above.'),
+    );
+  } else if (decision.confidence === 'low') {
     lines.push('');
     lines.push(
       ...wrap(

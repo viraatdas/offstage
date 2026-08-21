@@ -69,7 +69,7 @@ result:     .offstage/runs/20260818T222228807Z-533188/result.json
 | Flag | Meaning |
 | --- | --- |
 | `--cwd <dir>` | repository root to run against (default: current directory) |
-| `--lane <lane>` | force `headless`, `session`, `container` or `vm` instead of the router's choice |
+| `--lane <lane>` | force `headless`, `session` or `container` instead of the router's choice |
 | `--timeout <ms>` | wall-clock budget; exceeding it is `errored`, never `failed` |
 | `--headed` | "give me a real browser window" — goes to the container lane |
 | `--json` | emit the `LaneResult` envelope on stdout, human output on stderr |
@@ -81,11 +81,11 @@ tests are red" from "offstage could not run them".
 ### `--lane` is an override, not a bypass
 
 Asking for *more* isolation than the router chose always works. Asking for less
-does not: `--lane headless` on a command the router routed to `session`,
-`container` or `vm` is **refused**, nothing is executed, and the result is
-`errored` with the fix in `diagnostics`. There is deliberately no flag that overrides this — a
-headed browser appearing on your desktop is the one outcome offstage exists to
-prevent.
+does not: `--lane headless` on a command the router routed to `session` or
+`container` is **refused**, nothing is executed, and the result is `errored`
+with the fix in `diagnostics`. There is deliberately no flag that overrides
+this — a headed browser appearing on your desktop is the one outcome offstage
+exists to prevent.
 
 ```console
 $ offstage run --lane headless -- npx playwright test --headed
@@ -97,10 +97,28 @@ diagnostics:
     executed.
 ```
 
+A second refusal has no override at all, not even `--lane`: a command that
+could change the machine itself (an installer, a `.dmg`/`.pkg`, `hdiutil`) is
+refused on every lane, because offstage has no substrate that isolates a
+change to the machine.
+
+```console
+$ offstage run -- hdiutil attach App.dmg
+ERRORED  headless lane  0ms  exit none
+
+diagnostics:
+  - Refused: hdiutil attaches and creates macOS disk images, which mounts
+    volumes on the machine that runs it and is usually a step in installing
+    something. […] it refuses to run this rather than risk your machine.
+  - Nothing was executed, on any lane. There is no --lane override for this
+    refusal: offstage has no substrate that isolates a change to the machine
+    itself.
+```
+
 ## `offstage doctor`
 
 Per-lane availability and the exact command that fixes each gap. It probes and
-never mutates: it will not start Colima, install Tart, or pull an image.
+never mutates: it will not start Colima or pull an image.
 
 ```console
 $ offstage doctor

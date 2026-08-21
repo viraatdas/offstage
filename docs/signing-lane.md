@@ -1,10 +1,13 @@
 # The signing lane: weekend or month?
 
-offstage routes macOS-native work to a disposable [Tart](https://tart.run) VM
-through [`novotnyllc/tart-xcode-runner`](https://github.com/novotnyllc/tart-xcode-runner).
-For most apps that lane works today, with no Apple credentials anywhere near the
-machine. For some apps it cannot work at all until a piece of infrastructure that
-does not exist yet gets built.
+Testing a macOS app in a disposable [Tart](https://tart.run) VM through
+[`novotnyllc/tart-xcode-runner`](https://github.com/novotnyllc/tart-xcode-runner)
+works today, with no Apple credentials anywhere near the machine, for most
+apps. offstage does not run that VM itself (its own `vm` lane was removed;
+see `docs/verified.md`), but this probe answers the question independently of
+who runs it: pair the verdict with the `tart-xcode-runner` skill or your own
+Tart setup. For some apps it cannot work at all until a piece of
+infrastructure that does not exist yet gets built.
 
 This document says exactly which app you have, and what the second case costs.
 
@@ -33,7 +36,7 @@ of two verdicts.
 
 | Verdict | What it means | What you do |
 | --- | --- | --- |
-| `adhoc-ok` | Every entitlement the product requests is satisfied by ad-hoc signing. | **You are done today.** Point offstage's `vm` lane at the repo and run your tests. No Developer ID, no profile, no signing host, no Apple Account in the VM. |
+| `adhoc-ok` | Every entitlement the product requests is satisfied by ad-hoc signing. | **You are done today.** Run your tests in a disposable Tart VM (the `tart-xcode-runner` skill, or your own setup). No Developer ID, no profile, no signing host, no Apple Account in the VM. |
 | `needs-signing-lane` | At least one entitlement requires a signature backed by a provisioning profile issued against a real Team ID. | **That lane is your project.** The runner does not automate host signing; the section below is the work item. Budget weeks, not an afternoon — and read the "what it actually costs" section before you start. |
 
 The report also carries a `confidence` field. `low` means the verdict rests on
@@ -223,7 +226,7 @@ Two consequences worth being precise about:
 ## Summary
 
 - Run `probeEntitlements()` against your target before investing in either path.
-- `adhoc-ok` → the VM lane works today, with no Apple credentials. Ship it.
+- `adhoc-ok` → a disposable Tart VM works today, with no Apple credentials. Ship it.
 - `needs-signing-lane` → the report names the exact entitlements that force it.
   tart-xcode-runner does not automate host signing, the guest helper actively
   clears `CODE_SIGN_ENTITLEMENTS` so the shortcut does not work, and the four

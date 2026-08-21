@@ -1,10 +1,10 @@
 {
   "name": "offstage",
-  "description": "Keep UI, browser and macOS app work off your screen. Routes each test command to the cheapest isolation that can honestly run it — in place when it is already headless, a Linux container with Xvfb when a real window is needed, the macOS session lane (a second, logged-in account with its own display and input) for xcodebuild, simulators and app launches, and a disposable macOS VM for anything that could change the machine.",
+  "description": "Keep UI, browser and macOS app work off your screen. Routes each test command to the cheapest isolation that can honestly run it: in place when it is already headless, a Linux container with Xvfb when a real window is needed, or the macOS session lane (a second, logged-in account with its own display and input) for xcodebuild, simulators and app launches. Anything that could change the machine itself is refused, not run.",
   "version": "0.3.0",
   "author": {
     "name": "Viraat Das"
   },
   "homepage": "https://github.com/viraatdas/offstage",
-  "keywords": ["testing", "playwright", "xcodebuild", "xvfb", "tart", "isolation", "macos", "session", "screen-isolation", "fast-user-switching", "computer-use"]
+  "keywords": ["testing", "playwright", "xcodebuild", "xvfb", "isolation", "macos", "session", "screen-isolation", "fast-user-switching", "computer-use"]
 }

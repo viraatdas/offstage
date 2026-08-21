@@ -25,8 +25,8 @@
  * The reasoning, so lane authors do not have to guess:
  *
  * - **Artifacts are absolute host paths.** They are things the run *produced*.
- *   The container and VM lanes generate them inside a guest and copy them back
- *   out, so a guest-relative path would be a lie by the time anyone reads it.
+ *   The container lane generates them inside a guest and copies them back out,
+ *   so a guest-relative path would be a lie by the time anyone reads it.
  *   Absolute host paths are the only representation that stays true after the
  *   substrate is gone. Containment under `artifactsDir` is enforced so that a
  *   run directory is self-contained and safe to archive or delete.
@@ -56,7 +56,7 @@ import { z } from 'zod';
 /* -------------------------------------------------------------------------- */
 
 /**
- * The four isolation substrates offstage routes to.
+ * The three isolation substrates offstage routes to.
  *
  * - `headless` — no isolation at all. The command already opens no window, so
  *   it runs in place. This is the cheapest lane and the default for web test
@@ -65,14 +65,17 @@ import { z } from 'zod';
  *   background. It has its own framebuffer, its own input stream and its own
  *   apps, so macOS-native GUI work (`open -a`, `xcodebuild test`, a headed
  *   browser on real Metal) runs there without touching the console user's
- *   screen. Session isolation, not machine isolation — same OS, same disk.
+ *   screen. Session isolation, not machine isolation: same OS, same disk.
  *   See `docs/session-lane.md`.
  * - `container` — a Linux container with an Xvfb virtual framebuffer, for web
  *   work that genuinely needs a headed browser and a real compositor.
- * - `vm` — a macOS guest (Tart), for macOS-native work that may change the
- *   machine: installers, `.dmg`/`.pkg`, anything needing a disposable system.
+ *
+ * There is no lane for work that could change the machine itself (an
+ * installer, a `.dmg`/`.pkg`, `hdiutil`): session isolation shares the disk
+ * and the kernel with you, so it cannot honestly claim to contain that.
+ * `RouteDecision.refuse` covers this case instead of a fourth lane.
  */
-export const LANES = ['headless', 'session', 'container', 'vm'] as const;
+export const LANES = ['headless', 'session', 'container'] as const;
 
 export type Lane = (typeof LANES)[number];
 
@@ -386,8 +389,8 @@ export function describeValidationError(error: z.ZodError): string[] {
  * Whether a lane's substrate is usable right now.
  *
  * `reason` explains *why not* in human terms; `fix` is a literal command the
- * user can paste (`colima start`, `brew install cirruslabs/cli/tart`). Both are
- * omitted when `available` is true.
+ * user can paste (`colima start`, `offstage session setup`). Both are omitted
+ * when `available` is true.
  *
  * This is the value `offstage doctor` renders, so it is worth writing well.
  */
@@ -411,8 +414,8 @@ export const LaneAvailabilitySchema: z.ZodType<LaneAvailability> = z.object({
  * What every lane implements. Three rules, and they are the whole product:
  *
  * 1. **`isAvailable()` never throws and never mutates the world.** It probes;
- *    it does not start Colima, install Tart, or pull an image. An unusable
- *    substrate is `{ available: false, reason, fix }`, not an exception.
+ *    it does not start Colima or pull an image. An unusable substrate is
+ *    `{ available: false, reason, fix }`, not an exception.
  * 2. **`run()` never throws.** Every failure mode — spawn error, timeout, dead
  *    substrate — comes back as a valid {@link LaneResult} with
  *    `status: 'errored'` and an explanation in `diagnostics`.
@@ -438,12 +441,22 @@ export interface LaneRunner {
  * `reason` is written for a human or an agent to read aloud; `signals` are the
  * concrete observations behind it (`--headed present`, `playwright.config.ts
  * sets headless: false`, `xcodebuild in argv`).
+ *
+ * `refuse`, when set, means offstage will not run this command automatically
+ * in *any* lane: it could change the machine (an installer, a `.dmg`/`.pkg`,
+ * `hdiutil`) and offstage has no substrate that isolates that today. `lane`
+ * still names the best of the three that the rest of the command argues for
+ * (so `route` and `explain` have something to say), but `run()` refuses
+ * unconditionally when `refuse` is set: there is no `--lane` override, because
+ * no lane offers the isolation this needs. Undefined for every ordinary
+ * decision.
  */
 export interface RouteDecision {
   lane: Lane;
   reason: string;
   confidence: 'high' | 'low';
   signals: string[];
+  refuse?: string;
 }
 
 export const RouteDecisionSchema: z.ZodType<RouteDecision> = z.object({
@@ -451,6 +464,7 @@ export const RouteDecisionSchema: z.ZodType<RouteDecision> = z.object({
   reason: z.string().min(1),
   confidence: z.enum(['high', 'low']),
   signals: z.array(z.string()),
+  refuse: z.string().min(1).optional(),
 });
 
 /* -------------------------------------------------------------------------- */

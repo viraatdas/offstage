@@ -12,8 +12,8 @@ human opens when the parsed summary is not enough — a log that quietly loses i
 middle is worse than no log, because nothing says it happened.
 
 The headless lane (`src/lanes/headless/runner.ts`) implements this. The
-container and VM lanes capture output too, so the reasoning is written down here
-rather than left in one lane's comments.
+container and session lanes capture output too, so the reasoning is written
+down here rather than left in one lane's comments.
 
 ## What holds it up
 
@@ -51,14 +51,15 @@ went, that `failures[]` therefore reflects only the end of the run, and that
 itself reads exactly like a whole one, which is the kind of quiet lie the
 `LaneResult` contract exists to prevent.
 
-## For the container and VM lanes
+## For the container and session lanes
 
-Same budget, same disclosure. Whatever ferries output out of a guest, the two
-promises are unchanged: bound what you hold in memory, and hand back a complete
-log on disk. `CappedText` and `appendWithBackpressure` are exported from
-`src/lanes/headless/runner.ts` and are substrate-agnostic — reuse them rather
-than re-deriving the trade-off, and if a lane genuinely cannot keep the log
-whole (a guest that dies mid-copy, say), say so in `diagnostics` instead of
-returning a truncated log that looks complete.
+Same budget, same disclosure. Whatever ferries output out of a guest or a
+helper session, the two promises are unchanged: bound what you hold in memory,
+and hand back a complete log on disk. `CappedText` and
+`appendWithBackpressure` are exported from `src/lanes/headless/runner.ts` and
+are substrate-agnostic — reuse them rather than re-deriving the trade-off, and
+if a lane genuinely cannot keep the log whole (a guest that dies mid-copy,
+say), say so in `diagnostics` instead of returning a truncated log that looks
+complete.
 
 Locked by `tests/lanes.headless.capture.test.ts`.

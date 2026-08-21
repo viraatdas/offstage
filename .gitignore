@@ -17,6 +17,6 @@ coverage/
 # ...except recorded lane fixtures. `xcodebuild.log` / `command.log` under
 # tests/fixtures are checked-in evidence, not build noise: the lane parsers are
 # unit-tested against them, so `*.log` above must not swallow them or the suite
-# fails on a clean clone. Applies to every lane's fixtures, not just the vm one.
+# fails on a clean clone. Applies to every lane's fixtures.
 !tests/fixtures/**/*.log
 .rudder-workspaces/

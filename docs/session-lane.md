@@ -47,10 +47,11 @@ Verified facts this design rests on (macOS 26.3, Apple silicon):
 
 It is **session isolation, not machine isolation**. Same OS, same kernel, same
 disk. Use it to keep windows, focus, and input off your screen. Do not use it
-to test an installer that might damage the system — that is what the `vm` lane
-and its 27–69 GB Tart image are for. The router encodes this: `.dmg`, `.pkg`,
-`installer`, and `hdiutil` still route to `vm`; everything else macOS-native
-routes to `session`.
+to test an installer that might damage the system: offstage has no lane that
+isolates that. The router encodes this by refusing rather than routing:
+`.dmg`, `.pkg`, `installer`, and `hdiutil` are refused outright, on every
+lane, with `RouteDecision.refuse` set; everything else macOS-native routes to
+`session`.
 
 TCC is per session and per binary. Screen capture and event injection by the
 daemon require **Screen Recording** and **Accessibility** to be granted to
@@ -293,7 +294,7 @@ a clean exit would leave the lane down instead of restarting it.
 | `discover.ts` | Which account, which uid, does it have a GUI session, is it on console, is the socket there. Parses `ioreg -n Root -d1 -a` (plist) → `IOConsoleUsers`; `dscl . -read /Users/<name> UniqueID NFSHomeDirectory`. Pure functions over captured text, plus one thin exec seam, so it is unit-tested against recorded output. |
 | `client.ts` | Typed RPC over the socket: `hello()`, `access()`, `run()` with an `onOutput` callback, `screenshot()`, `input()`, `apps()`, `requestPermissions()`. Connection per call, as the protocol says. Zod-validates every final line. |
 | `setup.ts` | Generates the LaunchAgent plist and the root install script; drives `swiftc`; applies `share` ACLs. Nothing here shells out without an injected exec, so it is testable. |
-| `index.ts` | Re-exports + `SESSION_DEFAULTS` (`user: 'computeruse'`, `socketDir: '/tmp/offstage-session'`, `label: 'dev.offstage.sessiond'`, `installDir: '/usr/local/libexec/offstage'`). |
+| `index.ts` | Re-exports + `SESSION_DEFAULTS` (`user: 'computeruse'`, `socketDir: '/tmp/offstage-session'`, `label: 'dev.offstage.sessiond'`, no fixed `installDir`; the binary lives in the helper account's own home, see `installDirFor(home)`). |
 
 Configuration precedence: `OFFSTAGE_SESSION_USER` env → `~/.config/offstage/session.json` `{ "user": "..." }` → default `computeruse`.
 
@@ -317,29 +318,35 @@ Implements `LaneRunner` with `lane: 'session'`.
 3. `chmod +a "<user> allow read,write,append,delete,add_file,add_subdirectory,search,readattr,writeattr,readextattr,writeextattr,file_inherit,directory_inherit" <artifactsDir>` — the lane owns that directory. Failure → `errored`.
 4. `run` op with `env = req.env minus DISPLAY, plus OFFSTAGE_ARTIFACTS=<artifactsDir>, OFFSTAGE_LANE=session`. Stream output to `<artifactsDir>/command.log` (reuse `LogSink`/`CappedText` semantics from the headless lane, or the same caps: 4 MB captured, 8 MB buffered).
 5. Afterwards, best-effort `screenshot` → `<artifactsDir>/screen.png`, artifact kind `screenshot`. A TCC failure becomes one diagnostic line, not an error.
-6. `status = statusFromExitCode`, `failures = parseFailures(output, { cwd })` from the headless parser on `failed`, diagnostics: which account and session id ran it, whether the screenshot was taken, and the standing reminder that this is session isolation, not a VM.
+6. `status = statusFromExitCode`, `failures = parseFailures(output, { cwd })` from the headless parser on `failed`, diagnostics: which account and session id ran it, whether the screenshot was taken, and the standing reminder that this is session isolation, not machine isolation.
 
 `run()` never throws; the daemon being unreachable mid-run is `errored`.
 
 ## Router policy
 
-`LANES = ['headless', 'session', 'container', 'vm']`. Precedence when signals
-disagree: `vm` > `session` > `container` > `headless`.
+`LANES = ['headless', 'session', 'container']`. Precedence when signals
+disagree: `session` > `container` > `headless`, and a refusal wins over all
+three.
 
-- Every macOS-native signal that previously argued `vm` now argues `session`:
-  `xcodebuild`, `xcrun`, `xcrun simctl`, `uitest-scheme`, `xcode-target`,
-  `app-binary`, `open-app`, `open-other`, `safaridriver`, `osascript`,
-  `instruments`. Clauses say: "…runs in the session lane — a second, logged-in
-  macOS account whose display and input are its own — so the window never
-  reaches your desktop. Pass `--lane vm` for a disposable machine."
-- Signals that imply **changing the machine** keep arguing `vm`: `dmg-path`,
-  `hdiutil`, and new `pkg-path` (`*.pkg`) and `installer` (`bin === 'installer'`).
-- `vm` + `session` together → `vm` wins (clean state beats cheap), with a note.
+- Every macOS-native signal that opens a window but changes nothing about the
+  machine argues `session`: `xcodebuild`, `xcrun`, `xcrun simctl`,
+  `uitest-scheme`, `xcode-target`, `app-binary`, `open-app`, `open-other`,
+  `safaridriver`, `osascript`, `instruments`. Clauses say: "…runs in the
+  session lane — a second, logged-in macOS account whose display and input are
+  its own — so the window never reaches your desktop."
+- Signals that imply **changing the machine** refuse instead of arguing a
+  lane: `dmg-path`, `hdiutil`, `pkg-path` (`*.pkg`) and `installer`
+  (`bin === 'installer'`). They set `RouteDecision.refuse`, and `run()`
+  refuses unconditionally when it is set — there is no `--lane` override.
+  offstage has no substrate that isolates a change to the machine itself.
+- A refusal wins even alongside a `session` signal on the same command line
+  (e.g. `xcodebuild build && open ./dist/MyApp.dmg`): `lane` still names what
+  the rest of the command argues for, but nothing runs.
 - `session` + `container` together (e.g. `open -a Safari` plus `--headed`) → `session` wins; note says a macOS app cannot run in a Linux container.
-- The refusal rule is unchanged: the only refused override is `--lane headless` on
-  work routed away from headless. `--lane session`, `--lane container`,
-  `--lane vm` are all screen-safe and always honoured; the diagnostic says when
-  the router would have chosen differently.
+- The one remaining override refusal: `--lane headless` on work routed away
+  from headless. `--lane session` and `--lane container` are screen-safe and
+  always honoured (when the command is not itself refused); the diagnostic
+  says when the router would have chosen differently.
 
 ## CLI and MCP surface
 
@@ -364,15 +371,37 @@ content block plus JSON), `offstage_session_input` (`actions` array as above),
 launching. The skill tells agents: *screenshot → decide → input → screenshot*,
 coordinates in points, and never to drive the user's own session.
 
-`setup` needs `sudo` for exactly four things — copying the binary into
-`/usr/local/libexec/offstage/`, writing the plist into the helper account's
-`~/Library/LaunchAgents/` (creating that directory and `~/Library/Logs` if the
-account has never finished a first login), pre-creating the socket directory
-`/tmp/offstage-session` owned by the helper account, and
-`launchctl bootstrap gui/<uid>`. It prints the
-script before running it, runs it with `sudo` attached to the terminal, and is
-refused over MCP (no terminal to type a password into) with the message "run
-`offstage session setup` in a terminal".
+`setup` needs `sudo`, and it is the **only** thing that ever does. It installs
+the binary into the helper account's `~/.offstage/bin/`, writes the plist into
+that account's `~/Library/LaunchAgents/` (creating that directory and
+`~/Library/Logs` if the account has never finished a first login), pre-creates
+the socket directory `/tmp/offstage-session` owned by the helper account, runs
+`launchctl bootstrap gui/<uid>`, and deletes any binary left behind in the old
+root-owned `/usr/local/libexec/offstage/`. It prints the script before running
+it, runs it with `sudo` attached to the terminal, and is refused over MCP (no
+terminal to type a password into) with the message "run `offstage session setup`
+in a terminal".
+
+### Why the binary lives in a home directory
+
+It used to be root-owned in `/usr/local/libexec/offstage`, which made every
+update another `sudo`. That is not merely inconvenient. An admin prompt raised
+from a background task puts a dialog on the console that captures the keyboard
+until someone answers it, and an unanswered one has already cost this project a
+forced reboot. So updating must need no privilege, which means the account that
+runs the binary has to own it.
+
+That makes `offstage session update` a file copy performed by the daemon itself,
+over its own socket: stage next to the target, then `mv -f` over it. A running
+executable cannot be written in place (ETXTBSY) but can be replaced by
+`rename(2)`, which is atomic and leaves the running process on the old inode.
+Then `restart`, and launchd brings up the new one.
+
+The trade is that anything already running as the helper account could swap that
+file. It could not thereby inherit the daemon's Screen Recording or
+Accessibility grants: those are keyed to the binary's Designated Requirement, so
+an unsigned or differently signed replacement gets nothing. The signature, not
+the file ownership, is what guards the privileges here.
 
 ## Verification ladder
 

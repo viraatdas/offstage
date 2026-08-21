@@ -46,18 +46,20 @@
  *   macOS already has one: a second local account, logged in and sitting in the
  *   background with its own framebuffer, its own keyboard and mouse stream and
  *   its own running apps. That is the session lane, and it costs a socket
- *   connection rather than a 27–69 GB VM image. See `docs/session-lane.md`.
- * - **vm for work that can change the machine**: a `.dmg`, a `.pkg`, the
- *   `installer` command, `hdiutil`. The session lane is session isolation, not
- *   machine isolation — same OS, same kernel, same disk — so an installer that
- *   damages the system would damage *your* system. Those get a disposable macOS
- *   guest instead, and they outrank every session signal for exactly that
- *   reason.
+ *   connection. See `docs/session-lane.md`.
+ * - **anything that could change the machine is refused, not routed**: a
+ *   `.dmg`, a `.pkg`, the `installer` command, `hdiutil`. The session lane is
+ *   session isolation, not machine isolation — same OS, same kernel, same disk
+ *   — so an installer that damages the system would damage *your* system, and
+ *   offstage has no substrate that isolates that today. Rather than pick the
+ *   least-bad lane, it refuses: nothing runs anywhere, and `reason` says why.
+ *   Run the command directly yourself if you accept the risk.
  * - **everything else is headless**, because no display is involved anywhere.
  *
- * Precedence when signals disagree: `vm` > `session` > `container` >
- * `headless`. A disposable machine beats a spare display, a spare macOS display
- * beats a Linux one, and any of them beats running on your screen.
+ * Precedence when signals disagree: `session` > `container` > `headless`, and
+ * a refusal wins over all three. A spare macOS display beats a Linux one, and
+ * any of them beats running on your screen, but nothing beats not running a
+ * command that could change the machine at all.
  *
  * When the evidence is thin or contradictory the answer comes back with
  * `confidence: 'low'` and a `reason` that says so, rather than a confident
@@ -201,10 +203,9 @@ function decide(collected: Signal[]): RouteDecision {
 
   if (!signals.some((item) => item.argues !== null)) signals.push({ ...NOTHING_FOUND });
 
-  const hasVm = signals.some((item) => item.argues === 'vm');
   const hasSession = signals.some((item) => item.argues === 'session');
   const hasContainer = signals.some((item) => item.argues === 'container');
-  const lane: Lane = hasVm ? 'vm' : hasSession ? 'session' : hasContainer ? 'container' : 'headless';
+  const lane: Lane = hasSession ? 'session' : hasContainer ? 'container' : 'headless';
 
   const kept = signals.filter((item) => lane === 'headless' || !FRAMING_KINDS.has(item.kind));
   const forLane = kept.filter((item) => item.argues === lane).sort((a, b) => a.priority - b.priority);
@@ -213,17 +214,6 @@ function decide(collected: Signal[]): RouteDecision {
   const notes: string[] = [];
   let confidence: 'high' | 'low' = primary.confidence;
 
-  if (hasVm && hasSession) {
-    notes.push(
-      'The command also carries macOS GUI signals that the session lane could run, but an installer/disk image needs a disposable machine, so the VM lane wins.',
-    );
-  }
-  if (hasVm && hasContainer) {
-    confidence = 'low';
-    notes.push(
-      'This command also carries headed-browser signals; the macOS VM lane wins because a Linux container cannot run macOS tooling at all.',
-    );
-  }
   if (lane === 'session' && hasContainer) {
     confidence = 'low';
     notes.push(
@@ -262,7 +252,20 @@ function decide(collected: Signal[]): RouteDecision {
     );
   }
 
-  const reason = [primary.clause, ...notes].join(' ');
+  let reason = [primary.clause, ...notes].join(' ');
+
+  // A command that could change the machine itself outranks everything above:
+  // there is no lane left that isolates that, so offstage refuses rather than
+  // pick the least-bad one. `lane` still names what the rest of the command
+  // argues for, so `route`/`explain` have something to say, but `refuse` is
+  // what tells a caller nothing may run.
+  const refusing = signals.filter((item) => item.refuses === true).sort((a, b) => a.priority - b.priority);
+  const lead = refusing[0];
+  const refuse = lead?.clause;
+  if (lead !== undefined) {
+    confidence = 'high';
+    reason = lead.clause;
+  }
 
   const rank = (item: Signal): number => (item.argues === lane ? 0 : item.argues === null ? 2 : 1);
   const ordered = [...kept].sort((a, b) => rank(a) - rank(b) || a.priority - b.priority);
@@ -272,7 +275,7 @@ function decide(collected: Signal[]): RouteDecision {
     if (!details.includes(item.detail)) details.push(item.detail);
   }
 
-  return { lane, reason, confidence, signals: details };
+  return { lane, reason, confidence, signals: details, ...(refuse === undefined ? {} : { refuse }) };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -308,7 +311,7 @@ export function explain(decision: RouteDecision, options: ExplainOptions = {}): 
   const maxLength = Math.max(8, options.maxLength ?? DEFAULT_MAX_LENGTH);
 
   const render = (withSignals: boolean): string => {
-    const parts = [`${decision.lane} (${decision.confidence})`];
+    const parts = [decision.refuse === undefined ? `${decision.lane} (${decision.confidence})` : 'REFUSED'];
     if (options.command !== undefined && options.command.length > 0) {
       parts.push(collapse(options.command.join(' ')));
     }

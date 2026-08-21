@@ -29,8 +29,7 @@ import { basenameOf, normalizeInvocation, parseScriptInvocation, tokenizeShellis
 
 export type SignalKind =
   // session — macOS-native GUI work, which needs a real window server but not
-  // a fresh machine. `macos-gui-tool` is the exception that spans both: it
-  // argues `session` for osascript and instruments, `vm` for hdiutil.
+  // a fresh machine.
   | 'xcodebuild'
   | 'xcrun-simctl'
   | 'xcrun'
@@ -40,7 +39,10 @@ export type SignalKind =
   | 'app-binary'
   | 'macos-gui-tool'
   | 'open-other'
-  // vm — anything that can change the machine it runs on
+  // refused — anything that could change the machine it runs on. offstage has
+  // no lane that isolates that, so these force `RouteDecision.refuse` instead
+  // of arguing for a lane. `macos-gui-tool` covers `hdiutil` here too, the one
+  // MACOS_GUI_BINS member that refuses rather than arguing `session`.
   | 'dmg-path'
   | 'pkg-path'
   | 'installer'
@@ -90,6 +92,13 @@ export interface Signal {
   /** True when derived from a file or a hint rather than the literal argv. */
   inferred: boolean;
   confidence: 'high' | 'low';
+  /**
+   * True when this observation, on its own, means offstage refuses to run the
+   * command in any lane: it could change the machine, and no lane isolates
+   * that. Independent of `argues`: a refusing signal usually argues `null`,
+   * since it is not evidence *for* a lane. See `decide()` in `./index.js`.
+   */
+  refuses?: boolean;
 }
 
 function signal(init: Signal): Signal {
@@ -655,7 +664,7 @@ function macosSignals(view: CommandView): Signal[] {
         origin: view.label,
         detail: at('xcodebuild'),
         clause:
-          'xcodebuild only exists on macOS and drives the Xcode toolchain against a real window server, so no Linux container can run it; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so its build and simulator windows never reach your desktop. Pass --lane vm for a disposable machine.',
+          'xcodebuild only exists on macOS and drives the Xcode toolchain against a real window server, so no Linux container can run it; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so its build and simulator windows never reach your desktop.',
         priority: 10,
         inferred: false,
         confidence: 'high',
@@ -673,7 +682,7 @@ function macosSignals(view: CommandView): Signal[] {
           origin: view.label,
           detail: at('xcrun simctl'),
           clause:
-            'xcrun simctl boots an iOS Simulator, which needs a live macOS window server to render into; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so the simulator never appears on your desktop. Pass --lane vm for a disposable machine.',
+            'xcrun simctl boots an iOS Simulator, which needs a live macOS window server to render into; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so the simulator never appears on your desktop.',
           priority: 11,
           inferred: false,
           confidence: 'high',
@@ -687,7 +696,7 @@ function macosSignals(view: CommandView): Signal[] {
           origin: view.label,
           detail: at(`xcrun ${args[0] ?? ''}`.trim()),
           clause:
-            'xcrun runs a macOS developer tool from the Xcode toolchain, which exists on no other platform and may put a window up while it works; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so anything it opens never reaches your desktop. Pass --lane vm for a disposable machine.',
+            'xcrun runs a macOS developer tool from the Xcode toolchain, which exists on no other platform and may put a window up while it works; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so anything it opens never reaches your desktop.',
           priority: 17,
           inferred: false,
           confidence: 'high',
@@ -709,7 +718,7 @@ function macosSignals(view: CommandView): Signal[] {
         origin: view.label,
         detail: at(scheme !== undefined ? `-scheme ${scheme}` : (onlyTesting as string)),
         clause:
-          'This targets an XCUITest scheme, which drives a real macOS app through the accessibility APIs and needs a live UI session with a keyboard and mouse of its own; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so the test types into that session and never into yours. Pass --lane vm for a disposable machine.',
+          'This targets an XCUITest scheme, which drives a real macOS app through the accessibility APIs and needs a live UI session with a keyboard and mouse of its own; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so the test types into that session and never into yours.',
         priority: 12,
         inferred: false,
         confidence: 'high',
@@ -729,7 +738,7 @@ function macosSignals(view: CommandView): Signal[] {
         detail: at(basenameOf(projectToken.replace(/\/$/, ''))),
         clause: `The command targets ${basenameOf(
           projectToken.replace(/\/$/, ''),
-        )}, which only Xcode on macOS can open and which builds against a real window server; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so whatever it opens never reaches your desktop. Pass --lane vm for a disposable machine.`,
+        )}, which only Xcode on macOS can open and which builds against a real window server; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so whatever it opens never reaches your desktop.`,
         priority: 13,
         inferred: false,
         confidence: 'high',
@@ -742,14 +751,15 @@ function macosSignals(view: CommandView): Signal[] {
     found.push(
       signal({
         kind: 'dmg-path',
-        argues: 'vm',
+        argues: null,
         origin: view.label,
         detail: at(dmg),
         clause:
-          'A .dmg is mounted by the macOS disk-image stack onto the machine that runs the command, and what is inside one is usually an installer that can change that machine; the session lane shares your OS and your disk, so this goes to the vm lane — a disposable macOS guest you can throw away afterwards.',
-        priority: 15,
+          'A .dmg is mounted by the macOS disk-image stack onto the machine that runs the command, and what is inside one is usually an installer that can change that machine. The session lane shares your OS and your disk with you, so it cannot honestly contain that, and offstage has no lane that can: it refuses to run this rather than risk your machine. Mount and inspect it by hand, or run this command directly yourself if you accept the risk.',
+        priority: 5,
         inferred: false,
         confidence: 'high',
+        refuses: true,
       }),
     );
   }
@@ -763,7 +773,7 @@ function macosSignals(view: CommandView): Signal[] {
         origin: view.label,
         detail: at(appBinary),
         clause:
-          'This launches the executable inside a macOS .app bundle, which puts a real window on whatever screen it finds; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so the window opens on that other framebuffer and never reaches your desktop. Pass --lane vm for a disposable machine.',
+          'This launches the executable inside a macOS .app bundle, which puts a real window on whatever screen it finds; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so the window opens on that other framebuffer and never reaches your desktop.',
         priority: 16,
         inferred: false,
         confidence: 'high',
@@ -782,7 +792,7 @@ function macosSignals(view: CommandView): Signal[] {
           origin: view.label,
           detail: at(`open ${appArg ?? flagValue(args, ['-a']) ?? ''}`.trim()),
           clause:
-            'open launches a macOS app, and a launched app puts a real window on the real screen and takes the keyboard focus with it; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so the window never reaches your desktop. Pass --lane vm for a disposable machine.',
+            'open launches a macOS app, and a launched app puts a real window on the real screen and takes the keyboard focus with it; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so the window never reaches your desktop.',
           priority: 14,
           inferred: false,
           confidence: 'high',
@@ -796,7 +806,7 @@ function macosSignals(view: CommandView): Signal[] {
           origin: view.label,
           detail: at(`open ${args[0] as string}`),
           clause:
-            'open hands its argument to whatever macOS app is registered for it, which means a window appears somewhere; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so that somewhere is never your desktop. Pass --lane vm for a disposable machine.',
+            'open hands its argument to whatever macOS app is registered for it, which means a window appears somewhere; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so that somewhere is never your desktop.',
           priority: 18,
           inferred: false,
           confidence: 'low',
@@ -805,21 +815,22 @@ function macosSignals(view: CommandView): Signal[] {
     }
   }
 
-  // hdiutil is the one MACOS_GUI_BIN that argues for a fresh machine rather
-  // than a spare display: attaching a disk image mounts a volume on whatever
-  // system runs the command, and the session lane is that same system.
+  // hdiutil is the one MACOS_GUI_BIN that refuses rather than arguing for a
+  // spare display: attaching a disk image mounts a volume on whatever system
+  // runs the command, and the session lane is that same system.
   if (bin === 'hdiutil') {
     found.push(
       signal({
         kind: 'macos-gui-tool',
-        argues: 'vm',
+        argues: null,
         origin: view.label,
         detail: at(bin),
         clause:
-          'hdiutil attaches and creates macOS disk images, which mounts volumes on the machine that runs it and is usually a step in installing something; the session lane is a second account on your own OS and disk, not a second machine, so this goes to the vm lane where a bad mount costs you nothing but the guest.',
-        priority: 17,
+          'hdiutil attaches and creates macOS disk images, which mounts volumes on the machine that runs it and is usually a step in installing something. The session lane is a second account on your own OS and disk, not a second machine, and offstage has no lane that isolates a mount like that, so it refuses to run this rather than risk your machine. Run it directly yourself if you accept the risk.',
+        priority: 5,
         inferred: false,
         confidence: 'high',
+        refuses: true,
       }),
     );
   } else if (MACOS_GUI_BINS.has(bin) && bin !== 'simctl') {
@@ -829,7 +840,7 @@ function macosSignals(view: CommandView): Signal[] {
         argues: 'session',
         origin: view.label,
         detail: at(bin),
-        clause: `${bin} is a macOS-only tool that talks to the system's GUI services, so no Linux container can run it; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so whatever it drives or draws never touches your desktop. Pass --lane vm for a disposable machine.`,
+        clause: `${bin} is a macOS-only tool that talks to the system's GUI services, so no Linux container can run it; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so whatever it drives or draws never touches your desktop.`,
         priority: 17,
         inferred: false,
         confidence: 'high',
@@ -838,20 +849,21 @@ function macosSignals(view: CommandView): Signal[] {
   }
 
   // Installer packages and the installer command change the machine they run
-  // on. That is precisely the line between the session lane and the vm lane.
+  // on. offstage has no lane that isolates that, so both refuse outright.
   const pkg = tokens.find((token) => /\.pkg$/i.test(token));
   if (pkg !== undefined) {
     found.push(
       signal({
         kind: 'pkg-path',
-        argues: 'vm',
+        argues: null,
         origin: view.label,
         detail: at(pkg),
         clause:
-          'A .pkg is a macOS installer package, and installing one writes into system locations, runs preinstall and postinstall scripts as root, and cannot be cleanly undone; the session lane shares your OS and your disk with you, so this goes to the vm lane — a disposable macOS guest you can discard afterwards.',
-        priority: 15,
+          'A .pkg is a macOS installer package, and installing one writes into system locations, runs preinstall and postinstall scripts as root, and cannot be cleanly undone. The session lane shares your OS and your disk with you, and offstage has no lane that isolates a change like that, so it refuses to run this rather than risk your machine. Run it directly yourself if you accept the risk.',
+        priority: 5,
         inferred: false,
         confidence: 'high',
+        refuses: true,
       }),
     );
   }
@@ -860,14 +872,18 @@ function macosSignals(view: CommandView): Signal[] {
     found.push(
       signal({
         kind: 'installer',
-        argues: 'vm',
+        argues: null,
         origin: view.label,
         detail: at('installer'),
         clause:
-          'The installer command applies a macOS installer package to a target volume, which is a deliberate change to the machine it runs on; the session lane is only a second account on your own OS and disk, so this goes to the vm lane, where the machine being changed is a disposable guest.',
-        priority: 14,
+          'The installer command applies a macOS installer package to a target volume, which is a deliberate change to the machine it runs on. The session lane is only a second account on your own OS and disk, and offstage has no lane that isolates that, so it refuses to run this rather than risk your machine. Run it directly yourself if you accept the risk.',
+        // Wins over pkg-path (priority 5) when both fire on `installer -pkg
+        // foo.pkg`: naming the command itself is a more specific reason than
+        // noticing its argument.
+        priority: 4,
         inferred: false,
         confidence: 'high',
+        refuses: true,
       }),
     );
   }
@@ -1349,7 +1365,7 @@ async function toolSignals(view: CommandView, inspector: Inspector): Promise<Sig
         origin: view.label,
         detail: at('safaridriver'),
         clause:
-          'safaridriver drives Safari, which ships only with macOS and has no headless mode at all, so no Linux container can run this; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so the Safari window it opens never reaches your desktop. Pass --lane vm for a disposable machine.',
+          'safaridriver drives Safari, which ships only with macOS and has no headless mode at all, so no Linux container can run this; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so the Safari window it opens never reaches your desktop.',
         priority: 17,
         inferred,
         confidence: 'high',
@@ -1978,7 +1994,7 @@ async function repositorySignals(existing: Signal[], inspector: Inspector): Prom
   if (projects.length === 0) return [];
 
   const names = projects.join(', ');
-  const targeted = existing.some((item) => item.argues === 'session' || item.argues === 'vm');
+  const targeted = existing.some((item) => item.argues === 'session' || item.refuses === true);
 
   if (targeted) {
     return [

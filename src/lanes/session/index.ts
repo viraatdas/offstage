@@ -84,7 +84,7 @@ export const SCREENSHOT_FILENAME = 'screen.png';
 
 /** The sentence every session result carries, because the distinction matters. */
 export const ISOLATION_NOTE =
-  'This is session isolation, not a VM: the same machine, the same OS and the same disk, with a different display and a different input stream. Use --lane vm for anything that could change the machine (installers, .dmg/.pkg).';
+  'This is session isolation, not machine isolation: the same machine, the same OS and the same disk, with a different display and a different input stream. offstage refuses anything that could change the machine (installers, .dmg/.pkg, hdiutil) rather than run it here or anywhere else.';
 
 /** `offstage session setup` — the fix for every "the daemon is not there" rung. */
 export const SETUP_FIX = 'offstage session setup';

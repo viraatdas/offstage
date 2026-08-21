@@ -1,7 +1,13 @@
 # Driving macOS without taking the user's screen
 
-offstage's vm lane answers "run this where it cannot touch my display" with a
-whole macOS guest. That is correct but expensive: the pinned Tart image is a
+> **2026-08-21, the `vm` lane described below was later removed** (see
+> `docs/roadmap.md`); it never drove a real macOS guest. This document is left
+> as it was written, because it is the historical record of the investigation
+> that led to the session lane, and the vm lane's cost is what motivated that
+> investigation in the first place.
+
+offstage's vm lane answered "run this where it cannot touch my display" with a
+whole macOS guest. That is correct but expensive: the pinned Tart image was a
 **68.8 GB** download. This document records what else macOS offers, why the
 obvious cheap answers do not work, and exactly where the one promising native
 mechanism stops being reachable.

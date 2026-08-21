@@ -52,12 +52,10 @@ npm config get prefix     # e.g. /usr/local, or ~/.npm-global
 
 ## The session lane's one-time setup
 
-Two of offstage's lanes — `headless` and `container` — work the moment the
-package is installed. The third macOS-native path, `vm`, needs a one-time
-~25–69 GB image build. The **session lane** is a fourth, cheaper way to get an
-unwatched macOS GUI session: a second, ordinary macOS user account
-(`computeruse` by default) that a small daemon drives, isolated from your own
-login session's input and screen.
+Two of offstage's three lanes, `headless` and `container`, work the moment the
+package is installed. The third, **session**, needs a one-time setup step: a
+second, ordinary macOS user account (`computeruse` by default) that a small
+daemon drives, isolated from your own login session's input and screen.
 
 Run the setup once:
 
@@ -134,10 +132,12 @@ Unix domain socket owned by a **staff-group** socket file — readable and
 writable only by accounts in the `staff` group (which both your account and
 the helper account are in by default on a single-user Mac), not world-writable
 and not exposed over any network interface. This buys you input and screen
-isolation for GUI automation at a fraction of the VM lane's disk and boot cost;
-it does not buy you the stronger boundary a VM gives you (a different kernel,
-no shared filesystem) — pick the `vm` lane instead if that's the property you
-need.
+isolation for GUI automation with none of a VM's disk and boot cost. It does
+not buy you the stronger boundary a VM gives you (a different kernel, no
+shared filesystem): offstage has no lane for that today, so anything that
+could change the machine itself (an installer, a `.dmg`/`.pkg`, `hdiutil`) is
+refused rather than run. Reach for your own disposable VM if you need that
+property.
 
 ## Troubleshooting
 

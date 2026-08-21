@@ -122,7 +122,7 @@ describe('the classifier is pure', () => {
     for (const repo of ['plain', 'scripts', 'puppeteer', 'xcode'] as const) {
       for (const command of EVERY_SHAPE) {
         const decision = await classify({ cwd: fixtures.path(repo), command });
-        expect(decision.lane, command.join(' ')).toMatch(/^(headless|session|container|vm)$/);
+        expect(decision.lane, command.join(' ')).toMatch(/^(headless|session|container)$/);
       }
     }
   });

@@ -79,7 +79,6 @@ function deps(
       headless: lanes.headless ?? fakeLane('headless'),
       session: lanes.session ?? fakeLane('session'),
       container: lanes.container ?? fakeLane('container'),
-      vm: lanes.vm ?? fakeLane('vm'),
     },
     env: {},
     ...overrides,
@@ -111,7 +110,6 @@ describe('doctor', () => {
         container: fakeLane('container', {
           availability: { available: false, reason: 'no runtime', fix: 'colima start' },
         }),
-        vm: fakeLane('vm', { availability: { available: false, reason: 'no tart' } }),
       }),
     );
 
@@ -119,7 +117,6 @@ describe('doctor', () => {
       'headless',
       'session',
       'container',
-      'vm',
     ]);
     expect(report.ready).toEqual(['headless', 'session']);
     expect(report.lanes[2]?.availability.fix).toBe('colima start');
@@ -148,20 +145,20 @@ describe('doctor', () => {
 
   it('survives a lane whose isAvailable() throws, and says which lane broke its contract', async () => {
     const broken: LaneRunner = {
-      lane: 'vm',
+      lane: 'container',
       async isAvailable(): Promise<LaneAvailability> {
-        throw new Error('tart exploded');
+        throw new Error('docker exploded');
       },
       async run(req) {
-        return createLaneResult({ lane: 'vm', status: 'errored', artifactsDir: req.artifactsDir });
+        return createLaneResult({ lane: 'container', status: 'errored', artifactsDir: req.artifactsDir });
       },
     };
 
-    const report = await doctor(deps({ vm: broken }));
-    const vm = report.lanes.find((health) => health.lane === 'vm');
-    expect(vm?.availability.available).toBe(false);
-    expect(vm?.availability.reason).toContain('vm.isAvailable() threw');
-    expect(vm?.availability.reason).toContain('tart exploded');
+    const report = await doctor(deps({ container: broken }));
+    const container = report.lanes.find((health) => health.lane === 'container');
+    expect(container?.availability.available).toBe(false);
+    expect(container?.availability.reason).toContain('container.isAvailable() threw');
+    expect(container?.availability.reason).toContain('docker exploded');
   });
 });
 

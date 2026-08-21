@@ -135,7 +135,7 @@ export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()
     {
       title: 'offstage doctor',
       description:
-        'Report per-lane availability and concrete fixes for all four lanes — headless, session (a second logged-in macOS account whose display and input are its own), container, and vm. offstage keeps UI, browser, and macOS app work off the user screen; unavailable isolation is reported, never bypassed.',
+        'Report per-lane availability and concrete fixes for all three lanes: headless, session (a second logged-in macOS account whose display and input are its own), and container. offstage keeps UI, browser, and macOS app work off the user screen; unavailable isolation is reported, never bypassed.',
       inputSchema: EmptyArgsSchema,
     },
     async (args) =>
@@ -149,7 +149,7 @@ export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()
     {
       title: 'offstage route',
       description:
-        'Cheap, side-effect-free lane decision for a command. Call this first when unsure: it only inspects argv and small repo files and explains whether offstage will use headless, session, container, or vm.',
+        'Cheap, side-effect-free lane decision for a command. Call this first when unsure: it only inspects argv and small repo files and explains whether offstage will use headless, session, or container, or refuse the command outright because it could change the machine.',
       inputSchema: RouteArgsSchema,
     },
     async (args) =>
@@ -163,7 +163,7 @@ export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()
     {
       title: 'offstage run',
       description:
-        'Run a command off the user screen through the selected offstage lane, and return the normalized result plus where it was written. Headed browser work uses a Linux container with a virtual display; macOS-native work (xcodebuild, xcrun, open -a, osascript) uses lane "session" — a second, logged-in macOS account with its own display and its own input stream, so the window never reaches the user screen; anything that could change the machine (installers, .dmg/.pkg) uses lane "vm". This never falls back to the user real display — forcing lane "headless" on work that needs isolation is refused, not honoured. The session lane needs the helper account to be able to READ the working directory: a spawn failure there is fixed by the user running `offstage session share <dir>`, not by running the command outside offstage.',
+        'Run a command off the user screen through the selected offstage lane, and return the normalized result plus where it was written. Headed browser work uses a Linux container with a virtual display; macOS-native work (xcodebuild, xcrun, open -a, osascript) uses lane "session" — a second, logged-in macOS account with its own display and its own input stream, so the window never reaches the user screen. This never falls back to the user real display: forcing lane "headless" on work that needs isolation is refused, not honoured, and anything that could change the machine itself (installers, .dmg/.pkg, hdiutil) is refused outright on every lane, because offstage has no substrate that isolates a change to the machine. The session lane needs the helper account to be able to READ the working directory: a spawn failure there is fixed by the user running `offstage session share <dir>`, not by running the command outside offstage.',
       inputSchema: RunArgsSchema,
     },
     async (args) =>

@@ -8,6 +8,15 @@ it means "the tests are green" and "this lane works" are different claims.
 This file records the difference. Update it when the evidence changes, not when
 the intent does.
 
+> **2026-08-21, the `vm` lane was removed.** Everything below about it is the
+> historical record of what was measured (and never measured) before that
+> happened, and it is left exactly as it was written: rewriting it to erase a
+> lane that existed would make this file describe a past that did not occur.
+> offstage now routes macOS-native work that opens a window but changes
+> nothing to the `session` lane, and refuses outright anything that could
+> change the machine (an installer, a `.dmg`/`.pkg`, `hdiutil`) on every
+> remaining lane. See `docs/roadmap.md` for why.
+
 ## The machine this was recorded on
 
 | | |

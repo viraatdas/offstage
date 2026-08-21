@@ -5,8 +5,11 @@ follow-up hardening passes, and in 0.3.0 a fourth lane — the macOS **session**
 lane. The suite is green from a clean clone (`npx vitest run`: 33 files, 1029
 passed, 2 expected fail, 5 skipped with a container runtime running).
 
-What remains is not design work. It is evidence — for the session lane first,
-and for the vm lane behind it.
+The `vm` lane (n4) was removed after the fact: it never drove a real macOS
+guest, and the session lane covers the macOS-native work it used to argue for.
+See "The vm lane was removed, not completed" below.
+
+What remains is not design work. It is evidence for the session lane.
 
 ## Done
 
@@ -14,7 +17,7 @@ and for the vm lane behind it.
 - **n1** — Router: classify a command into a lane
 - **n2** — Headless lane: run in place, prove no window opens
 - **n3** — Container lane: headed web under Xvfb
-- **n4** — VM lane: adapter over novotnyllc/tart-xcode-runner
+- **n4** — VM lane: adapter over novotnyllc/tart-xcode-runner. **Removed**, see below.
 - **n5** — Entitlements probe: is the signing lane required?
 - **n6** — CLI core: `offstage doctor / route / run / probe`, `--json` on each,
   and the one refusal that has no override. `src/cli/{api,render,index}.ts`.
@@ -46,20 +49,22 @@ and for the vm lane behind it.
 The fourth lane landed in 0.3.0: a second, logged-in macOS account
 (`computeruse`, uid 502) sitting in the background with its own window server,
 framebuffer and HID stream, driven through a small Swift daemon
-(`offstage-sessiond`) over a unix socket. It replaces the vm lane as the default
-for every macOS-native command that opens a window but changes nothing —
-`xcodebuild`, `xcrun simctl`, XCUITests, `open -a`, `osascript`, `safaridriver`.
-The vm lane keeps exactly the work that could change the machine: `.dmg`,
-`.pkg`, `installer`, `hdiutil`. Design in [session-lane.md](session-lane.md);
-the daemon's own notes in [`native/sessiond/README.md`](../native/sessiond/README.md).
+(`offstage-sessiond`) over a unix socket. It is the default for every
+macOS-native command that opens a window but changes nothing: `xcodebuild`,
+`xcrun simctl`, XCUITests, `open -a`, `osascript`, `safaridriver`. Work that
+could change the machine itself (`.dmg`, `.pkg`, `installer`, `hdiutil`) is
+refused outright now that the vm lane is gone; see "The vm lane was removed,
+not completed" below. Design in [session-lane.md](session-lane.md); the
+daemon's own notes in [`native/sessiond/README.md`](../native/sessiond/README.md).
 
 What is done: the daemon, the host-side discovery/RPC/setup modules, the lane,
 the router rules, the CLI (`offstage session status|setup|share|screenshot|
 input|click|type|key|apps|open`), four MCP tools, and the skill section that
 tells an agent to loop screenshot → input → screenshot.
 
-What is left is **evidence**, and it is the same shape as the vm lane's gap.
-The verification ladder from `session-lane.md`, with its current state:
+What is left is **evidence**, and it is the same shape of gap the vm lane had
+before it was removed. The verification ladder from `session-lane.md`, with
+its current state:
 
 | Rung | State |
 | --- | --- |
@@ -75,20 +80,28 @@ README and [verified.md](verified.md) say "daemon verified live on the
 developer's own session; not yet verified inside the helper session" in those
 words.
 
-### The vm lane has never driven a real macOS guest
+### The vm lane was removed, not completed
 
 (The container lane no longer belongs on this list: as of 2026-08-18 it has run
 a genuinely headed Chromium with the host screen verifiably untouched — see
 [docs/verified.md](verified.md).)
 
-Narrower than it was, now that the session lane has taken `xcodebuild` and the
-simulators: what is left here is installers and anything else that changes the
-machine. Every claim about the vm lane rests on 28
-recorded fixtures and `xcresulttool`'s published JSON Schema 0.1.0 — not on a
-bundle a real run produced. Closing it means installing Tart and the
-`tart-xcode-runner` plugin, preparing a golden image, and driving one XCUITest
-through `offstage run`. Until someone does that, the README, `docs/verified.md`
-and `DECISIONS.md` all say "fixture-tested only" in those words.
+The vm lane was an adapter over `novotnyllc/tart-xcode-runner`, meant to give
+installers and anything else that changes the machine a disposable macOS
+guest. It never got there: every claim about it rested on 28 recorded
+fixtures and `xcresulttool`'s published JSON Schema, never on a bundle a real
+run produced, and no real macOS guest was ever booted through it. Rather than
+carry that gap forward indefinitely, the lane was removed on 2026-08-21.
+Commands that used to route there (`.dmg`, `.pkg`, `installer`, `hdiutil`) are
+now refused outright: `RouteDecision.refuse` is set, and `run()` will not
+dispatch them to any lane, because no lane offers the isolation they need.
+`docs/verified.md` and `docs/macos-sessions.md` keep the historical record of
+what the vm lane was and what was measured about it; `DECISIONS.md` and
+`docs/review.md` do the same for the design and review history. None of that
+history was rewritten by the removal. If someone wants machine-level
+isolation for macOS-native work again, that is new design work, not a gap to
+close in existing code. The `tart-xcode-runner` skill is available today for
+anyone who wants to run a disposable Tart VM directly, outside offstage.
 
 ### ~~Publish, so the plugin does not need a build step~~ — done in 0.2.0
 
@@ -105,13 +118,11 @@ only clones — gets a working server with no build step.
   Playwright is deliberately not a devDependency.
 - **A run produces no output until it finishes.** `LaneRunner` has no streaming
   hook, so `offstage run -- npm test` is silent between the routing line and the
-  result. Fixing it is a contract change that has to work identically for a
-  container and a VM copying files back.
+  result. Fixing it is a contract change that has to work identically for the
+  container lane and the session lane.
 - **`offstage doctor --prune`.** A `SIGKILL` of the offstage process can leave a
   container running. Listing and removing `offstage-*` containers is a small
   feature — but it would make `doctor`, documented as "probes, never mutates",
   able to mutate.
-- **The 2-VM ceiling is per repository** unless `OFFSTAGE_VM_SLOT_DIR` names one
-  absolute path. Apple's limit is per host.
 - **`failures[]` covers Playwright, Vitest and Jest only.** Deliberate
   abstention; `docs/reporter-coverage.md` has the checklist for adding a fourth.

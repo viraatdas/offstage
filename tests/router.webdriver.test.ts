@@ -535,7 +535,7 @@ describe('safaridriver is macOS-only, so no container can run it', () => {
     expect(decision.lane).toBe('session');
     expect(decision.confidence).toBe('high');
     expect(decision.reason).toMatch(/only with macOS/);
-    expect(decision.reason).toContain('--lane vm');
+    expect(decision.reason).not.toContain('--lane vm');
   });
 
   it('routes to the session lane even from a package script', async () => {
@@ -570,7 +570,7 @@ describe('WebDriver classification keeps the router’s other promises', () => {
     for (const repo of Object.keys(REPOS) as RepoName[]) {
       for (const command of SHAPES) {
         const decision = await route(repo, command);
-        expect(decision.lane).toMatch(/^(headless|session|container|vm)$/);
+        expect(decision.lane).toMatch(/^(headless|session|container)$/);
         expect(decision.reason.length).toBeGreaterThan(0);
         expect(decision.signals.length).toBeGreaterThan(0);
       }
