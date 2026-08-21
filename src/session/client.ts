@@ -199,6 +199,11 @@ const AppsSchema = z.object({
  * the flags inline, so both are accepted rather than making the client brittle
  * about a detail neither side cares about.
  */
+const RestartSchema = z.object({
+  ok: z.literal(true),
+  restarting: z.boolean(),
+});
+
 const RequestPermissionsSchema = z.union([
   z.object({ ok: z.literal(true), permissions: PermissionsSchema }),
   z.object({ ok: z.literal(true), screenCapture: z.boolean(), accessibility: z.boolean() }),
@@ -513,6 +518,8 @@ export interface SessionClient {
   input(actions: InputAction[]): Promise<{ performed: number }>;
   apps(): Promise<SessionApp[]>;
   requestPermissions(): Promise<SessionPermissions>;
+  /** Restart the daemon so it re-reads its TCC grants. Needs no privilege. */
+  restart(): Promise<{ restarting: boolean }>;
 }
 
 /**
@@ -608,6 +615,20 @@ export function createSessionClient(options: SessionClientOptions): SessionClien
     async apps() {
       const final = await short({ op: 'apps' }, AppsSchema);
       return final.apps;
+    },
+
+    /**
+     * Ask the daemon to start again so it re-reads its TCC grants.
+     *
+     * Both grants are cached for the lifetime of a process, so a permission
+     * granted after launch is invisible until then. The daemon answers, then
+     * exits non-zero, and launchd brings it back; the socket is briefly absent
+     * in between, so callers that need it immediately should wait for it to
+     * reappear rather than assuming the next connect will succeed.
+     */
+    async restart() {
+      const final = await short({ op: 'restart' }, RestartSchema);
+      return { restarting: final.restarting };
     },
 
     async requestPermissions() {

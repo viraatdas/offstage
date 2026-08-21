@@ -23,7 +23,7 @@ import type { Exec, ExecOutcome } from '../src/session/index.js';
 import {
   ARTIFACTS_WRITE_ACL,
   DAEMON_BINARY_NAME,
-  DEFAULT_INSTALL_DIR,
+  installDirFor,
   DEFAULT_LABEL,
   DAEMON_LOG_NAME,
   daemonLogPath,
@@ -166,8 +166,12 @@ describe('renderInstallScript', () => {
       # computeruse account's GUI session. This is the only step that needs root.
       set -eu
 
-      install -d -o root -g wheel -m 755 '/usr/local/libexec/offstage'
-      install -o root -g wheel -m 755 '/tmp/offstage-build/offstage-sessiond' '/usr/local/libexec/offstage/offstage-sessiond'
+      install -d -o 'computeruse' -g staff -m 755 '/Users/computeruse/.offstage/bin'
+      install -o 'computeruse' -g staff -m 755 '/tmp/offstage-build/offstage-sessiond' '/Users/computeruse/.offstage/bin/offstage-sessiond'
+
+      # Nothing installs into the old root-owned location any more; drop it so a
+      # stale binary cannot be bootstrapped by an old plist.
+      rm -f '/usr/local/libexec/offstage/offstage-sessiond'
 
       install -d -o 'computeruse' -g staff -m 755 '/tmp/offstage-session'
       install -d -o 'computeruse' -g staff -m 755 '/Users/computeruse/Library/Logs'
@@ -187,9 +191,20 @@ describe('renderInstallScript', () => {
     expect(script).toMatch(/launchctl bootout .* 2>\/dev\/null \|\| true/);
   });
 
-  it('installs the binary root-owned, outside any home directory', () => {
-    expect(script).toContain(`install -d -o root -g wheel -m 755 '${DEFAULT_INSTALL_DIR}'`);
-    expect(script).toContain(path.join(DEFAULT_INSTALL_DIR, DAEMON_BINARY_NAME));
+  it('installs the binary into the helper account\'s own home, owned by that account', () => {
+    /* Deliberate: a binary the helper account owns is one the daemon can
+       replace over its own socket, so updating it never needs root and never
+       raises a password dialog. The grants it holds are protected by its code
+       signature, not by the file being root-owned. */
+    const installDir = installDirFor('/Users/computeruse');
+    expect(installDir).toBe('/Users/computeruse/.offstage/bin');
+    expect(script).toContain(`install -d -o 'computeruse' -g staff -m 755 '${installDir}'`);
+    expect(script).toContain(path.join(installDir, DAEMON_BINARY_NAME));
+    expect(script).not.toContain('-o root -g wheel');
+  });
+
+  it('removes the old root-owned copy so a stale binary cannot be bootstrapped', () => {
+    expect(script).toContain("rm -f '/usr/local/libexec/offstage/offstage-sessiond'");
   });
 
   it('never invokes a compiler, a package manager or the network', () => {

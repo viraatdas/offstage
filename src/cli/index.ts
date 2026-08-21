@@ -48,6 +48,7 @@ import {
   route,
   run,
   sessionApps,
+  sessionUpdate,
   sessionInput,
   sessionOpen,
   sessionScreenshot,
@@ -392,6 +393,28 @@ export function createProgram(io: CliIo): { program: Command; exitCode: () => nu
     .option('--json', 'emit the result as JSON', false)
     .action(async function keyAction(this: Command, combo: string) {
       await runInput(this, [{ type: 'key', key: combo }]);
+    });
+
+  session
+    .command('update')
+    .description('Rebuild offstage-sessiond and install it into the helper session. Needs no password.')
+    .option('--user <name>', 'helper account (default: the configured one)')
+    .option('--json', 'emit the result as JSON', false)
+    .action(async function updateAction(this: Command) {
+      const options = this.opts();
+      const result = await sessionUpdate(
+        options.user === undefined ? {} : { user: options.user as string },
+        io.deps,
+      );
+      emit(
+        jsonFlag(this),
+        result,
+        [
+          `\u2713 updated offstage-sessiond in the helper session`,
+          `  ${result.installedTo}`,
+          `  daemon ${result.previousPid} replaced by ${result.currentPid}`,
+        ],
+      );
     });
 
   session

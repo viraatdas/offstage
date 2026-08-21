@@ -19,7 +19,7 @@ export * from './client.js';
 export * from './setup.js';
 
 import { DEFAULT_SESSION_USER, DEFAULT_SOCKET_DIR } from './discover.js';
-import { DAEMON_BINARY_NAME, DEFAULT_INSTALL_DIR, DEFAULT_LABEL } from './setup.js';
+import { DAEMON_BINARY_NAME, DEFAULT_LABEL, installDirFor } from './setup.js';
 
 /**
  * The four values that describe a stock installation. Every one of them is
@@ -31,6 +31,8 @@ export const SESSION_DEFAULTS = {
   user: DEFAULT_SESSION_USER,
   socketDir: DEFAULT_SOCKET_DIR,
   label: DEFAULT_LABEL,
-  installDir: DEFAULT_INSTALL_DIR,
+  /* No fixed installDir: the binary lives in the helper account's own home
+     so it can be replaced without root, so the path depends on which account
+     is configured. Use installDirFor(home). */
   binaryName: DAEMON_BINARY_NAME,
 } as const;

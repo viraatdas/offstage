@@ -66,7 +66,7 @@ import type {
 import {
   DAEMON_BINARY_NAME,
   DAEMON_SOURCE_RELATIVE_DIR,
-  DEFAULT_INSTALL_DIR,
+  installDirFor,
   DEFAULT_LABEL,
   DEFAULT_SOCKET_DIR,
   SessionRpcError,
@@ -84,6 +84,7 @@ import {
   shareAclCommands,
   shellQuote,
 } from '../session/index.js';
+import { UpdateError, updateDaemon } from '../session/update.js';
 
 /* -------------------------------------------------------------------------- */
 /* Errors                                                                     */
@@ -1188,7 +1189,7 @@ export async function sessionSetup(
   await fs.writeFile(
     plistPath,
     renderLaunchAgentPlist({
-      binaryPath: path.join(DEFAULT_INSTALL_DIR, DAEMON_BINARY_NAME),
+      binaryPath: path.join(installDirFor(home), DAEMON_BINARY_NAME),
       uid,
       socketDir,
       home,
@@ -1569,6 +1570,79 @@ export async function sessionInput(
     const { performed } = await client.input(actions);
     return { performed, actions };
   } catch (error) {
+    return asSessionError(error);
+  }
+}
+
+/* --------------------------------- update --------------------------------- */
+
+export interface SessionUpdateResult {
+  /** Where the new binary now lives, inside the helper account's home. */
+  installedTo: string;
+  previousPid: number;
+  currentPid: number;
+}
+
+/**
+ * Rebuild the daemon and install it, without asking for any privilege.
+ *
+ * Setup needs root once. Nothing after it does, and that is deliberate: an
+ * admin prompt raised from a background task puts a dialog on the console that
+ * captures the keyboard until it is answered. The binary lives in the helper
+ * account's own home, so the daemon can replace it over its own socket.
+ */
+export async function sessionUpdate(
+  input: { user?: string } = {},
+  deps?: Partial<ApiDeps>,
+): Promise<SessionUpdateResult> {
+  const d = withDefaults(deps);
+  const seams = seamsOf(d);
+  const { client } = await sessionConnect(d, input.user);
+
+  let home: string;
+  try {
+    home = (await client.hello()).user.home;
+  } catch (error) {
+    return asSessionError(error);
+  }
+
+  /* Staging has to be somewhere the HELPER account can read, and os.tmpdir()
+     is not it: on macOS that resolves to a per-user /var/folders tree whose
+     parent is mode 700, so another uid cannot traverse into it however the leaf
+     is chmod'd. Verified the hard way, as `cp: Permission denied`. /tmp is the
+     shared, world-traversable one. mkdtemp still gives an unpredictable name,
+     and the directory is widened only to r-x. */
+  const workDir = await fs.mkdtemp('/tmp/offstage-session-update-');
+  await fs.chmod(workDir, 0o755);
+  const binaryPath = path.join(workDir, DAEMON_BINARY_NAME);
+  const sourceDir = seams.sourceDir ?? daemonSourceDir();
+
+  const compile: CompileDaemonResult = await (seams.compileDaemon ?? compileDaemon)({
+    sourceDir,
+    outPath: binaryPath,
+    ...(seams.exec === undefined ? {} : { exec: seams.exec }),
+  });
+  if (!compile.ok) {
+    throw new OffstageSessionError(
+      `Could not build ${DAEMON_BINARY_NAME} from ${sourceDir}: ${
+        compile.reason ?? `${compile.command} exited ${compile.exitCode ?? 'without a code'}`
+      }`,
+      { code: 'session-build-failed' },
+    );
+  }
+  await fs.chmod(binaryPath, 0o755);
+
+  try {
+    const result = await updateDaemon({ client, home, source: binaryPath });
+    return {
+      installedTo: result.installedTo,
+      previousPid: result.previousPid,
+      currentPid: result.currentPid,
+    };
+  } catch (error) {
+    if (error instanceof UpdateError) {
+      throw new OffstageSessionError(error.message, { code: 'session-update-failed' });
+    }
     return asSessionError(error);
   }
 }

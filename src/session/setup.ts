@@ -32,7 +32,34 @@ import { DEFAULT_SOCKET_DIR, defaultExec } from './discover.js';
 export const DEFAULT_LABEL = 'dev.offstage.sessiond';
 
 /** Where the daemon binary is installed. Root-owned, outside any home. */
-export const DEFAULT_INSTALL_DIR = '/usr/local/libexec/offstage';
+/**
+ * Where the daemon binary lives, inside the helper account's own home.
+ *
+ * It used to sit in `/usr/local/libexec/offstage`, owned by root. That made
+ * every update a `sudo` step, and a password prompt raised from a background
+ * task puts an invisible dialog on the console that captures the user's
+ * keyboard until it is answered. Updates therefore have to be possible without
+ * root, so the binary lives where the account that runs it can replace it: the
+ * daemon can update itself over its own socket, and root is needed only once,
+ * at first setup, to bootstrap the LaunchAgent.
+ *
+ * A user-writable binary is a real trade, so it is worth being precise about
+ * what it does and does not give away. Anything already running as the helper
+ * account could swap this file. It could NOT thereby inherit the daemon's
+ * Screen Recording or Accessibility grants: those are keyed to the binary's
+ * Designated Requirement, so an unsigned or differently signed replacement gets
+ * nothing. The signature, not the file permissions, is what guards the
+ * privileges here.
+ */
+export function installDirFor(home: string): string {
+  return path.join(home, '.offstage', 'bin');
+}
+
+/**
+ * The pre-0.3 location. Kept only so setup can clean it up; nothing installs
+ * here any more.
+ */
+export const LEGACY_INSTALL_DIR = '/usr/local/libexec/offstage';
 
 /** Filename of the compiled daemon. */
 export const DAEMON_BINARY_NAME = 'offstage-sessiond';
@@ -161,7 +188,7 @@ export interface InstallScriptOptions {
   uid: number;
   /** Helper account home, where `Library/LaunchAgents` lives. */
   home: string;
-  /** Defaults to {@link DEFAULT_INSTALL_DIR}. */
+  /** Defaults to {@link installDirFor}(home). */
   installDir?: string;
   /** Defaults to {@link DEFAULT_LABEL}. */
   label?: string;
@@ -193,7 +220,7 @@ export interface InstallScriptOptions {
  * first login has neither `Library` subdirectory yet.
  */
 export function renderInstallScript(options: InstallScriptOptions): string {
-  const installDir = options.installDir ?? DEFAULT_INSTALL_DIR;
+  const installDir = options.installDir ?? installDirFor(options.home);
   const label = options.label ?? DEFAULT_LABEL;
   const binaryName = options.binaryName ?? DAEMON_BINARY_NAME;
   const socketDir = options.socketDir ?? DEFAULT_SOCKET_DIR;
@@ -212,8 +239,12 @@ export function renderInstallScript(options: InstallScriptOptions): string {
     `# ${options.user} account's GUI session. This is the only step that needs root.`,
     'set -eu',
     '',
-    `install -d -o root -g wheel -m 755 ${shellQuote(installDir)}`,
-    `install -o root -g wheel -m 755 ${shellQuote(options.binarySource)} ${shellQuote(target)}`,
+    `install -d -o ${shellQuote(options.user)} -g staff -m 755 ${shellQuote(installDir)}`,
+    `install -o ${shellQuote(options.user)} -g staff -m 755 ${shellQuote(options.binarySource)} ${shellQuote(target)}`,
+    '',
+    '# Nothing installs into the old root-owned location any more; drop it so a',
+    '# stale binary cannot be bootstrapped by an old plist.',
+    `rm -f ${shellQuote(path.join(LEGACY_INSTALL_DIR, binaryName))}`,
     '',
     `install -d -o ${shellQuote(options.user)} -g staff -m 755 ${shellQuote(socketDir)}`,
     `install -d -o ${shellQuote(options.user)} -g staff -m 755 ${shellQuote(logDir)}`,

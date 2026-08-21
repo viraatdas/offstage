@@ -124,6 +124,9 @@ function fakeClient(options: FakeClientOptions = {}): FakeClient {
     async requestPermissions() {
       return HELLO.permissions;
     },
+    async restart() {
+      return { restarting: true };
+    },
   };
   return client;
 }
