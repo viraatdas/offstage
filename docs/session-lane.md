@@ -233,8 +233,17 @@ offstage-sessiond in System Settings → Privacy & Security".
 - Coordinates are **points** in global display space, origin top-left of the
   main display — the same space `hello.display` and the screenshot (divided by
   `scale`) describe.
-- Events are posted with `CGEvent.post(tap: .cghidEventTap)` from inside the
-  session, so they enter the helper session's HID stream only.
+- Events are posted with `CGEvent.post(tap: .cgSessionEventTap)` from inside the
+  session. The session tap is the per-session entry point, so the window server
+  routes the event to *this* session's key window. The global HID tap is never
+  used: it routes to whichever session is on the console, i.e. the user's own
+  screen. `postToPid` was tried and disproved (see `docs/verified.md`); it
+  delivers nothing.
+- `input` refuses, rather than posting anywhere, when either guard trips:
+  - `{"ok":false,"code":"on-console","performed":N}` when this session is the
+    one on the console, since the events would land on the user's screen. The
+    check fails closed.
+  - `{"ok":false,"code":"no-target","performed":N}` when no app is frontmost.
 - Before the first action the daemon checks `AXIsProcessTrusted()`; false →
   `{"ok":false,"code":"tcc-accessibility","performed":0, ...}` with the fix
   text for Accessibility.
@@ -262,6 +271,20 @@ from `NSWorkspace.shared.runningApplications`, regular-activation-policy apps on
 `CGRequestScreenCaptureAccess()` and `AXIsProcessTrustedWithOptions(prompt: true)`.
 The prompts appear **in the helper session**, where the user sees them on their
 next switch. Idempotent.
+
+#### `restart`
+
+`{"op":"restart"}` → `{"ok":true,"restarting":true}`, then the daemon exits with
+status 70 and launchd starts it again.
+
+Both TCC answers are cached for the lifetime of a process, so a grant given
+after the daemon launched is invisible to it until it starts over. The
+alternative — `launchctl kickstart -k gui/<uid>/dev.offstage.sessiond` — needs
+root, and therefore an admin prompt in the user's own session. A password
+dialog raised behind a user's back captures the console keyboard until it is
+answered, so the lane must never need one after setup. The LaunchAgent is
+`KeepAlive { SuccessfulExit: false }`, which is why the exit status is non-zero:
+a clean exit would leave the lane down instead of restarting it.
 
 ## Host side: `src/session/`
 

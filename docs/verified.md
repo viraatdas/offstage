@@ -71,20 +71,65 @@ and `tests/cli.session.test.ts` holds the regression.
 | 1. daemon compiles; `--once` round-trips every op | ✅ passed, on uid 501 |
 | 2. LaunchAgent bootstrapped into the helper session; `hello` reports `onConsole: false`; `open -a TextEdit` starts under the helper uid | ✅ passed, 2026-08-20, session 258 / uid 502 |
 | 3. Screen Recording granted → `screenshot` returns a PNG of a desktop that is not the console's | ✅ passed, 2026-08-20 — a 3456×2234 PNG of the `computeruse` desktop (TextEdit + its own Dock) captured while `viraat` stayed on console |
-| 4. Accessibility granted → `input` types into TextEdit and the next screenshot shows it | fix built, live-verify pending — Accessibility granted and the daemon accepts input, but the first live attempt exposed the HID-tap routing bug above; `postToPid` is implemented and compiled, and confirmation awaits redeploying the daemon on the test machine |
+| 4. Accessibility granted → `input` types into an app and the next screenshot shows it | ✅ passed, 2026-08-21, session 258 / uid 502 — Screen Recording and Accessibility both granted, a PNG of the hidden desktop captured, two clicks at point coordinates landed on the intended Calculator buttons (`75`), discrete key events entered `8675`, and one `type` action entered `8675309`. The console session's display never changed. |
+| 4b. `input` drag and scroll | **not verified.** `click`, `key` and `type` are proven (rung 4). `drag` has been observed both moving a window and doing nothing at the same coordinates, and an A/B against the earlier timing did not separate the two, so its implementation is a best effort rather than a fix. `scroll` has never been exercised at all. |
 | 5. `offstage run --lane session -- npx playwright test --headed` against a shared repo | not yet |
 
-### A real finding: input must be delivered per-pid, not through the HID tap
+### A real finding: input must go through the SESSION event tap
 
-Rung 4 exposed the one thing fixture tests could never have caught. The daemon
-first posted synthetic events with `CGEvent.post(tap: .cghidEventTap)` — the
-global HID tap. From a **background** session that is wrong: the window server
-routes HID-tap events to whichever session is *on the console* (the user's), so
-`cmd+space` opened no Spotlight and keystrokes reached no TextEdit in the helper
-session, even though the daemon reported them posted. The fix is
-`CGEvent.postToPid(<frontmost app pid>)`, which delivers straight to a process
-and bypasses session routing. This is inherent to driving a non-console
-session and is now how `native/sessiond/Input.swift` posts every event.
+Rung 4 exposed the one thing fixture tests could never have caught, and it took
+two attempts to get right.
+
+The daemon first posted synthetic events with `CGEvent.post(tap: .cghidEventTap)`,
+the global HID tap. From a **background** session that is wrong: the window
+server routes HID-tap events to whichever session is *on the console* (the
+user's), so `cmd+space` opened no Spotlight and keystrokes reached no TextEdit
+in the helper session, even though the daemon reported them posted.
+
+The first fix was `CGEvent.postToPid(<frontmost app pid>)`. That was **also
+wrong**, and the reason it looked right is worth recording: it was "verified" by
+a test process posting an event to *itself*, which always succeeds and requires
+no permission at all. It proves nothing about cross-process delivery. Measured
+properly against the window server's own delivery log
+(`log show --predicate 'process == "WindowServer"'`, which names the destination
+of every keyboard event), `postToPid` produced **zero** deliveries: the events
+went into a void and nothing ever appeared in the target app.
+
+What actually works is `CGEvent.post(tap: .cgSessionEventTap)`. The session tap
+is the per-session entry point, so an event posted by a process inside session N
+enters session N's stream and is routed by the window server to that session's
+key window. Confirmed in the log: deliveries landed on the helper session's
+frontmost app, with nothing reaching the console session.
+
+Two consequences the code now encodes:
+
+- There is no tap parameter and no fallback. The HID tap is unreachable from
+  `Input.swift`, because the only thing it can do from here is type on the
+  user's real screen.
+- `input` refuses outright when the daemon's own session is the console session
+  (`code: "on-console"`), and the on-console check fails *closed*: if the
+  session dictionary cannot be read, it reports on-console and refuses. The
+  lane's promise is structural, not a matter of trusting the caller.
+
+### Two further bugs rung 4 only exposed once it could be seen
+
+Getting a screenshot turned "input does nothing" into two specific defects, both
+invisible without one.
+
+**Ambient modifiers were never cleared.** `post()` assigned modifier flags only
+when the caller asked for some (`if !flags.isEmpty { e.flags = flags }`). A
+freshly created `CGEvent` inherits the session's *current* modifier state, so a
+stray or stuck modifier silently rewrote every unmodified event: a plain `3`
+arrived as `cmd+3`, and a typed string arrived as a run of keyboard shortcuts,
+which is why typing appeared to do nothing at all. Caught on screen when
+Calculator switched to Programmer mode instead of entering a digit. The flags
+are now always assigned, empty set included.
+
+**`type` packed several characters into one event.** Sending up to 20 UTF-16
+units per `keyboardSetUnicodeString` event works in an NSTextView but is not
+portable: an app that reads only the first character drops the rest. Typing
+`8675309` at Calculator entered `8`. It now sends one event per character, split
+on grapheme clusters so an emoji or combining sequence is not cut in half.
 
 `bash native/sessiond/smoke.sh` builds the daemon into a temp directory, starts
 it as the current uid against a private socket directory, drives it, and stops
