@@ -234,7 +234,7 @@ export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()
     {
       title: 'offstage session input',
       description:
-        'Inject keyboard and mouse events into the helper macOS session — move, click, drag, scroll, type, key, wait. Coordinates are POINTS in that session\'s global display space, origin at the top-left of its main display (a screenshot\'s pixels divided by its `scale`), never pixels and never coordinates from the user\'s own screen. These events enter the helper session\'s HID stream only; they never reach the user\'s keyboard, mouse or focus, and there is no mode in which they could. Always screenshot, then input, then screenshot again. Requires Accessibility to be granted to offstage-sessiond inside that session — offstage_session_status says whether it is.',
+        'Inject keyboard and mouse events into the helper macOS session — move, click, drag, scroll, type, key, wait. Coordinates are POINTS in that session\'s global display space, origin at the top-left of its main display (a screenshot\'s pixels divided by its `scale`), never pixels and never coordinates from the user\'s own screen. These events are posted to that session\'s own event tap, so the window server routes them inside the helper session only; they never reach the user\'s keyboard, mouse or focus, and there is no mode in which they could. `drag` and `scroll` are implemented but not yet verified in the session lane; `click`, `key` and `type` are. Always screenshot, then input, then screenshot again. Requires Accessibility to be granted to offstage-sessiond inside that session — offstage_session_status says whether it is.',
       inputSchema: SessionInputArgsSchema,
     },
     async (args) =>

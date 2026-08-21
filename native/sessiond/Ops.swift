@@ -62,19 +62,56 @@ func mainDisplayInfo() -> (width: Int, height: Int, scale: Int) {
 
 // MARK: - hello
 
+/// The pid owning the frontmost normal window, read from the window server.
+///
+/// `NSWorkspace.shared.frontmostApplication` is a cache kept fresh by workspace
+/// notifications, and this daemon has no run loop to receive them, so it goes
+/// stale: observed reporting TextEdit as frontmost minutes after TextEdit had
+/// been killed and Calculator activated. The window list is live state, so it
+/// is the honest answer.
+///
+/// Layer 0 is the normal window layer; the first on-screen entry is frontmost.
+/// Menus, the Dock and other chrome sit on higher layers and are skipped.
+func frontmostWindowPid() -> pid_t? {
+    let opts: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+    guard let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] else {
+        return nil
+    }
+    for w in list {
+        guard let layer = w[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
+        guard let pid = w[kCGWindowOwnerPID as String] as? pid_t else { continue }
+        return pid
+    }
+    return nil
+}
+
+/// Is THIS session the one on the console, i.e. the display the user is
+/// actually looking at? Input injection is refused when it is: see Input.swift.
+///
+/// CGSessionCopyCurrentDictionary() uses the double-S spelling
+/// "kCGSSessionOnConsoleKey" in the returned dictionary; the documented
+/// constant name is kCGSessionOnConsoleKey. Accept both.
+///
+/// Fails CLOSED: if the session dictionary cannot be read at all, we report
+/// "on console" so that input refuses rather than gambling with the user's
+/// screen.
+func isOnConsole() -> Bool {
+    guard let dict = CGSessionCopyCurrentDictionary() as? [String: Any] else { return true }
+    let v = dict["kCGSSessionOnConsoleKey"] ?? dict["kCGSessionOnConsoleKey"]
+    guard let n = v as? NSNumber else { return true }
+    return n.boolValue
+}
+
+func sessionManagerName() -> String {
+    guard let dict = CGSessionCopyCurrentDictionary() as? [String: Any],
+          let m = dict["kCGSSessionManagerNameKey"] as? String else { return "Aqua" }
+    return m
+}
+
 func opHello(_ req: [String: Any]) throws -> [String: Any] {
     let display = mainDisplayInfo()
-
-    // CGSessionCopyCurrentDictionary() uses the double-S spelling
-    // "kCGSSessionOnConsoleKey" in the returned dictionary; the documented
-    // constant name is kCGSessionOnConsoleKey. Accept both.
-    var onConsole = false
-    var managerName = "Aqua"
-    if let dict = CGSessionCopyCurrentDictionary() as? [String: Any] {
-        let v = dict["kCGSSessionOnConsoleKey"] ?? dict["kCGSessionOnConsoleKey"]
-        if let n = v as? NSNumber { onConsole = n.boolValue }
-        if let m = dict["kCGSSessionManagerNameKey"] as? String { managerName = m }
-    }
+    let onConsole = isOnConsole()
+    let managerName = sessionManagerName()
 
     return [
         "ok": true,
@@ -118,12 +155,14 @@ func opAccess(_ req: [String: Any]) throws -> [String: Any] {
 // MARK: - apps
 
 func opApps(_ req: [String: Any]) throws -> [String: Any] {
+    let front = frontmostWindowPid()
     let apps = NSWorkspace.shared.runningApplications
         .filter { $0.activationPolicy == .regular }
         .map { app -> [String: Any] in
             var entry: [String: Any] = [
                 "pid": Int(app.processIdentifier),
-                "active": app.isActive,
+                // Live, for the same reason sessionTargetPid() is.
+                "active": app.processIdentifier == front,
                 "hidden": app.isHidden,
             ]
             entry["name"] = app.localizedName ?? NSNull()
@@ -147,6 +186,27 @@ func opRequestPermissions(_ req: [String: Any]) throws -> [String: Any] {
             "accessibility": AXIsProcessTrusted(),
         ],
     ]
+}
+
+// MARK: - restart
+
+func opRestart(_ req: [String: Any]) throws -> [String: Any] {
+    // Both TCC answers — Screen Recording and Accessibility — are cached for
+    // the lifetime of a process, so a grant given after we launched is
+    // invisible to us until we start again. Restarting used to mean
+    // `launchctl kickstart` in another user's gui domain, which needs root and
+    // therefore an admin prompt; prompting is exactly what must not happen
+    // behind a user's back. The LaunchAgent is KeepAlive{SuccessfulExit:false},
+    // so exiting non-zero has launchd relaunch us with no privilege at all.
+    //
+    // The exit is deferred so this connection's final line is written and the
+    // socket closed first; the caller sees a normal answer, then a short gap
+    // while launchd brings the replacement up.
+    DispatchQueue.global().asyncAfter(deadline: .now() + 0.25) {
+        logLine("restart requested: exiting non-zero so launchd relaunches us")
+        exit(70)
+    }
+    return ["ok": true, "restarting": true]
 }
 
 // MARK: - screenshot

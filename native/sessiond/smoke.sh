@@ -282,6 +282,35 @@ else
   say "PASS  --once exits after one connection"
 fi
 
+say "== restart =="
+# The daemon caches both TCC answers for its lifetime, so re-reading a grant
+# means starting again. It must exit NON-ZERO for that: the LaunchAgent is
+# KeepAlive{SuccessfulExit:false}, which relaunches only on a failed exit.
+# A clean exit(0) here would silently leave the lane down.
+rstdir="$tmp/rst"
+mkdir -p "$rstdir"
+"$bin" --uid "$uid" --socket-dir "$rstdir" 2>>"$log" &
+rst_pid=$!
+for _ in $(seq 1 50); do [ -S "$rstdir/$uid.sock" ] && break; sleep 0.1; done
+rst_out="$(printf '{"op":"restart"}\n' | nc -U "$rstdir/$uid.sock" 2>/dev/null | tail -1)"
+if printf '%s' "$rst_out" | grep -q '"restarting":true'; then
+  say "PASS  restart answers the caller before exiting"
+else
+  say "FAIL  restart answers the caller before exiting  -- $rst_out"; fails=$((fails + 1))
+fi
+for _ in $(seq 1 50); do kill -0 "$rst_pid" 2>/dev/null || break; sleep 0.1; done
+if kill -0 "$rst_pid" 2>/dev/null; then
+  say "FAIL  restart exits"; fails=$((fails + 1)); kill "$rst_pid" 2>/dev/null
+else
+  wait "$rst_pid" 2>/dev/null
+  rst_code=$?
+  if [ "$rst_code" -ne 0 ]; then
+    say "PASS  restart exits non-zero ($rst_code) so launchd relaunches it"
+  else
+    say "FAIL  restart exited 0 — launchd would not relaunch it"; fails=$((fails + 1))
+  fi
+fi
+
 say "== shutdown =="
 kill "$daemon_pid" 2>/dev/null
 wait "$daemon_pid" 2>/dev/null

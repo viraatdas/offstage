@@ -16,6 +16,12 @@ enum ErrCode {
     static let tccScreenCapture = "tcc-screen-capture"
     static let tccAccessibility = "tcc-accessibility"
     static let notFound = "not-found"
+    /// `input` had no frontmost app in this session to deliver to. Never a
+    /// reason to fall back to the console session.
+    static let noTarget = "no-target"
+    /// `input` was asked to type into the session the user is looking at.
+    /// Refused: the lane exists so that cannot happen.
+    static let onConsole = "on-console"
     static let internalError = "internal"
 }
 

@@ -15,6 +15,7 @@ func dispatch(_ req: [String: Any], _ conn: Conn) throws -> [String: Any]? {
     case "input": return try opInput(req)
     case "apps": return try opApps(req)
     case "request-permissions": return try opRequestPermissions(req)
+    case "restart": return try opRestart(req)
     default: throw badRequest("unknown op '\(op)'")
     }
 }
