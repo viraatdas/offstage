@@ -99,9 +99,14 @@ inject input, all inside the other account.
 offstage session setup --create
 ```
 
-This is the only step that touches `sudo`. It installs the daemon binary to
-`/usr/local/libexec/offstage` and bootstraps a LaunchAgent into the helper
-account's GUI domain. Everything after this needs no root and no password.
+This is the only step that touches `sudo`. It installs the daemon binary and
+bootstraps a LaunchAgent into the helper account's GUI domain. Everything
+after this needs no root and no password.
+
+<!-- TODO(session-lane install path): the install layout is changing so the
+     daemon can update itself without root; the paragraph above deliberately
+     does not name an install path. Do not add one until that work lands.
+     See docs/session-lane.md. -->
 
 ### Two permissions only a human can grant
 
