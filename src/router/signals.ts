@@ -717,6 +717,7 @@ export async function collectSignals(
     signals.push(...macosSignals(view));
     signals.push(...envPrefixSignals(view));
     signals.push(...flagSignals(view));
+    signals.push(...inlineMachineChangeSignals(view));
     signals.push(...inlineScriptSignals(view));
     signals.push(...expansionSignals(view));
     signals.push(...(await toolSignals(view, inspector)));
@@ -1106,6 +1107,67 @@ const INLINE_SCRIPT_FLAGS = new Set(['-e', '--eval', '-p', '--print', '--eval-fi
  * literally contains `headless:false` while the router reports, at high
  * confidence, that "no display is involved at all".
  */
+/**
+ * Interpreters that take a program as a STRING argument. `sh -c` is already
+ * tokenized and re-inspected; these are not, and that difference was a hole:
+ * `python3 -c "os.execv('/usr/sbin/installer', ...)"` routed to the headless
+ * lane with high confidence, which runs it as a direct child with no isolation
+ * at all. `osascript -e 'do shell script "..."'` was worse, routing to the
+ * session lane, which shares the user's OS and disk and was never isolation
+ * from a machine change.
+ */
+const INLINE_CODE_BINS = new Set([
+  'python', 'python2', 'python3', 'ruby', 'perl', 'php', 'osascript',
+  'node', 'deno', 'bun', 'tsx', 'ts-node', 'swift',
+]);
+
+/** Flags whose VALUE is a program, across those interpreters. */
+const INLINE_CODE_FLAGS = new Set(['-c', '-e', '-E', '--eval', '--eval-string']);
+
+/**
+ * A machine-changing tool named inside a string of code.
+ *
+ * Deliberately blunt. Refusing a program that merely mentions the word is the
+ * safe direction, and a static router cannot tell a call from a comment; the
+ * refusal text tells the caller to run it themselves if that is what they
+ * meant. What this CANNOT do is see inside a compiled binary, a script file, a
+ * Makefile or an npm script, which is why the guarantee is documented as
+ * covering commands that name these tools, not every possible route to one.
+ */
+const MACHINE_TOOL_IN_CODE =
+  /\/usr\/sbin\/installer\b|\/usr\/bin\/hdiutil\b|\binstaller\b|\bhdiutil\b|\.pkg\b|\.dmg\b/;
+
+/** Refuse an inline program that names a machine-changing tool. */
+function inlineMachineChangeSignals(view: CommandView): Signal[] {
+  if (!INLINE_CODE_BINS.has(view.invocation.bin)) return [];
+  const args = view.invocation.args;
+  for (let index = 0; index < args.length; index += 1) {
+    const flag = args[index] as string;
+    const inline = INLINE_CODE_FLAGS.has(flag)
+      ? args[index + 1]
+      : /^(?:-e|-c|--eval)=/.test(flag)
+        ? flag.slice(flag.indexOf('=') + 1)
+        : undefined;
+    if (typeof inline !== 'string' || inline === '') continue;
+    if (!MACHINE_TOOL_IN_CODE.test(inline)) continue;
+    return [
+      signal({
+        kind: 'installer',
+        argues: 'session',
+        origin: view.label,
+        detail: `${view.label}: ${view.invocation.bin} ${flag} names a machine-changing tool`,
+        clause:
+          `The program passed inline to ${view.invocation.bin} names installer, hdiutil or an installer package, and running it would change the machine it runs on. offstage cannot read what an arbitrary program will do, so it refuses this rather than route it somewhere that cannot contain it: the session lane is a second account on your own OS and disk, not a second machine. Run it directly yourself if you accept the risk.`,
+        priority: 5,
+        inferred: false,
+        confidence: 'high',
+        refuses: true,
+      }),
+    ];
+  }
+  return [];
+}
+
 function inlineScriptSignals(view: CommandView): Signal[] {
   if (!INLINE_SCRIPT_BINS.has(view.invocation.bin)) return [];
   const found: Signal[] = [];

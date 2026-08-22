@@ -116,8 +116,14 @@ export function tokenizeShellish(text: string): string[][] {
 
 /** `./node_modules/.bin/playwright.cmd` → `playwright`. */
 export function basenameOf(token: string): string {
-  const slash = Math.max(token.lastIndexOf('/'), token.lastIndexOf('\\'));
-  const base = slash >= 0 ? token.slice(slash + 1) : token;
+  /* Trailing separators first: `installer/` otherwise yields an EMPTY basename,
+     and every name-based check then matches nothing at all. The OS refuses to
+     exec a path with a trailing slash against a non-directory, so this was not
+     a working bypass, but a guarantee that says "always refused" should not
+     have a shape it silently fails to recognise. */
+  const trimmed = token.replace(/[/\\]+$/, '');
+  const slash = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+  const base = slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
   return base.replace(/\.(cmd|exe|bat|ps1)$/i, '');
 }
 

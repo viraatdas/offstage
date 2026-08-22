@@ -25,9 +25,13 @@ catch the ones that would open a window or steal focus.
   XCUITests, `open -a`, `osascript`). The README's session section is the
   design summary; `native/sessiond/README.md` has the daemon's wire protocol.
 
-There is no fourth lane for work that could change the machine itself. An
-installer, a `.dmg`/`.pkg`, or `hdiutil` is refused outright: nothing runs, on
-any lane, and the router's `reason` says why. There used to be a `vm` lane for
+There is no fourth lane for work that could change the machine itself. A command
+naming an installer, a `.dmg`/`.pkg`, or `hdiutil` is refused on every lane with
+no override, and the router's `reason` says why. The refusal reads the command,
+not the program behind it: `argv[0]` is resolved on disk (through `PATH`, a
+symlink, a rename, or a copy) and inline `-c`/`-e` code is inspected, but a
+script file, a Makefile, an npm script or a compiled binary is opaque to it. Do
+not describe it as a sandbox, and do not add a lane or a flag that weakens it. There used to be a `vm` lane for
 this; it was removed because it never drove a real macOS guest (git history
 keeps that record).
 
@@ -56,7 +60,7 @@ logged in in the background via fast user switching. A small Swift daemon,
 socket; the host side connects to it to launch commands, capture the screen,
 and inject input, all inside the other account. Setup needs root exactly once,
 to create the account, pre-grant the daemon's two TCC permissions (Screen
-Recording and Accessibility — system-level records that a terminal with Full
+Recording and Accessibility, system-level records that a terminal with Full
 Disk Access may write directly), and bootstrap its LaunchAgent; when the
 invoking terminal lacks Full Disk Access, those grants fall back to a one-time
 human approval from inside the helper account's own session. The helper

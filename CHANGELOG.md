@@ -40,6 +40,21 @@
   All four are closed. The same gap could have put a headed browser on your
   screen, not just an installer, and `argv[0]` is now resolved the way the
   command is actually executed rather than only when it looks like a path.
+- Inline interpreter code is inspected too. `python3 -c`, `node -e`, `ruby -e`
+  and `osascript -e 'do shell script ...'` naming an installer used to route to
+  a lane rather than being refused, and the headless lane runs its command as a
+  direct child with no isolation at all.
+- A trailing slash on the binary (`installer/`) produced an empty basename, so
+  no name check matched. The OS refuses to exec such a path, so it was not a
+  working bypass, but it is fixed.
+
+### Known limitation, stated plainly
+
+The refusal reads the command, not the program. It cannot see inside a script
+file, a Makefile, an npm script or a compiled binary, so `sh deploy.sh` where
+that script runs an installer is not refused. No static classifier could refuse
+it. The docs previously said "nothing runs, on any lane" without that
+qualification, which overstated it.
 - Synthetic input reached the wrong session, and then reached nothing at all.
   Input is now posted to the session's own event tap, which is the only method
   that actually delivers inside a background session.

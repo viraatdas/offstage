@@ -1,7 +1,7 @@
 {
   "name": "@viraatdas/offstage",
-  "version": "0.3.0",
-  "description": "Routes browser, UI and macOS test commands to the cheapest of three isolation lanes (in place, a Linux container, or a second logged-in macOS account) so none of them ever touches your screen.",
+  "version": "0.3.1",
+  "description": "Runs browser, UI and macOS test commands without letting them take over your screen: each command runs in place when it is already headless, goes to a Linux container with a virtual display or a background macOS account when it needs real windows, and anything that could change the machine itself is refused outright.",
   "keywords": [
     "testing",
     "playwright",
@@ -59,7 +59,7 @@
   },
   "scripts": {
     "prepare": "npm run build",
-    "prepack": "npm run build",
+    "prepack": "npm run clean && npm run build",
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx src/cli/index.ts",
     "test": "vitest run",

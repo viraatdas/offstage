@@ -29,18 +29,27 @@ offstage run   -- npx playwright test  # send it there, get one normalized resul
 | `container` | a Linux container with Xvfb | `--headed`, `headless: false`, WebGL/GPU flags, extension loading. |
 | `session` | a second logged-in macOS account | `xcodebuild`, `xcrun simctl`, XCUITests, `open -a`, `osascript`. macOS-native work that opens windows but doesn't touch the machine itself. |
 
-Anything that could change the machine itself — an installer, a `.dmg`/`.pkg`,
-`hdiutil` — is refused outright instead of routed anywhere. Session isolation
-shares your OS and disk with you, so it can't honestly contain that, and
-offstage has no lane that can. Nothing runs, on any lane, and the reason says
-why.
+A command that names something which would change the machine itself, an
+installer, a `.dmg`/`.pkg`, or `hdiutil`, is refused instead of routed
+anywhere. Session isolation shares your OS and disk with you, so it can't
+honestly contain that, and offstage has no lane that can. The refusal applies on
+every lane and there is no flag that overrides it.
+
+Be precise about what that covers, because the limit is real. offstage reads the
+command, not the program. It resolves `argv[0]` on disk the way your shell would,
+including through `PATH`, a symlink, a rename, or a byte-identical copy, and it
+looks inside a shell's `-c` and an interpreter's `-c`/`-e`. It cannot see inside
+a script file, a Makefile, an npm script, or a compiled binary. `sh deploy.sh`
+where `deploy.sh` runs an installer is not refused, and no static classifier
+could refuse it. Treat the refusal as a guard against naming these tools, not as
+a sandbox.
 
 macOS has no Xvfb and cannot have one; what it does have is multiple
 simultaneous GUI sessions via fast user switching, which is what the session
 lane uses instead of a VM. Asking for *more* isolation than the router picked
 always works (`--lane container`); asking for less is refused with no override.
-If a lane's substrate isn't available, the run stops with the fix — offstage
-never falls back to running the command on your real screen.
+If a lane's substrate isn't available, the run stops and tells you the fix.
+offstage never falls back to running the command on your real screen.
 
 ## Install
 
@@ -61,7 +70,7 @@ From a clone: `npm ci && npm link`.
 ## The session lane: one-time setup
 
 The session lane drives a second, ordinary macOS account (default
-`computeruse`) logged in **in the background** — its own window server, its own
+`computeruse`) logged in **in the background**, its own window server, its own
 framebuffer, its own keyboard/mouse stream. A small Swift daemon,
 `offstage-sessiond`, runs inside that account and listens on a unix socket at
 `/tmp/offstage-session/<uid>.sock`; your session talks to it over that socket.
@@ -83,8 +92,8 @@ One command does everything macOS allows:
 3. **Suppresses the first-login Setup Assistant** (`.skipbuddy` plus the
    "already seen" keys), because nobody should click through region/Apple
    ID/Siri panes for an account driven by a robot.
-4. **Pre-grants both TCC permissions** — Screen Recording and Accessibility —
-   by writing rows shaped exactly like System Settings' own into
+4. **Pre-grants both TCC permissions** (Screen Recording and Accessibility) by
+   writing rows shaped exactly like System Settings' own into
    `/Library/Application Support/com.apple.TCC/TCC.db`, carrying the daemon's
    code requirement. This needs **Full Disk Access** on the terminal running
    setup (SIP otherwise blocks even root from opening that database); without
@@ -95,7 +104,7 @@ One command does everything macOS allows:
    into its GUI domain, then shows the fast-user-switching menu so what remains
    is one click.
 
-The whole root script is printed before it runs — you are about to type a
+The whole root script is printed before it runs, you are about to type a
 password, and "trust me" is not an acceptable thing for a tool to say.
 
 **What's left for you:** switch to the helper account from the user menu once,
@@ -125,7 +134,7 @@ type on your screen through it either way.
 
 The binary lives where the account that runs it owns it, so
 `offstage session update` is a file copy the daemon performs on itself over its
-own socket — no password, no admin prompt behind your back. A swapped binary
+own socket, no password, no admin prompt behind your back. A swapped binary
 would not inherit the TCC grants: the record carries a code requirement, and a
 replacement that fails it gets nothing.
 
@@ -140,15 +149,15 @@ offstage session unshare ~/code/myrepo  # revoke exactly what share granted
 ```
 
 Share never grants write. A run writes to its own `.offstage/runs/<id>`
-artifacts directory, which the lane opens per run — including anything the
+artifacts directory, which the lane opens per run, including anything the
 command leaves there, an `.xcresult` bundle or video included.
 
 ### Input never touches your screen
 
 Input is posted with `CGEvent.post(tap: .cgSessionEventTap)`, the per-session
 entry point; the window server routes it to that session's key window and
-nowhere else. The global HID tap always routes to the console session — your
-screen — and is unreachable by construction. The daemon refuses input entirely
+nowhere else. The global HID tap always routes to the console session, your
+screen, and is unreachable by construction. The daemon refuses input entirely
 (`on-console`) if its own session is somehow the one on screen, failing closed;
 and (`no-target`) when nothing there has focus.
 
@@ -156,7 +165,7 @@ and (`no-target`) when nothing there has focus.
 
 ```bash
 offstage doctor                                  # per-lane availability + fixes
-offstage route  -- <cmd> [--headed] [--cwd dir]  # which lane, why — executes nothing
+offstage route  -- <cmd> [--headed] [--cwd dir]  # which lane, why, executes nothing
 offstage run    -- <cmd> [--lane L] [--timeout ms] [--headed] [--cwd dir]
 offstage probe  <path>                           # signing verdict for a macOS app target
 
@@ -175,7 +184,7 @@ stderr, so `offstage run --json -- npm test | jq .status` works. Exit codes:
 `run` maps 0 passed / command's code failed / 70 errored / 69 skipped;
 `status` exits 0/69 so scripts can gate on it; bad invocations exit 64.
 
-Coordinates for `click`/`input` are **points**, not pixels — divide a pixel
+Coordinates for `click`/`input` are **points**, not pixels, divide a pixel
 coordinate by the screenshot's reported scale.
 
 ## For agents
@@ -185,7 +194,7 @@ Working *on* this repository? Read [`AGENTS.md`](AGENTS.md) first.
 To let an agent *use* offstage, register the MCP server (stdio):
 
 - **Claude Code plugin**: `/plugin marketplace add viraatdas/offstage` then
-  `/plugin install offstage@offstage` — ships the skill and the MCP server,
+  `/plugin install offstage@offstage`, ships the skill and the MCP server,
   no build step.
 - **Claude Code CLI**: `claude mcp add offstage -- npx -y --package=@viraatdas/offstage@latest offstage-mcp`
 - **Codex** (`~/.codex/config.toml`):
@@ -199,16 +208,16 @@ To let an agent *use* offstage, register the MCP server (stdio):
 Tools: `offstage_doctor`, `offstage_route`, `offstage_run`, `offstage_probe`,
 plus `offstage_session_status`, `offstage_session_screenshot`,
 `offstage_session_input`, `offstage_session_apps`. There is deliberately no
-setup tool over MCP — setup runs `sudo` and needs a human at a terminal. An
+setup tool over MCP, setup runs `sudo` and needs a human at a terminal. An
 agent's loop for GUI work: screenshot → decide → input → screenshot, points not
 pixels, never drive the console session.
 
 ## Probe
 
 `offstage probe MyApp.xcodeproj` answers one question before you promise
-anyone a macOS test setup: `adhoc-ok` — every requested entitlement is
+anyone a macOS test setup: `adhoc-ok`, every requested entitlement is
 satisfied by ad-hoc signing, so a disposable VM works today, no Developer ID
-needed — or `needs-signing-lane` — the app declares restricted entitlements
+needed, or `needs-signing-lane`, the app declares restricted entitlements
 (protected resources, virtualization, hypervisor) that only a
 provisioning-profile-backed identity carries, which is a much larger project.
 Read `confidence` before repeating a verdict: `low` means "found no blocker",
@@ -217,15 +226,15 @@ not "proved there is none".
 ## Result shape
 
 Every lane returns the same contract (`src/contract/index.ts`):
-`status` is `passed` | `failed` | `errored` | `skipped` — failed means the
+`status` is `passed` | `failed` | `errored` | `skipped`, failed means the
 command ran and was red (retrying wastes time), errored means the run itself
 can't be trusted (retry), skipped means the substrate was missing (nothing ran
 anywhere). `failures[]` is populated for **Playwright, Vitest and Jest only**;
 everything else comes back with an empty list, a full `command.log`, and a
-diagnostic saying nothing was recognized — abstention beats fabrication.
+diagnostic saying nothing was recognized, abstention beats fabrication.
 Each run persists a validated `result.json` under `.offstage/runs/<id>/`.
 
-## Status — what has actually been verified
+## Status, what has actually been verified
 
 Tests pass on machines without the substrates present (they skip loudly, not
 fail), so "suite green" ≠ "lane works". What has been run for real:
@@ -257,7 +266,7 @@ bash native/sessiond/smoke.sh   # builds and drives the session daemon locally
 Conventions that matter (full rules in [`AGENTS.md`](AGENTS.md)): ESM +
 NodeNext (`import type`, `.js` extensions); vitest globals off; code touching
 the outside world takes the impure part as an injected seam; every module
-boundary lives in `src/contract/index.ts` — `isAvailable()` never throws,
+boundary lives in `src/contract/index.ts`, `isAvailable()` never throws,
 `run()` never throws, and neither ever falls back to the user's real screen.
 Tests live in `tests/`; `tests/fixtures/**` is sample code the lanes execute,
 excluded from collection and the TS program.

@@ -589,3 +589,58 @@ describe('a machine-changing binary cannot hide on PATH under a friendly name', 
     expect(decision.refuse).toBeUndefined();
   });
 });
+
+describe('an interpreter cannot smuggle a machine change in a string', () => {
+  /* `sh -c` was tokenized and re-inspected; nothing else was. So
+     `python3 -c "os.execv('/usr/sbin/installer', ...)"` routed to the headless
+     lane with HIGH confidence, and that lane runs its command as a direct child
+     with no isolation at all. `osascript -e 'do shell script ...'` was worse: it
+     routed to the session lane, which shares the user's OS and disk and was
+     never isolation from a machine change. */
+  const smuggled: string[][] = [
+    ['python3', '-c', 'import os; os.execv("/usr/sbin/installer", ["installer", "-pkg", "/tmp/x.pkg"])'],
+    ['node', '-e', 'require("child_process").execFileSync("/usr/sbin/installer", ["-pkg", "/tmp/x.pkg"])'],
+    ['ruby', '-e', 'exec("/usr/sbin/installer", "-pkg", "/tmp/x.pkg")'],
+    ['perl', '-e', 'exec("/usr/bin/hdiutil", "attach", "/tmp/x.img")'],
+    ['osascript', '-e', 'do shell script "/usr/sbin/installer -pkg /tmp/x.pkg -target /"'],
+  ];
+
+  it.each(smuggled)('refuses %s %s', async (...command: string[]) => {
+    const decision = await classify({ cwd: await repo({}), command });
+    expect(decision.refuse).toBeDefined();
+  });
+
+  const ordinary: string[][] = [
+    ['python3', '-c', 'print("hello")'],
+    ['node', '-e', 'console.log(process.version)'],
+    ['ruby', '-e', 'puts 1 + 1'],
+  ];
+
+  it.each(ordinary)('does not refuse ordinary inline code: %s %s', async (...command: string[]) => {
+    /* A refusal that fires on every inline script would block real work. */
+    const decision = await classify({ cwd: await repo({}), command });
+    expect(decision.refuse).toBeUndefined();
+  });
+
+  it('is documented as unable to see inside a script FILE', async () => {
+    /* Not a bug, a boundary: no static classifier can know what deploy.sh does.
+       This test exists so the limit is deliberate and visible, and so anyone who
+       later claims the refusal is a sandbox has to change a test to do it. */
+    const cwd = await repo({ 'deploy.sh': 'installer -pkg /tmp/x.pkg -target /\n' });
+    const decision = await classify({ cwd, command: ['sh', 'deploy.sh'] });
+    expect(decision.refuse).toBeUndefined();
+  });
+});
+
+describe('a trailing slash does not blank the basename', () => {
+  const shapes: string[][] = [
+    ['installer/', '-pkg', '/tmp/x.pkg', '-target', '/'],
+    ['/usr/sbin/installer/', '-pkg', '/tmp/x.pkg', '-target', '/'],
+    ['/usr/bin/hdiutil/', 'attach', '/tmp/x.img'],
+  ];
+
+  it.each(shapes)('refuses %s', async (...command: string[]) => {
+    const decision = await classify({ cwd: await repo({}), command });
+    expect(decision.refuse).toBeDefined();
+  });
+});
