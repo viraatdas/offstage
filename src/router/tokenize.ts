@@ -156,6 +156,31 @@ const EXEC_WRAPPER_BOOL_FLAGS = new Set([
 const TRANSPARENT_WRAPPERS = new Set(['env', 'cross-env', 'cross-env-shell', 'time', 'sudo', 'nice']);
 
 /**
+ * Wrappers that run a command but take their own flags first.
+ *
+ * These hide the real binary from a peeler that stops at the first token, and
+ * hiding the binary is not cosmetic: it is how `xargs installer -target /`
+ * escaped the machine-changing refusal entirely and routed to `headless`,
+ * meaning offstage would have run an installer with no isolation at all.
+ * Measured, not theorised.
+ *
+ * They are peeled separately from TRANSPARENT_WRAPPERS because their flags have
+ * to be skipped before the command appears.
+ */
+const ARGUMENT_WRAPPERS = new Set(['xargs', 'parallel']);
+
+/**
+ * Flags of those wrappers that take a SEPARATE value token, so the value is not
+ * mistaken for the command. Attached forms (`-I{}`, `-n5`) carry their value in
+ * the same token and need no special case.
+ */
+const ARGUMENT_WRAPPER_VALUE_FLAGS = new Set([
+  '-I', '-L', '-n', '-P', '-s', '-a', '-E', '-J', '-R', '-S', '-j',
+  '--replace', '--max-lines', '--max-args', '--max-procs', '--arg-file',
+  '--eof', '--max-chars', '--jobs', '--delimiter', '-d',
+]);
+
+/**
  * Peel the wrappers off a command until what is left is the thing that will
  * actually open (or not open) a window.
  *
@@ -181,6 +206,25 @@ export function normalizeInvocation(input: string[]): Invocation {
     }
 
     const bin = basenameOf(head);
+
+    if (ARGUMENT_WRAPPERS.has(bin)) {
+      prefixes.push(bin);
+      tokens = tokens.slice(1);
+      /* Skip the wrapper's own flags until the command shows up. A placeholder
+         like `-I{}` means the real path only exists at runtime, so there is no
+         literal to pattern-match; peeling to the binary is what lets the
+         refusal fire on the binary itself. */
+      while (tokens.length > 0) {
+        const flag = tokens[0] as string;
+        if (flag === '--') {
+          tokens = tokens.slice(1);
+          break;
+        }
+        if (!flag.startsWith('-') || flag === '-') break;
+        tokens = ARGUMENT_WRAPPER_VALUE_FLAGS.has(flag) ? tokens.slice(2) : tokens.slice(1);
+      }
+      continue;
+    }
 
     if (TRANSPARENT_WRAPPERS.has(bin)) {
       prefixes.push(bin);

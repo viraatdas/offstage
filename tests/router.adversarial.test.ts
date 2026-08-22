@@ -348,3 +348,49 @@ describe('the classifier never routes a window onto the real screen', () => {
     expect(decision.lane).not.toBe('headless');
   });
 });
+
+describe('a wrapper does not hide the command from the router', () => {
+  /* `xargs installer -target /` routed to `headless` with no refusal, so
+     offstage would have run an installer with no isolation at all. The binary
+     was invisible because the peeler stopped at `xargs`. A placeholder like
+     `-I{}` makes it worse: the real path only exists at runtime, so there is no
+     `.pkg` literal left for a pattern match to catch, and peeling to the binary
+     is the only thing that can fire the refusal. */
+  const machineChanging: string[][] = [
+    ['xargs', 'installer', '-target', '/'],
+    ['xargs', '-I{}', 'installer', '-pkg', '{}', '-target', '/'],
+    ['xargs', '-I', '{}', 'installer', '-pkg', '{}', '-target', '/'],
+    ['xargs', '-n1', '-P4', 'hdiutil', 'attach', '{}'],
+    ['parallel', 'installer', '-pkg', '{}', '-target', '/'],
+    ['xargs', '--', 'installer', '-target', '/'],
+  ];
+
+  it.each(machineChanging)('refuses %s %s %s', async (...command: string[]) => {
+    const cwd = await repo({});
+    const decision = await classify({ cwd, command });
+    expect(decision.refuse).toBeDefined();
+  });
+
+  const windowOpeners: string[][] = [
+    ['xargs', 'npx', 'playwright', 'test', '--headed'],
+    ['xargs', '-I{}', 'xcodebuild', 'test', '-scheme', '{}'],
+    ['parallel', 'open', '{}'],
+  ];
+
+  it.each(windowOpeners)('keeps %s %s %s out of the headless lane', async (...command: string[]) => {
+    const cwd = await repo({});
+    const decision = await classify({ cwd, command });
+    expect(decision.lane).not.toBe('headless');
+  });
+
+  it('still treats a wrapper flag value as a flag, not as the command', async () => {
+    /* `-a file` takes a separate value. Reading `file` as the command would
+       point the router at the wrong thing entirely. */
+    const cwd = await repo({});
+    const decision = await classify({
+      cwd,
+      command: ['xargs', '-a', 'list.txt', 'installer', '-target', '/'],
+    });
+    expect(decision.refuse).toBeDefined();
+  });
+});
