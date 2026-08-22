@@ -174,12 +174,25 @@ const KNOWN_MACHINE_TOOLS: Readonly<Record<string, string>> = {
  * content, when its names alone did not already identify it.
  */
 async function matchKnownTool(view: CommandView, inspector: Inspector): Promise<void> {
-  if (view.resolvedDigest === undefined) return;
   if (view.resolvedBin !== undefined && view.resolvedBin in KNOWN_MACHINE_TOOLS) return;
   if (view.invocation.bin in KNOWN_MACHINE_TOOLS) return;
+
+  /* Size first, bytes second. Every argv[0] now resolves, including bare names
+     found on PATH, so without this gate the router would read and hash the
+     binary behind every command it ever classifies. Identical content has
+     identical length, so a size mismatch is a complete answer and costs one
+     stat. */
+  const candidateSize = await inspector.binarySize(view.invocation.binPath);
+  if (candidateSize === undefined) return;
+
   for (const [tool, absolute] of Object.entries(KNOWN_MACHINE_TOOLS)) {
+    const knownSize = await inspector.binarySize(absolute);
+    if (knownSize === undefined || knownSize !== candidateSize) continue;
     const known = await inspector.binaryDigest(absolute);
-    if (known !== undefined && known === view.resolvedDigest) {
+    if (known === undefined) continue;
+    const digest = await inspector.binaryDigest(view.invocation.binPath);
+    if (digest !== undefined && digest === known) {
+      view.resolvedDigest = digest;
       view.contentMatchedBin = tool;
       return;
     }
@@ -199,15 +212,16 @@ export async function buildViews(command: string[], inspector: Inspector): Promi
     if (invocation.bin === '') return;
 
     const view: CommandView = { invocation, label, depth, binIsMeaningful: true };
-    // A path-shaped argv[0] (`./tool`, `/tmp/.../tool`) is resolved on disk so a
-    // symlink or a rename cannot hide a machine-changing binary behind an
-    // innocuous name. `resolveBinary` already declines a bare name on its own.
+    /* argv[0] is resolved on disk so a symlink or a rename cannot hide a
+       machine-changing binary behind an innocuous name. Bare names are resolved
+       through PATH as well, because that is what actually gets executed: a
+       symlink to the installer sitting on PATH under a friendly name was
+       otherwise invisible to every check at once. */
     const resolvedTarget = await inspector.resolveBinary(invocation.binPath);
     if (resolvedTarget !== undefined) {
       view.resolvedBin = basenameOf(resolvedTarget);
-      // And its bytes are hashed so a *copy* — no symlink, no shared basename,
-      // nothing but identical content — is still recognized for what it is.
-      view.resolvedDigest = await inspector.binaryDigest(invocation.binPath);
+      /* And its bytes are compared, so a *copy* — no symlink, no shared
+         basename, nothing but identical content — is recognized too. */
       await matchKnownTool(view, inspector);
     }
     views.push(view);

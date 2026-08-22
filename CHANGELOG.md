@@ -32,12 +32,14 @@
 
 ### Fixed
 
-- **Machine-changing commands could evade the refusal three ways**, each of
+- **Machine-changing commands could evade the refusal four ways**, each of
   which would have run a real installer with no isolation at all: hidden behind
   a wrapper the router did not peel (`xargs`, `parallel`), invoked through a
-  symlink under another name, or invoked through a *copy* under another name.
-  All three are closed, and the same gap could have put a headed browser on your
-  screen, not just an installer.
+  symlink under another name, invoked through a *copy* under another name, or
+  placed anywhere on `PATH` under a friendly name and invoked by that bare name.
+  All four are closed. The same gap could have put a headed browser on your
+  screen, not just an installer, and `argv[0]` is now resolved the way the
+  command is actually executed rather than only when it looks like a path.
 - Synthetic input reached the wrong session, and then reached nothing at all.
   Input is now posted to the session's own event tap, which is the only method
   that actually delivers inside a background session.

@@ -37,6 +37,9 @@ const MAX_CONFIG_BYTES = 1024 * 1024;
  */
 const MAX_BINARY_DIGEST_BYTES = 8 * 1024 * 1024;
 
+/** How many `PATH` entries a bare-name lookup will walk before giving up. */
+const MAX_PATH_ENTRIES = 64;
+
 /** A file the router read, with comments already stripped out of `text`. */
 export interface InspectedFile {
   /** Repository-relative POSIX path, for printing in a signal. */
@@ -207,12 +210,19 @@ export interface Inspector {
    * anything unreadable, oversized, or not a regular file.
    */
   binaryDigest(reference: string): Promise<string | undefined>;
+  /**
+   * Size in bytes of what argv[0] resolves to. A cheap gate in front of
+   * {@link binaryDigest}: identical bytes have identical length, so anything of
+   * a different size cannot be a copy of a known tool and never needs reading.
+   */
+  binarySize(reference: string): Promise<number | undefined>;
 }
 
 export function createInspector(cwd: string): Inspector {
   const files = new Map<string, Promise<InspectedFile | undefined>>();
   const resolvedBinaries = new Map<string, Promise<string | undefined>>();
   const binaryDigests = new Map<string, Promise<string | undefined>>();
+  const binarySizes = new Map<string, Promise<number | undefined>>();
   let packageJsonPromise: Promise<PackageFacts | undefined> | undefined;
   let xcodePromise: Promise<string[]> | undefined;
 
@@ -221,6 +231,44 @@ export function createInspector(cwd: string): Inspector {
     if (reference.length === 0) return undefined;
     const absolute = path.resolve(cwd, reference);
     return isInside(cwd, absolute) ? absolute : undefined;
+  };
+
+  /**
+   * Absolute, symlink-resolved path for an argv[0] token.
+   *
+   * Path-shaped tokens resolve against the cwd. A BARE name is looked up on
+   * `PATH`, because that is what `execa` does when the lane actually runs the
+   * command, and a detection layer that skips it is not looking at the thing
+   * that will execute. Leaving this out left a live bypass: a symlink or copy
+   * of `/usr/sbin/installer` placed on `PATH` under an innocent name and
+   * invoked by that name was invisible to every check at once, while
+   * `./same-file` was correctly refused.
+   *
+   * The search is `PATH` order, first executable regular file wins, bounded to
+   * {@link MAX_PATH_ENTRIES} directories. It is `stat` only: no `which`, no
+   * shell, no spawned process, so classify() stays as pure as it was.
+   */
+  const absolutePathFor = async (reference: string): Promise<string | undefined> => {
+    if (reference === '') return undefined;
+    if (reference.includes('/') || reference.includes('\\')) {
+      return await fs.realpath(path.resolve(cwd, reference));
+    }
+    const raw = process.env['PATH'] ?? '';
+    const dirs = raw.split(path.delimiter).filter((d) => d.length > 0).slice(0, MAX_PATH_ENTRIES);
+    for (const dir of dirs) {
+      const candidate = path.join(dir, reference);
+      try {
+        const stats = await fs.stat(candidate);
+        /* Executable by somebody. A non-executable file of the same name is not
+           what would run, so it is not what should be judged. */
+        if (stats.isFile() && (stats.mode & 0o111) !== 0) {
+          return await fs.realpath(candidate);
+        }
+      } catch {
+        // Not here; keep walking PATH.
+      }
+    }
+    return undefined;
   };
 
   const readInspected = (reference: string): Promise<InspectedFile | undefined> => {
@@ -334,15 +382,14 @@ export function createInspector(cwd: string): Inspector {
     },
 
     resolveBinary(reference: string): Promise<string | undefined> {
-      if (!reference.includes('/') && !reference.includes('\\')) return Promise.resolve(undefined);
+      if (reference === '') return Promise.resolve(undefined);
 
       const cached = resolvedBinaries.get(reference);
       if (cached !== undefined) return cached;
 
       const pending = (async (): Promise<string | undefined> => {
         try {
-          const absolute = path.resolve(cwd, reference);
-          return await fs.realpath(absolute);
+          return await absolutePathFor(reference);
         } catch {
           // A binary that does not exist yet, a broken symlink, a permissions
           // error, a symlink loop — all of these are "no information", exactly
@@ -356,15 +403,34 @@ export function createInspector(cwd: string): Inspector {
       return pending;
     },
 
+    binarySize(reference: string): Promise<number | undefined> {
+      if (reference === '') return Promise.resolve(undefined);
+      const cached = binarySizes.get(reference);
+      if (cached !== undefined) return cached;
+      const pending = (async (): Promise<number | undefined> => {
+        try {
+          const absolute = await absolutePathFor(reference);
+          if (absolute === undefined) return undefined;
+          const stats = await fs.stat(absolute);
+          return stats.isFile() ? stats.size : undefined;
+        } catch {
+          return undefined;
+        }
+      })();
+      binarySizes.set(reference, pending);
+      return pending;
+    },
+
     binaryDigest(reference: string): Promise<string | undefined> {
-      if (!reference.includes('/') && !reference.includes('\\')) return Promise.resolve(undefined);
+      if (reference === '') return Promise.resolve(undefined);
 
       const cached = binaryDigests.get(reference);
       if (cached !== undefined) return cached;
 
       const pending = (async (): Promise<string | undefined> => {
         try {
-          const absolute = path.resolve(cwd, reference);
+          const absolute = await absolutePathFor(reference);
+          if (absolute === undefined) return undefined;
           /* Follow symlinks (stat, not lstat): a symlink to a system tool has
              already been caught by name resolution; hashing through the link
              keeps a chain of them honest too. */

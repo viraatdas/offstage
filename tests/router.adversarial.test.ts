@@ -538,3 +538,54 @@ describe('a byte-identical copy does not hide the binary from the router', () =>
     expect(decision.refuse).toBeUndefined();
   });
 });
+
+describe('a machine-changing binary cannot hide on PATH under a friendly name', () => {
+  /* argv[0] resolution originally declined bare names, on the reasoning that a
+     PATH lookup was slow and a purity risk. The consequence was a live bypass:
+     a symlink or copy of the installer placed on PATH and invoked BY NAME was
+     invisible to the name check, the resolved-basename check and the content
+     check simultaneously, while the very same file invoked as `./thing` was
+     refused. `run` execs through PATH, so this was executable, not academic. */
+
+  const withPath = async (dir: string, command: string[]) => {
+    const original = process.env['PATH'];
+    process.env['PATH'] = `${dir}${path.delimiter}${original ?? ''}`;
+    try {
+      return await classify({ cwd: await repo({}), command });
+    } finally {
+      if (original === undefined) delete process.env['PATH'];
+      else process.env['PATH'] = original;
+    }
+  };
+
+  it('refuses a symlinked installer invoked by its bare PATH name', async () => {
+    const dir = await repo({});
+    const link = path.join(dir, 'setup-tool');
+    await fs.symlink('/usr/sbin/installer', link);
+    const decision = await withPath(dir, ['setup-tool', '-pkg', '/tmp/payload', '-target', '/']);
+    expect(decision.refuse).toBeDefined();
+  });
+
+  it('refuses a copied installer invoked by its bare PATH name', async () => {
+    const dir = await repo({});
+    await fs.copyFile('/usr/sbin/installer', path.join(dir, 'helper-tool'));
+    await fs.chmod(path.join(dir, 'helper-tool'), 0o755);
+    const decision = await withPath(dir, ['helper-tool', '-pkg', '/tmp/payload', '-target', '/']);
+    expect(decision.refuse).toBeDefined();
+  });
+
+  it('does not refuse an ordinary binary found on PATH', async () => {
+    /* The gate must not fire on every command that happens to resolve. */
+    const dir = await repo({});
+    await fs.copyFile('/bin/echo', path.join(dir, 'friendly-tool'));
+    await fs.chmod(path.join(dir, 'friendly-tool'), 0o755);
+    const decision = await withPath(dir, ['friendly-tool', 'hello']);
+    expect(decision.refuse).toBeUndefined();
+  });
+
+  it('does not refuse when the bare name is on no PATH entry at all', async () => {
+    const dir = await repo({});
+    const decision = await withPath(dir, ['not-installed-anywhere', '--version']);
+    expect(decision.refuse).toBeUndefined();
+  });
+});
