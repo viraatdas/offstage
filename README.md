@@ -4,14 +4,13 @@
 [![npm](https://img.shields.io/npm/v/@viraatdas/offstage)](https://www.npmjs.com/package/@viraatdas/offstage)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-**Run browser and macOS test commands without them stealing your screen.**
+**Give your coding agent its own invisible Mac desktop.**
 
-An agent runs `npx playwright test --headed` and a Chromium window jumps in
-front of what you were doing. Or it runs `xcodebuild test` and a Simulator
-takes over your desktop. offstage looks at the command, decides where it can
-actually run safely, and sends it there instead. Most commands are already
-headless and just run in place: offstage's job is to catch the ones that
-aren't.
+Agents can do real GUI work now — `xcodebuild test` against a real scheme,
+booting an iOS simulator, launching your built `.app` and clicking through it,
+watching a headed Chromium reproduce a layout bug. Left alone, every one of
+those seizes your display and your keyboard. offstage inspects each command
+and sends it where it belongs:
 
 ```bash
 npm i -g @viraatdas/offstage
@@ -20,6 +19,18 @@ offstage doctor                        # which lanes work on this machine
 offstage route -- npx playwright test  # where would this go? (nothing runs)
 offstage run   -- npx playwright test  # send it there, get one normalized result
 ```
+
+| Your agent wants to… | Where it runs | Your screen |
+| --- | --- | --- |
+| `npm test`, `vitest`, most commands | in place — already headless | never touched |
+| `npx playwright test --headed`, watch a browser | a Linux container with Xvfb | never touched |
+| `xcodebuild`, `xcrun simctl`, XCUITests, `open -a`, `osascript`, launch a built `.app` | **a second, logged-in macOS account** — its own window server, framebuffer, keyboard/mouse stream | never touched |
+| mount a `.dmg`, run an installer, anything that changes the machine | **refused** — no isolation can honestly contain that | nothing runs at all |
+
+That third row is the point: a full macOS GUI session your agent drives —
+screenshot what it sees, click, type, drag, read apps — while you keep
+working. Works standalone (above) and as an agent tool for **Claude Code**,
+**Codex**, and **opencode** (setup below).
 
 ## The three lanes
 
@@ -191,10 +202,11 @@ coordinate by the screenshot's reported scale.
 
 Working *on* this repository? Read [`AGENTS.md`](AGENTS.md) first.
 
-To let an agent *use* offstage, register the MCP server (stdio):
+offstage is first a tool *for* agents: the same operations are MCP tools over
+stdio, so Claude Code, Codex and opencode can all call them.
 
 - **Claude Code plugin**: `/plugin marketplace add viraatdas/offstage` then
-  `/plugin install offstage@offstage`, ships the skill and the MCP server,
+  `/plugin install offstage@offstage` — ships the skill and the MCP server,
   no build step.
 - **Claude Code CLI**: `claude mcp add offstage -- npx -y --package=@viraatdas/offstage@latest offstage-mcp`
 - **Codex** (`~/.codex/config.toml`):
@@ -205,10 +217,24 @@ To let an agent *use* offstage, register the MCP server (stdio):
   args = ["-y", "--package=@viraatdas/offstage@latest", "offstage-mcp"]
   ```
 
+- **opencode** (`opencode.json`, project or `~/.config/opencode/`):
+
+  ```json
+  {
+    "$schema": "https://opencode.ai/config.json",
+    "mcp": {
+      "offstage": {
+        "type": "local",
+        "command": ["npx", "-y", "--package=@viraatdas/offstage@latest", "offstage-mcp"]
+      }
+    }
+  }
+  ```
+
 Tools: `offstage_doctor`, `offstage_route`, `offstage_run`, `offstage_probe`,
 plus `offstage_session_status`, `offstage_session_screenshot`,
 `offstage_session_input`, `offstage_session_apps`. There is deliberately no
-setup tool over MCP, setup runs `sudo` and needs a human at a terminal. An
+setup tool over MCP — setup runs `sudo` and needs a human at a terminal. An
 agent's loop for GUI work: screenshot → decide → input → screenshot, points not
 pixels, never drive the console session.
 

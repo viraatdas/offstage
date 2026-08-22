@@ -154,7 +154,23 @@ func opAccess(_ req: [String: Any]) throws -> [String: Any] {
 
 // MARK: - apps
 
+/// Pump the main runloop briefly so AppKit delivers its pending workspace
+/// notifications. This process runs as a launchd daemon with no NSApplication
+/// event loop, and `NSWorkspace`'s snapshot of `runningApplications` only
+/// updates when the main runloop turns: without this, an app opened seconds
+/// ago is simply missing from the list (measured: TextEdit frontmost on
+/// screen while `apps` denied it existed).
+func refreshWorkspaceState() {
+    let deadline = Date().addingTimeInterval(0.1)
+    let runloop = RunLoop.main
+    while runloop.run(mode: .default, before: deadline) && Date() < deadline {
+        // Drain until the deadline; run(mode:before:) returns false once the
+        // deadline passes with nothing scheduled, which ends the loop.
+    }
+}
+
 func opApps(_ req: [String: Any]) throws -> [String: Any] {
+    refreshWorkspaceState()
     let front = frontmostWindowPid()
     let apps = NSWorkspace.shared.runningApplications
         .filter { $0.activationPolicy == .regular }

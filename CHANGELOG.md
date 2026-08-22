@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.3.1
+
+### Added
+
+- **Zero-touch session setup.** `offstage session setup --create` now creates
+  the helper account non-interactively with a generated password, suppresses
+  its first-login Setup Assistant, pre-grants Screen Recording and
+  Accessibility by writing the system TCC database directly when the invoking
+  terminal has Full Disk Access, shows the fast-user-switching menu, and can
+  arm boot-time auto-login with `--auto-login`. One human step remains: switch
+  into the helper account once.
+- **`--print-csreq`** mode on `offstage-sessiond`, exporting the Designated
+  Requirement TCC stores — verified byte-for-byte against rows System Settings
+  itself wrote.
+- **`offstage session unshare <dir>`**, revoking exactly what `share` granted,
+  absence-tolerant, no sudo.
+- **opencode wiring** documented alongside Claude Code and Codex.
+- The daemon's own README now carries the wire protocol.
+
+### Fixed
+
+- A *copied* machine-changing binary (`cp /usr/sbin/installer ./nice-name`) no
+  longer evades the refusal: path-shaped argv[0] targets are content-hashed
+  against the known system tools.
+- `offstage session apps` no longer misses freshly launched apps: the daemon
+  pumps its main runloop before snapshotting `NSWorkspace`.
+- Session runs now collect everything the command leaves in
+  `$OFFSTAGE_ARTIFACTS` as artifacts — `.xcresult` bundles included.
+- Documentation consolidated into the README, AGENTS.md and the daemon's own
+  reference; stale vm-lane text and a wrong status table removed.
+
 ## 0.3.0
 
 ### Breaking

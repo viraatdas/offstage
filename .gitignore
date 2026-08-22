@@ -20,3 +20,4 @@ coverage/
 # fails on a clean clone. Applies to every lane's fixtures.
 !tests/fixtures/**/*.log
 .rudder-workspaces/
+*.tgz
