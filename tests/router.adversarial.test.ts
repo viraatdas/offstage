@@ -485,21 +485,21 @@ describe('a symlink or a rename does not hide the binary from the router', () =>
   });
 });
 
+const SYSTEM_INSTALLER = '/usr/sbin/installer';
+
+async function exists(p: string): Promise<boolean> {
+  return await fs
+    .stat(p)
+    .then(() => true)
+    .catch(() => false);
+}
+
 describe('a byte-identical copy does not hide the binary from the router', () => {
   /* The one hole name resolution cannot close: `cp /usr/sbin/installer
      ./totally-safe-tool` leaves no symlink, no shared basename, no filesystem
      link of any kind — realpath points at the copy itself. Identical bytes do
      identical things, so the resolved file's SHA-256 is matched against the
      known machine-changing tools' own digests. */
-
-  const SYSTEM_INSTALLER = '/usr/sbin/installer';
-
-  async function exists(p: string): Promise<boolean> {
-    return await fs
-      .stat(p)
-      .then(() => true)
-      .catch(() => false);
-  }
 
   it('refuses a copy of installer under an innocuous name, with an extension-less payload', async () => {
     if (process.platform !== 'darwin' || !(await exists(SYSTEM_INSTALLER))) return;
@@ -559,6 +559,7 @@ describe('a machine-changing binary cannot hide on PATH under a friendly name', 
   };
 
   it('refuses a symlinked installer invoked by its bare PATH name', async () => {
+    if (process.platform !== 'darwin' || !(await exists(SYSTEM_INSTALLER))) return;
     const dir = await repo({});
     const link = path.join(dir, 'setup-tool');
     await fs.symlink('/usr/sbin/installer', link);
@@ -567,6 +568,7 @@ describe('a machine-changing binary cannot hide on PATH under a friendly name', 
   });
 
   it('refuses a copied installer invoked by its bare PATH name', async () => {
+    if (process.platform !== 'darwin' || !(await exists(SYSTEM_INSTALLER))) return;
     const dir = await repo({});
     await fs.copyFile('/usr/sbin/installer', path.join(dir, 'helper-tool'));
     await fs.chmod(path.join(dir, 'helper-tool'), 0o755);
@@ -575,6 +577,7 @@ describe('a machine-changing binary cannot hide on PATH under a friendly name', 
   });
 
   it('does not refuse an ordinary binary found on PATH', async () => {
+    if (process.platform !== 'darwin' || !(await exists('/bin/echo'))) return;
     /* The gate must not fire on every command that happens to resolve. */
     const dir = await repo({});
     await fs.copyFile('/bin/echo', path.join(dir, 'friendly-tool'));
