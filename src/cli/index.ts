@@ -48,6 +48,7 @@ import {
   route,
   run,
   sessionApps,
+  sessionLaunch,
   sessionUpdate,
   sessionInput,
   sessionOpen,
@@ -67,6 +68,7 @@ import {
   renderSessionApps,
   renderSessionInput,
   renderSessionScreenshot,
+  renderSessionLaunch,
   renderSessionSetup,
   renderSessionShare,
   renderSessionStatus,
@@ -472,6 +474,34 @@ export function createProgram(io: CliIo): { program: Command; exitCode: () => nu
       const outcome = await sessionOpen({ target, args, cwd }, io.deps);
       emit(jsonFlag(this), outcome.result, renderRun(outcome, cwd));
       setExit(outcome.exitCode);
+    });
+
+  session
+    .command('launch')
+    .description('Open an app in the helper session and wait until it registers. Reports its pid.')
+    .argument('<target>', 'an app name or a path to an .app bundle')
+    .argument('[args...]', 'extra arguments for `open` (files to open, etc.)')
+    .option('--fresh', 'open a new instance even if one is already running (`open -n`)', false)
+    .option('--wait-ms <ms>', 'how long to wait for the app to register', parsePositiveInt)
+    .option('--cwd <dir>', 'directory to run against (default: current directory)')
+    .option('--user <name>', 'helper account (default: the configured one)')
+    .option('--json', 'emit the result as JSON', false)
+    .passThroughOptions()
+    .action(async function launchAction(this: Command, target: string, args: string[]) {
+      const options = this.opts();
+      const result = await sessionLaunch(
+        {
+          target,
+          ...(args.length > 0 ? { args } : {}),
+          ...(options.cwd === undefined ? {} : { cwd: options.cwd as string }),
+          ...(options.fresh ? { fresh: true } : {}),
+          ...(options.waitMs === undefined ? {} : { waitMs: options.waitMs as number }),
+          ...(options.user === undefined ? {} : { user: options.user as string }),
+        },
+        io.deps,
+      );
+      emit(jsonFlag(this), result, renderSessionLaunch(result));
+      setExit(result.ok ? 0 : 70);
     });
 
   // exitOverride() and the output configuration are per-command and are copied

@@ -25,6 +25,7 @@ import {
   sessionInput,
   sessionOpen,
   sessionScreenshot,
+  sessionLaunch,
   sessionSetup,
   sessionShare,
   sessionStatus,
@@ -523,6 +524,88 @@ describe('sessionUnshare', () => {
     expect(envelope.ok).toBe(true);
     expect(envelope.user).toBe('computeruse');
     expect(envelope.target).toBe(target);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* launch                                                                     */
+/* -------------------------------------------------------------------------- */
+
+describe('sessionLaunch', () => {
+  const GESTURE_APP = {
+    pid: 45272,
+    name: 'GestureEngine',
+    bundleId: 'dev.viraat.GestureEngine',
+    active: true,
+    hidden: false,
+  };
+
+  it('appMatchesTarget: name, bundle basename, case-insensitive', async () => {
+    const api = await import('../src/cli/api.js');
+    const app = { name: 'GestureEngine', bundleId: 'dev.viraat.GestureEngine' };
+    expect(api.appMatchesTarget('GestureEngine', app)).toBe(true);
+    expect(api.appMatchesTarget('build/GestureEngine.app', app)).toBe(true);
+    expect(api.appMatchesTarget('gestureengine', app)).toBe(true);
+    expect(api.appMatchesTarget('SomethingElse', app)).toBe(false);
+  });
+
+  it('with fresh, snapshots pre-existing instances and returns only the NEW pid', async () => {
+    const OLD = { ...GESTURE_APP, pid: 2418 };
+    const NEW = { ...GESTURE_APP, pid: 9999 };
+    let appsCalls = 0;
+    const base = fakeClient();
+    const client = {
+      ...base,
+      async apps() {
+        appsCalls += 1;
+        // Snapshot sees the stale instance; polls see both, then just the new one.
+        return appsCalls === 1 ? [OLD] : appsCalls === 2 ? [] : [OLD, NEW];
+      },
+    } as unknown as FakeClient;
+    const { session } = seams({
+      client,
+      sleep: async () => {},
+    });
+
+    const result = await sessionLaunch(
+      { target: '/Users/viraat/code/GestureEngine/build/GestureEngine.app', fresh: true },
+      { session },
+    );
+
+    expect(result.ok).toBe(true);
+    // Blessing the old pid here is exactly the bug that sent an agent into a
+    // relaunch spiral: fresh means a NEW process.
+    expect(result.app?.pid).toBe(9999);
+    const runCall = base.calls.find((call) => call.op === 'run');
+    // fakeClient records the argv itself as the payload.
+    expect(runCall?.payload).toEqual(['open', '-n', '/Users/viraat/code/GestureEngine/build/GestureEngine.app']);
+  });
+
+  it('fails honestly when the app never registers, and says what to do instead', async () => {
+    const base = fakeClient();
+    const client = { ...base, async apps() { return []; } } as unknown as FakeClient;
+    const { session } = seams({ client, sleep: async () => {} });
+
+    const result = await sessionLaunch({ target: 'NeverThere', waitMs: 1 }, { session });
+
+    expect(result.ok).toBe(false);
+    expect(result.app).toBeNull();
+    expect(result.diagnostics.join(' ')).toContain('screenshot');
+    expect(result.diagnostics.join(' ')).toContain('Never fall back');
+  });
+
+  it('is wired into the command tree and exits 0 when registered', async () => {
+    // Registers on the very first poll: this only needs to prove the wiring.
+    const base = fakeClient();
+    const client = { ...base, async apps() { return [GESTURE_APP]; } } as unknown as FakeClient;
+    const { session } = seams({ client });
+
+    const captured = await cli(['session', 'launch', '--json', 'GestureEngine'], { deps: { session } });
+
+    expect(captured.code).toBe(0);
+    const envelope = JSON.parse(captured.out) as { ok: boolean; app: { pid: number } | null };
+    expect(envelope.ok).toBe(true);
+    expect(envelope.app?.pid).toBe(45272);
   });
 });
 

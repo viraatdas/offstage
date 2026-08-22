@@ -1833,6 +1833,189 @@ export async function sessionApps(
   }
 }
 
+/* --------------------------------- launch --------------------------------- */
+
+export interface SessionLaunchInput {
+  /** App name (`TextEdit`) or path to an `.app` bundle (`build/MyApp.app`). */
+  target: string;
+  /** Extra arguments for `open` — files to open, `-a`, etc. */
+  args?: string[];
+  cwd?: string;
+  user?: string;
+  /**
+   * Open a NEW instance even if one is already running (`open -n`). Testing
+   * flows usually want this: plain `open` would just activate the existing
+   * instance and the registration check below would match the old process.
+   */
+  fresh?: boolean;
+  /**
+   * How long to wait for the app to register before giving up. First launches
+   * can trip a Gatekeeper scan, so this is generous by default.
+   */
+  waitMs?: number;
+}
+
+export interface SessionLaunchResult {
+  /**
+   * True only when `open` succeeded AND the app registered with LaunchServices
+   * inside the helper session — the state `offstage session apps` reports from.
+   * A bare `open` returning 0 does not tell you that; this does.
+   */
+  ok: boolean;
+  target: string;
+  /** The registered app, when it appeared. */
+  app: SessionApp | null;
+  waitedMs: number;
+  diagnostics: string[];
+}
+
+/** How long {@link sessionLaunch} waits for a launch to register, by default. */
+export const SESSION_LAUNCH_DEFAULT_WAIT_MS = 20_000;
+
+/** Poll interval between `apps` checks while waiting for a launch to register. */
+export const SESSION_LAUNCH_POLL_MS = 400;
+
+/**
+ * Does this running app correspond to the launch target?
+ *
+ * Matches the bundle's basename (`GestureEngine.app` → `gestureengine`)
+ * against the app's display name or the last component of its bundle id
+ * (`dev.viraat.GestureEngine` → `gestureengine`). Pure, exported for tests.
+ */
+export function appMatchesTarget(
+  target: string,
+  app: Pick<SessionApp, 'name' | 'bundleId'>,
+): boolean {
+  let expected = path.basename(target.trim()).toLowerCase();
+  if (expected.endsWith('.app')) expected = expected.slice(0, -4);
+  if (expected === '') return false;
+  if ((app.name ?? '').toLowerCase() === expected) return true;
+  const lastBundleComponent = (app.bundleId ?? '').split('.').pop() ?? '';
+  return lastBundleComponent === expected;
+}
+
+/**
+ * Open an app inside the helper session and wait until it is really there.
+ *
+ * The lesson this encodes came from a real agent session: `open` exits 0 the
+ * moment LaunchServices accepts the request, which says nothing about whether
+ * the app finished launching — Gatekeeper scans, first-run panes and slow
+ * disks all delay it. An agent that treats exit 0 as success launches three
+ * more copies and then gives up on isolation entirely. This waits until the
+ * app actually appears in the session's own app list, and reports its pid.
+ */
+export async function sessionLaunch(
+  input: SessionLaunchInput,
+  deps?: Partial<ApiDeps>,
+): Promise<SessionLaunchResult> {
+  const d = withDefaults(deps);
+  const seams = seamsOf(d);
+  if (typeof input?.target !== 'string' || input.target.trim() === '') {
+    throw new OffstageUsageError('offstage session launch needs an app name or a path to an .app bundle.');
+  }
+  const now = seams.now ?? Date.now;
+  const sleep = seams.sleep ?? defaultSleep;
+  const startedAtMs = now();
+
+  const { client } = await sessionConnect(d, input.user);
+
+  /* A path-shaped target (`build/App.app`) is resolved against the CALLER's
+     cwd before crossing the socket — the helper account's own cwd would be
+     its home directory, where the relative path means nothing (measured:
+     `open -n build/GestureEngine.app` exited 1 exactly that way). A bare
+     name stays bare: `open -a Calculator` resolves it on the other side. */
+  const looksLikePath = /[\\/]/.test(input.target) || /\.app$/i.test(input.target.trim());
+  const target = looksLikePath ? path.resolve(input.cwd ?? process.cwd(), input.target) : input.target;
+
+  const argv = ['open', ...(input.fresh === true ? ['-n'] : []), target, ...(input.args ?? [])];
+  let openOutput = '';
+  try {
+    const outcome = await client.run({
+      argv,
+      // `open` runs wherever it pleases inside the helper session; the app
+      // bundle carries its own working directory.
+      cwd: input.cwd ?? (await client.hello()).user.home,
+      timeoutMs: 30_000,
+      onOutput: (chunk) => {
+        if (openOutput.length < 2000) openOutput += chunk.toString('utf8');
+      },
+    });
+    if (outcome.exitCode !== 0) {
+      return {
+        ok: false,
+        target: input.target,
+        app: null,
+        waitedMs: now() - startedAtMs,
+        diagnostics: [
+          outcome.timedOut
+            ? '`open` did not return within 30s.'
+            : `\`open\` exited ${outcome.exitCode ?? 'to a signal'}${
+                outcome.signal === null ? '' : ` (${outcome.signal})`
+              }.`,
+          ...(openOutput.trim() === '' ? [] : [`Its output: ${openOutput.trim().split('\n').slice(-4).join(' | ')}`]),
+        ],
+      };
+    }
+  } catch (error) {
+    return asSessionError(error);
+  }
+
+  /* When `fresh` is set, snapshot which matching pids already exist so the
+     poll can demand a NEW one. Matching a stale instance would report success
+     while `open -n`'s process went somewhere else entirely — measured live:
+     two old copies were running and the poll happily blessed one of them. */
+  const diagnostics: string[] = [];
+  let preExistingPids = new Set<number>();
+  if (input.fresh === true) {
+    try {
+      for (const app of await client.apps()) {
+        if (appMatchesTarget(target, app)) preExistingPids.add(app.pid);
+      }
+    } catch {
+      /* A failed snapshot must not block the launch; the poll below simply
+         loses its freshness guarantee and matches any registration. */
+      diagnostics.push('could not snapshot pre-existing apps; matching any registration.');
+    }
+  }
+
+  const deadline = now() + (input.waitMs ?? SESSION_LAUNCH_DEFAULT_WAIT_MS);
+  for (;;) {
+    let apps: SessionApp[];
+    try {
+      apps = await client.apps();
+    } catch (error) {
+      /* A transient socket hiccup must not end the poll — the launch may be fine. */
+      diagnostics.push(`apps poll failed transiently: ${error instanceof Error ? error.message : String(error)}`);
+      apps = [];
+    }
+    const found = apps.find(
+      (app) => appMatchesTarget(target, app) && !preExistingPids.has(app.pid),
+    );
+    if (found !== undefined) {
+      return { ok: true, target: input.target, app: found, waitedMs: now() - startedAtMs, diagnostics };
+    }
+    if (now() >= deadline) {
+      const stale = [...preExistingPids];
+      return {
+        ok: false,
+        target: input.target,
+        app: null,
+        waitedMs: now() - startedAtMs,
+        diagnostics: [
+          `"${input.target}" did not register with the helper session within the wait window.`,
+          ...(stale.length > 0
+            ? [`A matching app was already running (pid ${stale.join(', pid ')}); \`fresh\` asked for a new instance and none appeared.`]
+            : []),
+          'First launches can be slow while Gatekeeper verifies the bundle; one retry usually succeeds.',
+          'Take a screenshot before trying anything else — the window may simply not have a regular activation policy.',
+          'Never fall back to launching the app outside offstage; that puts it on the user\'s screen.',
+        ],
+      };
+    }
+    await sleep(SESSION_LAUNCH_POLL_MS);
+  }
+}
+
 /* ---------------------------------- open ---------------------------------- */
 
 /**
@@ -1841,7 +2024,8 @@ export async function sessionApps(
  * Deliberately a thin call into {@link run} with `lane: 'session'` rather than
  * a fifth code path: it gets the run directory, the `result.json`, the
  * screenshot and the diagnostics for free, and an agent that reads one run
- * envelope can read this one.
+ * envelope can read this one. When you need to know the app actually came up —
+ * not just that `open` handed off the request — use {@link sessionLaunch}.
  */
 export async function sessionOpen(
   input: { target: string; args?: string[]; cwd?: string; timeoutMs?: number },

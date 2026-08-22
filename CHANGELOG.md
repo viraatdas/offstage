@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.3.2
+
+### Added
+
+- **`offstage session launch <app>`** and the `offstage_session_launch` MCP
+  tool: open an app inside the helper session and wait until it has actually
+  registered — the reply carries the app's pid, so success means "the app is
+  running there", not "open handed off the request". With `--fresh` it demands
+  a NEW pid and refuses to bless a pre-existing instance. Path-shaped targets
+  resolve against the caller's cwd before crossing the socket; failures carry
+  the app's own output instead of a bare exit code.
+- **Menu-bar apps are first-class.** The daemon's `apps` op now lists
+  `.accessory` apps (LSUIElement) alongside regular ones, each entry carrying
+  its activation `policy`. Before this, launching a menu-bar app — which is
+  what a lot of utility apps an agent wants to test actually are — looked
+  identical to a failed launch: `open` succeeded but `apps` denied the app
+  existed, and a real agent session responded by relaunching six times and
+  then bypassing isolation entirely.
+- Consumer-repo guardrail documentation: the skill and README now say plainly
+  never to launch apps or run GUI commands outside offstage, and never to exec
+  the binary inside `App.app/Contents/MacOS/` directly.
+
+### Fixed
+
+- `offstage session launch` no longer resolves repo-relative bundle paths
+  against the helper account's home directory.
+
 ## 0.3.1
 
 ### Added

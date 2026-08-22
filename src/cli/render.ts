@@ -20,6 +20,7 @@ import type {
   DoctorReport,
   RunOutcome,
   SessionInputResult,
+  SessionLaunchResult,
   SessionScreenshotResult,
   SessionSetupResult,
   SessionShareResult,
@@ -481,6 +482,28 @@ export function renderSessionUnshare(result: SessionUnshareResult): string[] {
       ),
     );
   }
+  return lines;
+}
+
+/** `offstage session launch` — did the app really come up in the helper session? */
+export function renderSessionLaunch(result: SessionLaunchResult): string[] {
+  if (!result.ok) {
+    const lines = [`${CROSS} could not confirm "${result.target}" running in the helper session after ${(result.waitedMs / 1000).toFixed(1)}s`];
+    for (const diagnostic of result.diagnostics) lines.push(...block(diagnostic, '  ', '    '));
+    return lines;
+  }
+  const app = result.app;
+  const lines = [
+    `${CHECK} launched "${result.target}" in the helper session — registered after ${(result.waitedMs / 1000).toFixed(1)}s`,
+    `  ${app?.name ?? '(unnamed)'} pid ${app?.pid ?? '?'}${app?.active ? ', frontmost' : ''}${
+      app?.bundleId ? ` [${app.bundleId}]` : ''
+    }`,
+  ];
+  lines.push(
+    ...wrap(
+      "It is running on the OTHER account's display. Screenshot before and after any input; nothing here touched the user's screen.",
+    ),
+  );
   return lines;
 }
 

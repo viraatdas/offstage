@@ -172,14 +172,21 @@ func refreshWorkspaceState() {
 func opApps(_ req: [String: Any]) throws -> [String: Any] {
     refreshWorkspaceState()
     let front = frontmostWindowPid()
+    // Accessory apps are listed on purpose: LSUIElement/menu-bar tools — which
+    // is what a lot of utility apps an agent wants to test actually are — never
+    // get the regular policy, and filtering them out made every launch of such
+    // an app look like a failure ("open" succeeded but apps denied it existed,
+    // measured with GestureEngine, dev.viraat.GestureEngine). The policy is
+    // reported so callers can tell them apart.
     let apps = NSWorkspace.shared.runningApplications
-        .filter { $0.activationPolicy == .regular }
+        .filter { $0.activationPolicy == .regular || $0.activationPolicy == .accessory }
         .map { app -> [String: Any] in
             var entry: [String: Any] = [
                 "pid": Int(app.processIdentifier),
                 // Live, for the same reason sessionTargetPid() is.
                 "active": app.processIdentifier == front,
                 "hidden": app.isHidden,
+                "policy": app.activationPolicy == .regular ? "regular" : "accessory",
             ]
             entry["name"] = app.localizedName ?? NSNull()
             entry["bundleId"] = app.bundleIdentifier ?? NSNull()

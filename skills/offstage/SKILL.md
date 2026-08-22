@@ -121,6 +121,20 @@ offstage_run  { lane: "session", cwd, command: ["open", "-a", "Safari"] }
 offstage run --lane session -- npx playwright test --headed
 ```
 
+### Launching an app: use offstage_session_launch, never `open` outside
+
+To start a built `.app` for GUI testing, call **`offstage_session_launch`**
+(`offstage session launch <name-or-path>`) rather than `offstage_run -- open`.
+It waits until the app has actually registered with the session — the reply
+carries its pid — instead of returning the moment LaunchServices accepts the
+request. First launches can be slow (Gatekeeper verifies the bundle); if it
+times out, take a screenshot and retry once. Never fall back to launching the
+app yourself: anything launched outside offstage opens on the USER's screen.
+
+For the same reason, never exec the binary inside `App.app/Contents/MacOS/`
+directly, even through the session lane: it bypasses LaunchServices, so the app
+may never appear in `offstage_session_apps`. Launch bundles as bundles.
+
 It is **session isolation, not machine isolation** — same kernel, same disk.
 Anything that could change the machine (`.dmg`, `.pkg`, `installer`,
 `hdiutil`) is refused outright: offstage has no lane that isolates that, so it
@@ -141,6 +155,16 @@ performed and nothing about what they hit. The only way to know is to look.
 **Coordinates are points, not pixels.** The screenshot reports `width`,
 `height` and `scale`; divide a pixel coordinate by `scale` to get the point the
 daemon expects. Origin is the top-left of the helper session's main display.
+
+### If an app launches but then disappears
+
+Some apps quit shortly after starting when a permission they require — Input
+Monitoring for anything that watches trackpad/keyboard events, for example —
+was never granted **inside the helper account**. TCC is per session: the user
+may have approved the app years ago in their own session and have no idea the
+background account needs the same toggle. The fix is one switch inside that
+session, or `offstage session launch` will keep reporting a clean launch
+followed by the process vanishing.
 
 ### Two things to tell the user rather than work around
 

@@ -19,6 +19,8 @@ import type {
   RunInput,
   RunOutcome,
   SessionInputResult,
+  SessionLaunchInput,
+  SessionLaunchResult,
   SessionScreenshotInput,
   SessionScreenshotResult,
   SessionStatus,
@@ -30,6 +32,7 @@ import {
   run,
   sessionApps,
   sessionInput,
+  sessionLaunch,
   sessionScreenshot,
   sessionStatus,
 } from '../cli/api.js';
@@ -43,6 +46,8 @@ export type {
   RunInput,
   RunOutcome,
   SessionInputResult,
+  SessionLaunchInput,
+  SessionLaunchResult,
   SessionScreenshotInput,
   SessionScreenshotResult,
   SessionStatus,
@@ -66,6 +71,7 @@ export interface OffstageCore {
   sessionScreenshot(input: SessionScreenshotInput): Promise<SessionScreenshotResult>;
   sessionInput(input: { actions: unknown; user?: string }): Promise<SessionInputResult>;
   sessionApps(input: { user?: string }): Promise<SessionApp[]>;
+  sessionLaunch(input: SessionLaunchInput): Promise<SessionLaunchResult>;
 }
 
 export function createDefaultCore(): OffstageCore {
@@ -78,5 +84,6 @@ export function createDefaultCore(): OffstageCore {
     sessionScreenshot: (input) => sessionScreenshot(input),
     sessionInput: (input) => sessionInput(input),
     sessionApps: (input) => sessionApps(input),
+    sessionLaunch: (input) => sessionLaunch(input),
   };
 }

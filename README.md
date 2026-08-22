@@ -185,8 +185,8 @@ offstage session setup [flags]                   # the one-command install (abov
 offstage session share <dir> / unshare <dir>     # grant/revoke read-only tree access
 offstage session screenshot [--out f] [--max px] # capture the HELPER session's display
 offstage session input '<json actions>'          # or: click X Y / type "text" / key "cmd+q"
+offstage session launch <app> [--fresh] [--wait-ms ms]  # open an app and WAIT until it registers; reports its pid
 offstage session apps                            # apps running in the helper session
-offstage session open <app> [-- args]            # sugar for run --lane session -- open …
 offstage session update                          # rebuild + swap the daemon, no password
 ```
 
@@ -232,11 +232,23 @@ stdio, so Claude Code, Codex and opencode can all call them.
   ```
 
 Tools: `offstage_doctor`, `offstage_route`, `offstage_run`, `offstage_probe`,
-plus `offstage_session_status`, `offstage_session_screenshot`,
-`offstage_session_input`, `offstage_session_apps`. There is deliberately no
-setup tool over MCP — setup runs `sudo` and needs a human at a terminal. An
-agent's loop for GUI work: screenshot → decide → input → screenshot, points not
-pixels, never drive the console session.
+plus `offstage_session_status`, `offstage_session_launch`,
+`offstage_session_screenshot`, `offstage_session_input`,
+`offstage_session_apps`. There is deliberately no setup tool over MCP — setup
+runs `sudo` and needs a human at a terminal. An agent's loop for GUI work:
+**launch** (waits until the app registers) → screenshot → decide → input →
+screenshot, points not pixels, never drive the console session.
+
+And the rule that keeps it honest, worth pasting into any project's AGENTS.md:
+
+```markdown
+Before running anything that could open a window or steal focus — Playwright/
+Puppeteer/Cypress/WebDriver, --headed, screen/video capture, xcodebuild,
+xcrun simctl, open/-a, osascript, launching a built .app — use the offstage
+MCP tools. status:'skipped' means the substrate is missing: report the fix,
+never re-run the command directly to get past it, and never launch apps or run
+GUI commands outside offstage — that puts them on the user's screen.
+```
 
 ## Probe
 

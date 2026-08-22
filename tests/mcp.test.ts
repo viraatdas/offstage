@@ -24,6 +24,7 @@ import type {
 import { createDefaultCore } from '../src/mcp/core.js';
 import { createOffstageMcpServer } from '../src/mcp/server.js';
 import type { EntitlementsProbeReport } from '../src/probe/index.js';
+import type { SessionLaunchResult } from '../src/cli/api.js';
 import type { InputAction, SessionApp } from '../src/session/index.js';
 
 const routeDecision: RouteDecision = {
@@ -138,6 +139,24 @@ class FakeCore implements OffstageCore {
     return [{ pid: 5120, name: 'Safari', bundleId: 'com.apple.Safari', active: true, hidden: false }];
   }
 
+  async sessionLaunch(input: {
+    target: string;
+    args?: string[];
+    cwd?: string;
+    fresh?: boolean;
+    waitMs?: number;
+    user?: string;
+  }): Promise<SessionLaunchResult> {
+    this.sessionCalls.push({ tool: 'launch', input });
+    return {
+      ok: true,
+      target: input.target,
+      app: { pid: 45272, name: 'GestureEngine', bundleId: 'dev.viraat.GestureEngine', active: true, hidden: false },
+      waitedMs: 1200,
+      diagnostics: [],
+    };
+  }
+
   async probe(input: ProbeInput): Promise<EntitlementsProbeReport> {
     return {
       target: input.path,
@@ -174,7 +193,7 @@ describe('offstage MCP server', () => {
     }
   });
 
-  it('lists the eight offstage tools with useful descriptions', async () => {
+  it('lists the nine offstage tools with useful descriptions', async () => {
     const { client, server } = await connect();
     cleanup.push(() => client.close(), () => server.close());
 
@@ -186,9 +205,13 @@ describe('offstage MCP server', () => {
       'offstage_run',
       'offstage_session_apps',
       'offstage_session_input',
+      'offstage_session_launch',
       'offstage_session_screenshot',
       'offstage_session_status',
     ]);
+    expect(tools.tools.find((tool) => tool.name === 'offstage_session_launch')?.description).toContain(
+      'NEVER launch apps outside offstage',
+    );
     expect(tools.tools.find((tool) => tool.name === 'offstage_route')?.description).toContain('Call this first');
     expect(tools.tools.find((tool) => tool.name === 'offstage_run')?.description).toContain(
       'never falls back to the user real display',

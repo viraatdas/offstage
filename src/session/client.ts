@@ -184,6 +184,13 @@ export const AppSchema = z.object({
   bundleId: z.string().nullable().optional(),
   active: z.boolean(),
   hidden: z.boolean(),
+  /**
+   * `regular` apps have windows and a Dock presence; `accessory` apps are
+   * LSUIElement/menu-bar tools — common among the utility apps agents test,
+   * and listed on purpose since 0.3.2, because filtering them out made every
+   * launch of such an app look like a failure. Absent on older daemons.
+   */
+  policy: z.enum(['regular', 'accessory']).optional(),
 });
 
 export type SessionApp = z.infer<typeof AppSchema>;

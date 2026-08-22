@@ -35,6 +35,16 @@ const ProbeArgsSchema = z
    machine may have more than one helper account and the agent should never
    have to guess which one a previous call used. */
 const SessionStatusArgsSchema = z.object({ user: z.string().min(1).optional() }).strict();
+const SessionLaunchArgsSchema = z
+  .object({
+    target: z.string().min(1),
+    args: z.array(z.string()).optional(),
+    cwd: z.string().min(1).optional(),
+    fresh: z.boolean().optional(),
+    waitMs: z.number().int().positive().optional(),
+    user: z.string().min(1).optional(),
+  })
+  .strict();
 const SessionScreenshotArgsSchema = z
   .object({
     maxDimension: z.number().int().positive().optional(),
@@ -186,6 +196,20 @@ export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()
     async (args) =>
       callSafely(ProbeArgsSchema, args, async (input) => ({
         content: [jsonText(await core.probe(input))],
+      })),
+  );
+
+  server.registerTool(
+    'offstage_session_launch',
+    {
+      title: 'offstage session launch',
+      description:
+        "Launch an app INSIDE the helper macOS session and wait until it has actually registered — the reply names the app's pid, so a success here means the app is really running in that hidden session, not merely that `open` handed off the request. This is the right way to start any .app for GUI testing: pass the bundle name or a path to the .app bundle. NEVER exec the binary inside Contents/MacOS/ directly (it does not register with LaunchServices and becomes invisible to offstage_session_apps), and NEVER launch apps outside offstage — anything launched outside lands on the USER's screen, which defeats the entire product. `fresh: true` opens a new instance (`open -n`) when one may already be running. If it reports failure after `open` succeeded, take a screenshot before retrying: first launches can be slow while Gatekeeper verifies the bundle.",
+      inputSchema: SessionLaunchArgsSchema,
+    },
+    async (args) =>
+      callSafely(SessionLaunchArgsSchema, args, async (input) => ({
+        content: [jsonText(await core.sessionLaunch(input))],
       })),
   );
 

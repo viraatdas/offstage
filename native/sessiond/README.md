@@ -112,7 +112,7 @@ Error codes: `bad-request`, `spawn-failed`, `tcc-screen-capture`,
 | `run` | `started` event with pid, base64 `output` events (stdout+stderr merged, in order), final `{exitCode, signal, timedOut, durationMs}` |
 | `screenshot` | `{png: <base64>, width, height, scale}` — PNG of this session's framebuffer, downscaled with `sips` when capped |
 | `input` | `{"ok":true,"performed":N}`, or refusal on the first failing action |
-| `apps` | regular-activation-policy apps of this session |
+| `apps` | this session's apps with `regular` OR `accessory` activation policy, each entry carrying its `policy` — LSUIElement/menu-bar tools are accessory, and omitting them made every launch of such an app look like a failure |
 | `request-permissions` | raises the TCC prompts **in this session**; idempotent; returns the permissions shape |
 | `restart` | replies, then exits `70`; launchd restarts it (`KeepAlive {SuccessfulExit: false}`) so grants given after start take effect with no root |
 
