@@ -272,6 +272,42 @@ everything else comes back with an empty list, a full `command.log`, and a
 diagnostic saying nothing was recognized, abstention beats fabrication.
 Each run persists a validated `result.json` under `.offstage/runs/<id>/`.
 
+## Case study: GestureEngine, driven end to end
+
+GestureEngine is a real macOS utility — a trackpad-gesture engine whose app is
+an `LSUIElement` menu-bar tool. It is exactly the kind of thing an agent wants
+to test, and exactly the kind of thing that used to seize your screen. With
+offstage, the whole loop runs from one terminal while you keep working:
+
+```bash
+$ offstage run -- swift test -c release            # passed | headless | in place
+$ offstage run -- ./Scripts/build-app.sh           # passed | headless | in place
+$ offstage session launch --fresh build/GestureEngine.app
+  ✓ launched "build/GestureEngine.app" in the helper session — registered after 1.2s
+    GestureEngine pid 13836 [dev.viraat.GestureEngine]
+$ offstage session screenshot --max 1000           # its window, on the hidden desktop
+$ offstage session input '[{"type":"click","x":1178,"y":157}]'
+$ offstage session screenshot                      # toggle flipped: Listening → Paused
+```
+
+Nothing appeared on screen at any point; every screenshot in that sequence is
+the *other* account's desktop.
+
+Two lessons from driving it shaped this release:
+
+- **Menu-bar apps are invisible to naive app lists.** `LSUIElement` apps get
+  macOS's `.accessory` activation policy, so an app list that only reports
+  regular apps makes every launch of such a tool look like a failure. An agent
+  that saw "launched but not running" relaunched six times, then abandoned
+  isolation and opened the app on the user's screen. The daemon now lists
+  accessory apps too (each entry carries its `policy`), and `session launch`
+  waits until the app actually registers instead of trusting `open`'s exit
+  code.
+- **`NSWorkspace` lies from a daemon.** The first fix polled `NSWorkspace` —
+  which served frozen snapshots in this context: Calculator frontmost, menu
+  bar reading "Calculator", list saying nothing existed. The daemon now reads
+  Launch Services directly (`lsappinfo`), which is always current.
+
 ## Status, what has actually been verified
 
 Tests pass on machines without the substrates present (they skip loudly, not
