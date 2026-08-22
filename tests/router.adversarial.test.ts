@@ -484,3 +484,57 @@ describe('a symlink or a rename does not hide the binary from the router', () =>
     expect(decision.refuse).toBeDefined();
   });
 });
+
+describe('a byte-identical copy does not hide the binary from the router', () => {
+  /* The one hole name resolution cannot close: `cp /usr/sbin/installer
+     ./totally-safe-tool` leaves no symlink, no shared basename, no filesystem
+     link of any kind — realpath points at the copy itself. Identical bytes do
+     identical things, so the resolved file's SHA-256 is matched against the
+     known machine-changing tools' own digests. */
+
+  const SYSTEM_INSTALLER = '/usr/sbin/installer';
+
+  async function exists(p: string): Promise<boolean> {
+    return await fs
+      .stat(p)
+      .then(() => true)
+      .catch(() => false);
+  }
+
+  it('refuses a copy of installer under an innocuous name, with an extension-less payload', async () => {
+    if (process.platform !== 'darwin' || !(await exists(SYSTEM_INSTALLER))) return;
+
+    const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-copy-')));
+    temps.push(dir);
+    const copy = path.join(dir, 'totally-safe-tool');
+    await fs.copyFile(SYSTEM_INSTALLER, copy);
+    await fs.chmod(copy, 0o755);
+    const payload = path.join(dir, 'payload'); // no .pkg extension
+
+    const decision = await classify({
+      cwd: await repo({}),
+      command: [copy, '-pkg', payload, '-target', '/'],
+    });
+
+    expect(decision.refuse).toBeDefined();
+    expect(decision.refuse).toContain('installer');
+  });
+
+  it('does not refuse a copy of a harmless binary', async () => {
+    if (process.platform !== 'darwin' || !(await exists('/bin/echo'))) return;
+    // No false positives: matching by content must stay pinned to the tools
+    // that actually change the machine.
+    const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-copy-')));
+    temps.push(dir);
+    const copy = path.join(dir, 'my-echo');
+    await fs.copyFile('/bin/echo', copy);
+    await fs.chmod(copy, 0o755);
+
+    const decision = await classify({
+      cwd: await repo({}),
+      command: [copy, 'hello'],
+    });
+
+    expect(decision.refuse).toBeUndefined();
+  });
+});

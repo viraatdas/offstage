@@ -21,12 +21,21 @@
  */
 
 import fs from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { isInside } from '../contract/index.js';
 
 /** Config files are small; anything larger is generated and not worth reading. */
 const MAX_CONFIG_BYTES = 1024 * 1024;
+
+/**
+ * Cap on a binary we are willing to hash. The system tools whose copies matter
+ * (`installer`, `hdiutil`) are hundreds of kilobytes; 8 MiB is generous headroom
+ * and keeps a hostile argv[0] pointing at a multi-gigabyte file from costing
+ * real memory.
+ */
+const MAX_BINARY_DIGEST_BYTES = 8 * 1024 * 1024;
 
 /** A file the router read, with comments already stripped out of `text`. */
 export interface InspectedFile {
@@ -188,11 +197,22 @@ export interface Inspector {
    * information" the rest of this file returns for a missing file.
    */
   resolveBinary(reference: string): Promise<string | undefined>;
+  /**
+   * SHA-256 of what argv[0] resolves to, when it names a path. A *copied*
+   * binary has no filesystem link back to its origin — `cp /usr/sbin/installer
+   * ./nice-name` leaves realpath pointing at the copy itself and the basename
+   * is whatever the copier chose — but the bytes are identical, and identical
+   * bytes do identical things. Same rules as {@link resolveBinary}: path-shaped
+   * references only, outside-cwd allowed, never throws, `undefined` for
+   * anything unreadable, oversized, or not a regular file.
+   */
+  binaryDigest(reference: string): Promise<string | undefined>;
 }
 
 export function createInspector(cwd: string): Inspector {
   const files = new Map<string, Promise<InspectedFile | undefined>>();
   const resolvedBinaries = new Map<string, Promise<string | undefined>>();
+  const binaryDigests = new Map<string, Promise<string | undefined>>();
   let packageJsonPromise: Promise<PackageFacts | undefined> | undefined;
   let xcodePromise: Promise<string[]> | undefined;
 
@@ -333,6 +353,38 @@ export function createInspector(cwd: string): Inspector {
       })();
 
       resolvedBinaries.set(reference, pending);
+      return pending;
+    },
+
+    binaryDigest(reference: string): Promise<string | undefined> {
+      if (!reference.includes('/') && !reference.includes('\\')) return Promise.resolve(undefined);
+
+      const cached = binaryDigests.get(reference);
+      if (cached !== undefined) return cached;
+
+      const pending = (async (): Promise<string | undefined> => {
+        try {
+          const absolute = path.resolve(cwd, reference);
+          /* Follow symlinks (stat, not lstat): a symlink to a system tool has
+             already been caught by name resolution; hashing through the link
+             keeps a chain of them honest too. */
+          const stats = await fs.stat(absolute);
+          if (!stats.isFile() || stats.size > MAX_BINARY_DIGEST_BYTES) return undefined;
+          const handle = await fs.open(absolute, 'r');
+          try {
+            const hash = createHash('sha256');
+            await hash.update(await handle.readFile());
+            return hash.digest('hex');
+          } finally {
+            await handle.close();
+          }
+        } catch {
+          // Unreadable, missing, oversized: "no information", never an error.
+          return undefined;
+        }
+      })();
+
+      binaryDigests.set(reference, pending);
       return pending;
     },
   };

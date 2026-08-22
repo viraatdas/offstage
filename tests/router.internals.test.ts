@@ -256,6 +256,33 @@ describe('Inspector', () => {
     expect(await inspector.playwrightConfig('huge.config.js')).toBeUndefined();
   });
 
+  describe('binaryDigest', () => {
+    it('hashes file content, identically for a copy and through a symlink', async () => {
+      const body = 'pretend this is a mach-o binary\n'.repeat(100);
+      await fs.writeFile(path.join(root, 'tool'), body, 'utf8');
+      await fs.symlink(path.join(root, 'tool'), path.join(root, 'link-to-tool'));
+      await fs.writeFile(path.join(root, 'copy-of-tool'), body, 'utf8');
+
+      const inspector = createInspector(root);
+      const direct = await inspector.binaryDigest(path.join(root, 'tool'));
+      const copy = await inspector.binaryDigest(path.join(root, 'copy-of-tool'));
+      const link = await inspector.binaryDigest(path.join(root, 'link-to-tool'));
+      const { createHash } = await import('node:crypto');
+      const expected = createHash('sha256').update(body).digest('hex');
+
+      expect(direct).toBe(expected);
+      expect(copy).toBe(expected);
+      expect(link).toBe(expected);
+    });
+
+    it('answers undefined for a bare name, a missing path, and a directory', async () => {
+      const inspector = createInspector(root);
+      expect(await inspector.binaryDigest('barename')).toBeUndefined();
+      expect(await inspector.binaryDigest(path.join(root, 'never-existed'))).toBeUndefined();
+      expect(await inspector.binaryDigest(root)).toBeUndefined();
+    });
+  });
+
   it('lists Xcode bundles at the repository root, sorted', async () => {
     expect(await createInspector(repo()).xcodeProjects()).toEqual(['App.xcworkspace', 'Legacy.xcodeproj']);
   });

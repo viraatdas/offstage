@@ -46,7 +46,7 @@
  *   macOS already has one: a second local account, logged in and sitting in the
  *   background with its own framebuffer, its own keyboard and mouse stream and
  *   its own running apps. That is the session lane, and it costs a socket
- *   connection. See `docs/session-lane.md`.
+ *   connection. See `native/sessiond/README.md`.
  * - **anything that could change the machine is refused, not routed**: a
  *   `.dmg`, a `.pkg`, the `installer` command, `hdiutil`. The session lane is
  *   session isolation, not machine isolation — same OS, same kernel, same disk

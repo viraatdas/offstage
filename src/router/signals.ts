@@ -136,10 +136,55 @@ export interface CommandView {
    * else `Inspector.resolveBinary` could not resolve.
    */
   resolvedBin?: string;
+  /**
+   * SHA-256 of the same target, when it could be hashed. A *copied* system
+   * tool has no filesystem link back to its origin, so name resolution sees
+   * nothing — but identical bytes do identical things, and this digest is what
+   * {@link KNOWN_MACHINE_TOOLS} is matched against.
+   */
+  resolvedDigest?: string;
+  /**
+   * A machine-changing tool this argv[0] was matched to **by content**: the
+   * bytes are identical to a known system binary even though every name for it
+   * is innocuous. Set only when neither the typed name nor the resolved
+   * basename already gave the game away.
+   */
+  contentMatchedBin?: string;
 }
 
 /** How far `npm run a` → `npm run b` → … is followed before giving up. */
 const MAX_SCRIPT_DEPTH = 3;
+
+/**
+ * System binaries whose bytes mean "this changes the machine", wherever a copy
+ * of them is found. Name resolution catches symlinks and renames; this table
+ * catches `cp /usr/sbin/installer ./nice-name`, which leaves no link back to
+ * the original and an innocent basename — only the content is honest. The
+ * paths are hashed through the same read-only inspector as everything else,
+ * at most once per classify() call, and hashing is skipped entirely unless
+ * argv[0] was path-shaped in the first place.
+ */
+const KNOWN_MACHINE_TOOLS: Readonly<Record<string, string>> = {
+  installer: '/usr/sbin/installer',
+  hdiutil: '/usr/bin/hdiutil',
+};
+
+/**
+ * Match one view's resolved binary against {@link KNOWN_MACHINE_TOOLS} by
+ * content, when its names alone did not already identify it.
+ */
+async function matchKnownTool(view: CommandView, inspector: Inspector): Promise<void> {
+  if (view.resolvedDigest === undefined) return;
+  if (view.resolvedBin !== undefined && view.resolvedBin in KNOWN_MACHINE_TOOLS) return;
+  if (view.invocation.bin in KNOWN_MACHINE_TOOLS) return;
+  for (const [tool, absolute] of Object.entries(KNOWN_MACHINE_TOOLS)) {
+    const known = await inspector.binaryDigest(absolute);
+    if (known !== undefined && known === view.resolvedDigest) {
+      view.contentMatchedBin = tool;
+      return;
+    }
+  }
+}
 
 /**
  * Expand a command into every view worth inspecting, following package scripts
@@ -158,7 +203,13 @@ export async function buildViews(command: string[], inspector: Inspector): Promi
     // symlink or a rename cannot hide a machine-changing binary behind an
     // innocuous name. `resolveBinary` already declines a bare name on its own.
     const resolvedTarget = await inspector.resolveBinary(invocation.binPath);
-    if (resolvedTarget !== undefined) view.resolvedBin = basenameOf(resolvedTarget);
+    if (resolvedTarget !== undefined) {
+      view.resolvedBin = basenameOf(resolvedTarget);
+      // And its bytes are hashed so a *copy* — no symlink, no shared basename,
+      // nothing but identical content — is still recognized for what it is.
+      view.resolvedDigest = await inspector.binaryDigest(invocation.binPath);
+      await matchKnownTool(view, inspector);
+    }
     views.push(view);
 
     if (depth >= MAX_SCRIPT_DEPTH) return;
@@ -667,15 +718,32 @@ export async function collectSignals(
 
 /**
  * The literal binary name, plus — when argv[0] named a path — the basename of
- * what it resolves to on disk. A wrapper directory and an innocuous filename
- * do not change what a symlinked or renamed binary actually is, so a check
- * keyed on a name (`installer`, `hdiutil`, a `MACOS_GUI_BINS` member) has to
- * see both to keep a refusal from being defeated by `ln -sf`.
+ * what it resolves to on disk, and any machine-changing tool the bytes matched
+ * (`cp /usr/sbin/installer ./x` carries no name and no link, only content). A
+ * wrapper directory, an innocuous filename, and a fresh copy do not change
+ * what a binary actually is, so a check keyed on a name (`installer`,
+ * `hdiutil`, a `MACOS_GUI_BINS` member) has to see all three.
  */
 function binNames(view: CommandView): Set<string> {
   const names = new Set<string>([view.invocation.bin]);
   if (view.resolvedBin !== undefined) names.add(view.resolvedBin);
+  if (view.contentMatchedBin !== undefined) names.add(view.contentMatchedBin);
   return names;
+}
+
+/** How a view came to be identified as `tool`: typed it, resolved to it, or its bytes match. */
+function identifyVia(view: CommandView, tool: string): 'bin' | 'resolve' | 'copy' {
+  if (view.invocation.bin === tool) return 'bin';
+  if (view.resolvedBin === tool) return 'resolve';
+  return 'copy';
+}
+
+/** The human label for an identified tool: `installer`, `x (resolves to installer)`, `x (identical copy of installer)`. */
+function identifyLabel(view: CommandView, tool: string): string {
+  const via = identifyVia(view, tool);
+  if (via === 'bin') return tool;
+  if (via === 'resolve') return `${view.invocation.bin} (resolves to ${tool})`;
+  return `${view.invocation.bin} (identical copy of ${tool})`;
 }
 
 function macosSignals(view: CommandView): Signal[] {
@@ -849,7 +917,7 @@ function macosSignals(view: CommandView): Signal[] {
   // filename cannot hide it — see `binNames`.
   const names = binNames(view);
   if (names.has('hdiutil')) {
-    const label = bin === 'hdiutil' ? bin : `${bin} (resolves to hdiutil)`;
+    const label = identifyLabel(view, 'hdiutil');
     found.push(
       signal({
         kind: 'macos-gui-tool',
@@ -859,7 +927,7 @@ function macosSignals(view: CommandView): Signal[] {
         clause:
           bin === 'hdiutil'
             ? 'hdiutil attaches and creates macOS disk images, which mounts volumes on the machine that runs it and is usually a step in installing something. The session lane is a second account on your own OS and disk, not a second machine, and offstage has no lane that isolates a mount like that, so it refuses to run this rather than risk your machine. Run it directly yourself if you accept the risk.'
-            : `${bin} resolves to hdiutil on disk, and a symlink or a rename does not change what it does: it attaches and creates macOS disk images, which mounts volumes on the machine that runs it and is usually a step in installing something. The session lane is a second account on your own OS and disk, not a second machine, and offstage has no lane that isolates a mount like that, so it refuses to run this rather than risk your machine. Run it directly yourself if you accept the risk.`,
+            : `${label}: a symlink, a rename, or a byte-identical copy does not change what this binary does. It attaches and creates macOS disk images, which mounts volumes on the machine that runs it and is usually a step in installing something. The session lane is a second account on your own OS and disk, not a second machine, and offstage has no lane that isolates a mount like that, so it refuses to run this rather than risk your machine. Run it directly yourself if you accept the risk.`,
         priority: 5,
         inferred: false,
         confidence: 'high',
@@ -906,7 +974,7 @@ function macosSignals(view: CommandView): Signal[] {
   }
 
   if (names.has('installer')) {
-    const label = bin === 'installer' ? 'installer' : `${bin} (resolves to installer)`;
+    const label = identifyLabel(view, 'installer');
     found.push(
       signal({
         kind: 'installer',
@@ -916,7 +984,7 @@ function macosSignals(view: CommandView): Signal[] {
         clause:
           bin === 'installer'
             ? 'The installer command applies a macOS installer package to a target volume, which is a deliberate change to the machine it runs on. The session lane is only a second account on your own OS and disk, and offstage has no lane that isolates that, so it refuses to run this rather than risk your machine. Run it directly yourself if you accept the risk.'
-            : `${bin} resolves to the installer command on disk, and a symlink or a rename does not change what it does: it applies a macOS installer package to a target volume, which is a deliberate change to the machine it runs on. The session lane is only a second account on your own OS and disk, and offstage has no lane that isolates that, so it refuses to run this rather than risk your machine. Run it directly yourself if you accept the risk.`,
+            : `${label}: a symlink, a rename, or a byte-identical copy does not change what this binary does. It applies a macOS installer package to a target volume, which is a deliberate change to the machine it runs on. The session lane is only a second account on your own OS and disk, and offstage has no lane that isolates that, so it refuses to run this rather than risk your machine. Run it directly yourself if you accept the risk.`,
         // Wins over pkg-path (priority 5) when both fire on `installer -pkg
         // foo.pkg`: naming the command itself is a more specific reason than
         // noticing its argument.
