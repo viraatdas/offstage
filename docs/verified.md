@@ -120,6 +120,34 @@ Two consequences the code now encodes:
   session dictionary cannot be read, it reports on-console and refuses. The
   lane's promise is structural, not a matter of trusting the caller.
 
+### The refusal can be evaded by renaming the binary, and partly still can
+
+Found by an adversarial pass, 2026-08-21. The machine-changing refusal
+(`installer`, `hdiutil`, `.pkg`, `.dmg`) keyed off the basename of argv[0] and
+the literal text of the arguments, so two evasions worked:
+
+- **Behind a wrapper.** `xargs installer -target /` routed to `headless` with no
+  refusal at all, because the peeler stopped at `xargs` and never saw the
+  binary. `parallel` was the same. Not only an installer problem:
+  `xargs npx playwright test --headed` also routed to `headless`, so the same
+  gap could have put a browser window on the user's screen. Fixed by peeling
+  argument wrappers; covered by tests.
+- **By renaming.** A symlink to `/usr/sbin/installer` under any other name, with
+  a package path that carries no `.pkg` extension, was not refused. Verified
+  against the real system binary. Fixed by resolving argv[0] through the
+  inspector's filesystem seam and matching the resolved basename too, which
+  keeps `classify()` free of process spawning so the purity promise still holds.
+
+**Still open, and it cannot be closed by name:** a *copied* binary.
+`cp /usr/sbin/installer /tmp/x/some-name` leaves no filesystem link back to the
+original, so `realpath` resolves to the copy itself and the basename is whatever
+it was called. Measured: still not refused. Catching it would need content or
+code-signature inspection, which is a materially heavier mechanism than name
+resolution. Recorded here rather than implied away.
+
+Both fixed evasions were untested before this: grepping the router's adversarial
+and classify suites found no coverage of any wrapper or of argv[0] resolution.
+
 ### How TCC records are actually keyed, corrected
 
 An earlier note in this file, and the README, claimed a grant "follows the

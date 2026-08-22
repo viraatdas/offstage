@@ -175,10 +175,24 @@ export interface Inspector {
   localScript(reference: string): Promise<InspectedFile | undefined>;
   /** `.xcodeproj` / `.xcworkspace` bundles sitting at the repository root. */
   xcodeProjects(): Promise<string[]>;
+  /**
+   * Resolve argv[0] to its real filesystem target when it names a path, so a
+   * symlinked or renamed binary cannot hide from a signal keyed on its name
+   * (`installer`, `hdiutil`, …). A bare name — no `/` or `\`, e.g. `installer`
+   * on its own — is left alone: resolving that would mean a PATH lookup, which
+   * is both slow and a purity risk this router does not take. Unlike the other
+   * methods here, the target is not required to sit inside `cwd`: the whole
+   * point is to see through a wrapper that points *outside* the repository, at
+   * a real system binary. Never throws: a target that does not exist, is not
+   * readable, or forms a symlink loop resolves to `undefined`, the same "no
+   * information" the rest of this file returns for a missing file.
+   */
+  resolveBinary(reference: string): Promise<string | undefined>;
 }
 
 export function createInspector(cwd: string): Inspector {
   const files = new Map<string, Promise<InspectedFile | undefined>>();
+  const resolvedBinaries = new Map<string, Promise<string | undefined>>();
   let packageJsonPromise: Promise<PackageFacts | undefined> | undefined;
   let xcodePromise: Promise<string[]> | undefined;
 
@@ -297,6 +311,29 @@ export function createInspector(cwd: string): Inspector {
         }
       })();
       return xcodePromise;
+    },
+
+    resolveBinary(reference: string): Promise<string | undefined> {
+      if (!reference.includes('/') && !reference.includes('\\')) return Promise.resolve(undefined);
+
+      const cached = resolvedBinaries.get(reference);
+      if (cached !== undefined) return cached;
+
+      const pending = (async (): Promise<string | undefined> => {
+        try {
+          const absolute = path.resolve(cwd, reference);
+          return await fs.realpath(absolute);
+        } catch {
+          // A binary that does not exist yet, a broken symlink, a permissions
+          // error, a symlink loop — all of these are "no information", exactly
+          // like every other probe in this file. classify() must never throw
+          // over a command naming something that is not there.
+          return undefined;
+        }
+      })();
+
+      resolvedBinaries.set(reference, pending);
+      return pending;
     },
   };
 }

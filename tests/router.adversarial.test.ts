@@ -394,3 +394,93 @@ describe('a wrapper does not hide the command from the router', () => {
     expect(decision.refuse).toBeDefined();
   });
 });
+
+describe('a symlink or a rename does not hide the binary from the router', () => {
+  /* `ln -sf /usr/sbin/installer ./totally-safe-tool` and then `./totally-safe-tool
+     -pkg payload -target /` — with `payload` carrying no `.pkg` extension —
+     routed to `headless` with no refusal. The refusal keyed off the literal
+     basename of argv[0], so a symlink under an innocuous name, or a copy
+     renamed the same way, walked straight past it while the path-content
+     signals (`.pkg`, `.dmg`) stayed silent because nothing in the command
+     spelled the extension out. Resolving a path-shaped argv[0] on disk and
+     checking the resolved basename too is what closes that. */
+
+  /** A symlink at `<dir>/<linkName>` pointing at a fresh, empty file named
+   *  `realName` in the same temp dir. The link is the innocuous name a wrapper
+   *  script would use; the target's basename is what the router has to see
+   *  through the link to find. */
+  async function symlinkedBinary(linkName: string, realName: string): Promise<{ dir: string; link: string }> {
+    const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-bypass-')));
+    temps.push(dir);
+    const target = path.join(dir, realName);
+    await fs.writeFile(target, '');
+    await fs.chmod(target, 0o755);
+    const link = path.join(dir, linkName);
+    await fs.symlink(target, link);
+    return { dir, link };
+  }
+
+  it('refuses a symlink to installer under an innocuous name, with an extension-less package path', async () => {
+    const { dir, link } = await symlinkedBinary('totally-safe-tool', 'installer');
+    const payload = path.join(dir, 'payload'); // no .pkg extension: the path-content signal cannot catch this alone
+
+    const decision = await classify({
+      cwd: await repo({}),
+      command: [link, '-pkg', payload, '-target', '/'],
+    });
+
+    expect(decision.refuse).toBeDefined();
+    expect(decision.refuse).toContain('installer');
+  });
+
+  it('refuses a symlink to hdiutil under an innocuous name, with an extension-less image path', async () => {
+    const { dir, link } = await symlinkedBinary('also-safe', 'hdiutil');
+    const image = path.join(dir, 'image'); // no .dmg extension
+
+    const decision = await classify({
+      cwd: await repo({}),
+      command: [link, 'attach', image],
+    });
+
+    expect(decision.refuse).toBeDefined();
+    expect(decision.refuse).toContain('hdiutil');
+  });
+
+  it('does not refuse a symlink whose target is harmless', async () => {
+    // No false positives: a false refusal blocks legitimate work, so resolving
+    // argv[0] must not make every symlinked tool look suspicious.
+    const { link } = await symlinkedBinary('my-tool', 'harmless-real-binary');
+
+    const decision = await classify({
+      cwd: await repo({}),
+      command: [link, '--version'],
+    });
+
+    expect(decision.refuse).toBeUndefined();
+  });
+
+  it('does not throw and does not refuse when the path does not exist', async () => {
+    const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-bypass-')));
+    temps.push(dir);
+    const missing = path.join(dir, 'never-created');
+
+    const decision = await classify({
+      cwd: await repo({}),
+      command: [missing, '-pkg', 'payload', '-target', '/'],
+    });
+
+    expect(decision.refuse).toBeUndefined();
+  });
+
+  it('is still caught behind a wrapper that peels to the resolved binary', async () => {
+    const { dir, link } = await symlinkedBinary('renamed-installer', 'installer');
+    const payload = path.join(dir, 'payload');
+
+    const decision = await classify({
+      cwd: await repo({}),
+      command: ['xargs', '-I{}', link, '-pkg', payload, '-target', '/'],
+    });
+
+    expect(decision.refuse).toBeDefined();
+  });
+});

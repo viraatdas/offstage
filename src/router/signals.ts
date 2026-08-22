@@ -127,6 +127,15 @@ export interface CommandView {
    * `npm test` should not be reported as "a plain test runner"; its script is.
    */
   binIsMeaningful: boolean;
+  /**
+   * Basename of what `invocation.binPath` resolves to on disk, when it named a
+   * path (`./tool`, `/tmp/x/tool`, `../bin/tool`). A symlink or a rename does
+   * not change what a binary does, so a signal keyed on a name — `installer`,
+   * `hdiutil` — has to see this too, not just the literal token that was typed.
+   * `undefined` for a bare name, a target that does not exist, or anything
+   * else `Inspector.resolveBinary` could not resolve.
+   */
+  resolvedBin?: string;
 }
 
 /** How far `npm run a` → `npm run b` → … is followed before giving up. */
@@ -145,6 +154,11 @@ export async function buildViews(command: string[], inspector: Inspector): Promi
     if (invocation.bin === '') return;
 
     const view: CommandView = { invocation, label, depth, binIsMeaningful: true };
+    // A path-shaped argv[0] (`./tool`, `/tmp/.../tool`) is resolved on disk so a
+    // symlink or a rename cannot hide a machine-changing binary behind an
+    // innocuous name. `resolveBinary` already declines a bare name on its own.
+    const resolvedTarget = await inspector.resolveBinary(invocation.binPath);
+    if (resolvedTarget !== undefined) view.resolvedBin = basenameOf(resolvedTarget);
     views.push(view);
 
     if (depth >= MAX_SCRIPT_DEPTH) return;
@@ -651,6 +665,19 @@ export async function collectSignals(
 
 /* --------------------------------- macOS --------------------------------- */
 
+/**
+ * The literal binary name, plus — when argv[0] named a path — the basename of
+ * what it resolves to on disk. A wrapper directory and an innocuous filename
+ * do not change what a symlinked or renamed binary actually is, so a check
+ * keyed on a name (`installer`, `hdiutil`, a `MACOS_GUI_BINS` member) has to
+ * see both to keep a refusal from being defeated by `ln -sf`.
+ */
+function binNames(view: CommandView): Set<string> {
+  const names = new Set<string>([view.invocation.bin]);
+  if (view.resolvedBin !== undefined) names.add(view.resolvedBin);
+  return names;
+}
+
 function macosSignals(view: CommandView): Signal[] {
   const found: Signal[] = [];
   const { bin, args, tokens } = view.invocation;
@@ -817,35 +844,45 @@ function macosSignals(view: CommandView): Signal[] {
 
   // hdiutil is the one MACOS_GUI_BIN that refuses rather than arguing for a
   // spare display: attaching a disk image mounts a volume on whatever system
-  // runs the command, and the session lane is that same system.
-  if (bin === 'hdiutil') {
+  // runs the command, and the session lane is that same system. Checked by
+  // `names` rather than `bin` alone, so a symlink or a rename to an innocuous
+  // filename cannot hide it — see `binNames`.
+  const names = binNames(view);
+  if (names.has('hdiutil')) {
+    const label = bin === 'hdiutil' ? bin : `${bin} (resolves to hdiutil)`;
     found.push(
       signal({
         kind: 'macos-gui-tool',
         argues: null,
         origin: view.label,
-        detail: at(bin),
+        detail: at(label),
         clause:
-          'hdiutil attaches and creates macOS disk images, which mounts volumes on the machine that runs it and is usually a step in installing something. The session lane is a second account on your own OS and disk, not a second machine, and offstage has no lane that isolates a mount like that, so it refuses to run this rather than risk your machine. Run it directly yourself if you accept the risk.',
+          bin === 'hdiutil'
+            ? 'hdiutil attaches and creates macOS disk images, which mounts volumes on the machine that runs it and is usually a step in installing something. The session lane is a second account on your own OS and disk, not a second machine, and offstage has no lane that isolates a mount like that, so it refuses to run this rather than risk your machine. Run it directly yourself if you accept the risk.'
+            : `${bin} resolves to hdiutil on disk, and a symlink or a rename does not change what it does: it attaches and creates macOS disk images, which mounts volumes on the machine that runs it and is usually a step in installing something. The session lane is a second account on your own OS and disk, not a second machine, and offstage has no lane that isolates a mount like that, so it refuses to run this rather than risk your machine. Run it directly yourself if you accept the risk.`,
         priority: 5,
         inferred: false,
         confidence: 'high',
         refuses: true,
       }),
     );
-  } else if (MACOS_GUI_BINS.has(bin) && bin !== 'simctl') {
-    found.push(
-      signal({
-        kind: 'macos-gui-tool',
-        argues: 'session',
-        origin: view.label,
-        detail: at(bin),
-        clause: `${bin} is a macOS-only tool that talks to the system's GUI services, so no Linux container can run it; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so whatever it drives or draws never touches your desktop.`,
-        priority: 17,
-        inferred: false,
-        confidence: 'high',
-      }),
-    );
+  } else {
+    const guiBin = [...names].find((name) => MACOS_GUI_BINS.has(name) && name !== 'simctl');
+    if (guiBin !== undefined) {
+      const label = bin === guiBin ? bin : `${bin} (resolves to ${guiBin})`;
+      found.push(
+        signal({
+          kind: 'macos-gui-tool',
+          argues: 'session',
+          origin: view.label,
+          detail: at(label),
+          clause: `${guiBin} is a macOS-only tool that talks to the system's GUI services, so no Linux container can run it; offstage runs it in the session lane — a second, logged-in macOS account whose display and input are its own — so whatever it drives or draws never touches your desktop.`,
+          priority: 17,
+          inferred: false,
+          confidence: 'high',
+        }),
+      );
+    }
   }
 
   // Installer packages and the installer command change the machine they run
@@ -868,15 +905,18 @@ function macosSignals(view: CommandView): Signal[] {
     );
   }
 
-  if (bin === 'installer') {
+  if (names.has('installer')) {
+    const label = bin === 'installer' ? 'installer' : `${bin} (resolves to installer)`;
     found.push(
       signal({
         kind: 'installer',
         argues: null,
         origin: view.label,
-        detail: at('installer'),
+        detail: at(label),
         clause:
-          'The installer command applies a macOS installer package to a target volume, which is a deliberate change to the machine it runs on. The session lane is only a second account on your own OS and disk, and offstage has no lane that isolates that, so it refuses to run this rather than risk your machine. Run it directly yourself if you accept the risk.',
+          bin === 'installer'
+            ? 'The installer command applies a macOS installer package to a target volume, which is a deliberate change to the machine it runs on. The session lane is only a second account on your own OS and disk, and offstage has no lane that isolates that, so it refuses to run this rather than risk your machine. Run it directly yourself if you accept the risk.'
+            : `${bin} resolves to the installer command on disk, and a symlink or a rename does not change what it does: it applies a macOS installer package to a target volume, which is a deliberate change to the machine it runs on. The session lane is only a second account on your own OS and disk, and offstage has no lane that isolates that, so it refuses to run this rather than risk your machine. Run it directly yourself if you accept the risk.`,
         // Wins over pkg-path (priority 5) when both fire on `installer -pkg
         // foo.pkg`: naming the command itself is a more specific reason than
         // noticing its argument.
