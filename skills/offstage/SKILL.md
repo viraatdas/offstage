@@ -151,10 +151,13 @@ daemon expects. Origin is the top-left of the helper session's main display.
   chmod around it, and do not re-run the command outside offstage.
 - **`skipped` with an `offstage session setup` fix.** Setup compiles a small
   daemon and installs it with `sudo`, and it prompts for a password, so there is
-  no MCP tool for it — the user runs `offstage session setup` in a terminal.
-  Granting Screen Recording and Accessibility is also theirs: those prompts
-  appear *inside* the helper session and Apple offers no way to approve them
-  from another account. `offstage_session_status` reports both grants.
+  no MCP tool for it — the user runs `offstage session setup --create` in a
+  terminal. That one command creates the account, suppresses its first-login
+  screens, and pre-grants Screen Recording and Accessibility when the terminal
+  has Full Disk Access. If it reports those grants were skipped (no FDA), the
+  fallback is one manual visit: switch into the helper account once and approve
+  both toggles in System Settings → Privacy & Security.
+  `offstage_session_status` reports both grants either way.
 
 ### Never the user's own session
 

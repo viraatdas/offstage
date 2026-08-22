@@ -47,12 +47,12 @@ os="$(uname -s)"
 case "$os" in
   Darwin)
     platform=macos
-    ok "macOS detected — all three lanes (headless, container, vm) apply, plus the session lane."
+    ok "macOS detected — all three lanes (headless, container, session) apply."
     ;;
   Linux)
     platform=linux
     warn "Linux detected — only the headless and container lanes apply here."
-    warn "The vm lane and the session lane ('offstage session ...') are macOS-only; both are skipped below."
+    warn "The session lane ('offstage session ...') is macOS-only; it is skipped below."
     ;;
   *)
     platform=other
@@ -172,7 +172,15 @@ if [ "$platform" = macos ]; then
     info "stdin is not a terminal (non-interactive shell) — skipping the setup prompt."
     printf '  run it later with: %s session setup --create\n' "$OFFSTAGE_BIN"
   else
-    printf 'Set up the session lane now? It compiles a Swift daemon and needs sudo once. [y/N] '
+    cat <<'SESSION_PITCH'
+The session lane runs macOS GUI work (xcodebuild, simulators, `open -a`, ...)
+inside a second account, so windows and input never reach your screen.
+One command sets it up; it creates the helper account, pre-grants the two
+macOS privacy permissions when your terminal has Full Disk Access, and
+suppresses the new account's first-login screens:
+
+SESSION_PITCH
+    printf 'Set it up now? It needs sudo once. [y/N] '
     read -r answer
     case "$answer" in
       [yY] | [yY][eE][sS])
@@ -180,22 +188,16 @@ if [ "$platform" = macos ]; then
         info "you will be prompted for your sudo password."
         if "$OFFSTAGE_BIN" session setup --create; then
           ok "session setup finished."
+          step "One step to finish, once"
+          cat <<'STEPS'
+  Switch to the helper account from the user menu (top-right of the menu
+  bar), and switch straight back. That first login starts the daemon;
+  everything else is already done. Confirm with:
+       offstage session status
+STEPS
         else
           fail "session setup failed — see its own output above for the exact next command."
         fi
-        step "One-time steps to finish this, inside the helper account"
-        cat <<'STEPS'
-  1. Switch to the helper account from the user menu (top-right of the menu
-     bar) or the login window — do not use screen sharing or remote control
-     to do this, switch the console itself.
-  2. If macOS shows Setup Assistant on first login to the helper account,
-     click through it (region, Apple ID skip, etc.). This happens once.
-  3. When macOS prompts, approve Screen Recording and Accessibility for
-     "offstage-sessiond" in System Settings > Privacy & Security. Both are
-     required — the daemon cannot drive or observe the session without them.
-  4. Switch back to your own account, then confirm it worked:
-       offstage session status
-STEPS
         ;;
       *)
         info "skipped. Run it later with: $OFFSTAGE_BIN session setup --create"

@@ -22,14 +22,14 @@ catch the ones that would open a window or steal focus.
 - `session`: a second, logged-in macOS user account with its own window
   server, framebuffer, and input stream, for macOS-native work that opens
   windows but does not change the machine (`xcodebuild`, `xcrun simctl`,
-  XCUITests, `open -a`, `osascript`). See `docs/session-lane.md` for the full
-  design and the permission model summarized below.
+  XCUITests, `open -a`, `osascript`). The README's session section is the
+  design summary; `native/sessiond/README.md` has the daemon's wire protocol.
 
 There is no fourth lane for work that could change the machine itself. An
 installer, a `.dmg`/`.pkg`, or `hdiutil` is refused outright: nothing runs, on
 any lane, and the router's `reason` says why. There used to be a `vm` lane for
-this; it was removed because it never drove a real macOS guest. See
-`docs/roadmap.md` and `docs/verified.md` for that history.
+this; it was removed because it never drove a real macOS guest (git history
+keeps that record).
 
 ## Build, test, smoke test
 
@@ -54,14 +54,15 @@ The session lane drives a second macOS account (default `computeruse`) kept
 logged in in the background via fast user switching. A small Swift daemon,
 `offstage-sessiond`, runs inside that account's session and listens on a unix
 socket; the host side connects to it to launch commands, capture the screen,
-and inject input, all inside the other account. Setup needs root exactly
-once, to install the daemon and bootstrap its LaunchAgent. Screen Recording
-and Accessibility are two TCC grants that only a human can approve, from
-inside the helper account's own session; there is no programmatic way to
-grant them, not even as root. The helper account cannot read the caller's
-files until `offstage session share <dir>` grants it read-only access to one
-tree at a time. Full details, including the wire protocol and the
-verification ladder: `docs/session-lane.md`.
+and inject input, all inside the other account. Setup needs root exactly once,
+to create the account, pre-grant the daemon's two TCC permissions (Screen
+Recording and Accessibility — system-level records that a terminal with Full
+Disk Access may write directly), and bootstrap its LaunchAgent; when the
+invoking terminal lacks Full Disk Access, those grants fall back to a one-time
+human approval from inside the helper account's own session. The helper
+account cannot read the caller's files until `offstage session share <dir>`
+grants it read-only access to one tree at a time. Full details: the README's
+session section, and `native/sessiond/README.md` for the wire protocol.
 
 ## Repo conventions
 
@@ -99,7 +100,8 @@ verification ladder: `docs/session-lane.md`.
   point of the lane. The daemon refuses to post input when its own session is
   on the console, and that check fails closed. Do not add a fallback path, a
   bypass flag, or a "just this once" exception to either of these.
-- Never claim something is verified without evidence. `docs/verified.md` is
-  the record, and it distinguishes what was measured on a real machine from
-  what is only exercised by fixtures. When you change a lane, update it with
-  what you actually ran and observed, not what you expect to be true.
+- Never claim something is verified without evidence. The README's "Status"
+  section is the record, and it distinguishes what was measured on a real
+  machine from what is only exercised by fixtures. When you change a lane,
+  update it with what you actually ran and observed, not what you expect to be
+  true.

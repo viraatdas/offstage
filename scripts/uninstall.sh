@@ -7,7 +7,7 @@
 #   sh scripts/uninstall.sh --yes --remove-npm-package   # also removes the npm package, no prompt
 #
 # What this never does: delete the helper macOS account. It only prints the
-# `sysadminctl -deleteUser` command — see docs/install.md for why the account
+# `sysadminctl -deleteUser` command — see the README for why the account
 # is left for you to remove by hand.
 #
 # POSIX sh, safe to re-run.

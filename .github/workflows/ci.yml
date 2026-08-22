@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS is where the vm lane and most users live; Linux is where the
+        # macOS is where the session lane lives; Linux is where the
         # container lane actually runs, and has a code path (--user $(id -u))
         # that exists only there. Node 20 is the floor `engines` promises.
         os: [macos-latest, ubuntu-latest]
@@ -27,9 +27,9 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
-      # The clean-clone gate, exactly as docs/verified.md describes it. The
-      # suite is written to pass with no container runtime and no Tart: lanes
-      # whose substrate is missing report themselves unavailable rather than
+      # The clean-clone gate. The
+      # suite is written to pass with no container runtime: lanes whose
+      # substrate is missing report themselves unavailable rather than
       # failing, which is the behaviour under test.
       - run: npm ci
       - run: npm run build
