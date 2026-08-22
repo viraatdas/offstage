@@ -120,6 +120,41 @@ Two consequences the code now encodes:
   session dictionary cannot be read, it reports on-console and refuses. The
   lane's promise is structural, not a matter of trusting the caller.
 
+### How TCC records are actually keyed, corrected
+
+An earlier note in this file, and the README, claimed a grant "follows the
+signing identity, not the path". That was wrong, and it was wrong in the way
+worth recording: it generalised from a single observation (a build at a
+different path reporting `accessibility: true`) without testing the case that
+would have falsified it.
+
+Measured, 2026-08-21, from `SecurityPrivacyExtension`'s own state dump after the
+binary moved:
+
+    kTCCServiceScreenCapture  /usr/local/libexec/offstage/offstage-sessiond      full
+    kTCCServiceScreenCapture  /Users/computeruse/.offstage/bin/offstage-sessiond none
+    kTCCServiceAccessibility  /usr/local/libexec/offstage/offstage-sessiond      full
+    kTCCServiceAccessibility  /Users/computeruse/.offstage/bin/offstage-sessiond none
+
+and from `tccd`: `TCCDEvent: ... identifier_type=Path, identifier=<the path>`.
+
+So a record is keyed to a **path**, and carries a **code requirement** the
+binary at that path has to keep satisfying. The two halves fail differently:
+
+- Rebuild at the same path, same Developer ID identity: the requirement still
+  matches, the grant survives. Verified by reinstalling a rebuilt binary over
+  the same path with the grant intact.
+- Rebuild at the same path with a different signature: `tccd` logs
+  `Failed to match existing code requirement` and the grant stops applying.
+  Verified when the ad-hoc build was replaced by a Developer ID one.
+- Move the binary: the old path keeps its record, the new path has none, and
+  both permissions must be granted again. Verified when `session setup` moved
+  the daemon into the helper account's home.
+
+The security argument still holds, for the right reason: a swapped binary at the
+granted path is refused because it fails the requirement, not because grants are
+path-independent.
+
 ### Two further bugs rung 4 only exposed once it could be seen
 
 Getting a screenshot turned "input does nothing" into two specific defects, both
@@ -280,14 +315,18 @@ The two extra passes are the container lane's live tests: they build the Xvfb
 image and run a headed browser in it. CI runs the first form, because a hosted
 runner has no daemon.
 
-At 0.3.0, with the session lane and its tests added and a container runtime up,
-the same command reports:
+At 0.3.0, with the session lane and its tests added, the vm lane and its 1660
+lines of tests removed, and a container runtime up, the same command reports:
 
 ```console
-$ npx vitest run
+$ orb start && npx vitest run
 Test Files  33 passed (33)
-     Tests  1029 passed | 2 expected fail | 5 skipped (1036)
+     Tests  932 passed | 2 expected fail | 0 skipped (934)
 ```
+
+With no container runtime and `@playwright/test` absent, the same command
+reports 925 passed and 7 skipped: the skips are the live-substrate tests listed
+below, not failures.
 
 - **2 expected fail** — negative tests asserting that something *does* fail.
 - **skipped** — every one is gated on a substrate that may be absent, and each

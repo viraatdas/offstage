@@ -111,12 +111,13 @@ updates are a file copy the daemon performs on itself:
 offstage session update
 ```
 
-That rebuilds the daemon, installs it, and restarts it, without a password. A
-binary the helper account owns is one that anything running as that account
-could swap, so it is worth being precise about what that does and does not
-give away: it would not inherit the daemon's Screen Recording or Accessibility
-grants, because those are keyed to the binary's code signature, not its path.
-An unsigned or differently signed replacement gets nothing.
+That rebuilds the daemon, installs it to the same path, and restarts it,
+without a password. A binary the helper account owns is one that anything
+running as that account could swap, so it is worth being precise about what
+that does and does not give away. A swapped binary would not inherit the
+daemon's Screen Recording or Accessibility grants: the permission record for a
+path carries a code requirement, and a replacement that does not satisfy it is
+refused. An unsigned or differently signed binary gets nothing.
 
 ### Two permissions only a human can grant
 
@@ -144,14 +145,22 @@ No root, no password, after the initial setup.
 
 ### Why the build has to be code signed
 
-A TCC grant is keyed to the binary's Designated Requirement (DR), not to where
-the binary sits on disk: a build placed at an entirely different path still
-carries a grant already made to the same identity, as long as it satisfies the
-same DR. Built with a Developer ID identity, the DR is the signing identifier
-plus the team ID, and that doesn't change when you rebuild. Grants survive
-rebuilds. Built ad hoc, the DR degenerates to the binary's raw hash, so every
-rebuild changes it, silently drops both grants, and the lane goes dead until
-someone re-grants them.
+A TCC permission record is keyed to a path, and it carries a code requirement
+that the binary at that path has to keep satisfying. Both halves matter, and
+they fail in different ways.
+
+Built with a Developer ID identity, the requirement is the signing identifier
+plus the team ID, and that does not change when you rebuild. So a grant given
+once survives every later rebuild, which is what makes the lane usable during
+development. Built ad hoc, the requirement degenerates to the binary's raw
+hash: every rebuild changes it, `tccd` logs `Failed to match existing code
+requirement`, both grants silently stop applying, and the lane goes dead until
+someone grants them again by hand.
+
+The path half is the one that surprises people. Moving the binary does not
+carry the grant with it. The record belongs to the old path, the new path has
+no record, and macOS asks for the permission again. That is a one time cost
+when the install location changes, and it is why the location is now fixed.
 
 Use a Developer ID identity if you have one. `OFFSTAGE_CODESIGN_IDENTITY`
 overrides which identity gets used; set it to `-` to force ad hoc (useful for

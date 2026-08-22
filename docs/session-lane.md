@@ -399,9 +399,17 @@ Then `restart`, and launchd brings up the new one.
 
 The trade is that anything already running as the helper account could swap that
 file. It could not thereby inherit the daemon's Screen Recording or
-Accessibility grants: those are keyed to the binary's Designated Requirement, so
-an unsigned or differently signed replacement gets nothing. The signature, not
-the file ownership, is what guards the privileges here.
+Accessibility grants. A TCC permission record is keyed to a path and carries a
+code requirement, so a replacement at that path that does not satisfy the
+requirement is refused: `tccd` logs `Failed to match existing code requirement`
+and the grant does not apply. The signature, not the file ownership, is what
+guards the privileges here.
+
+Note the other half of that rule, learned the hard way when this path changed:
+the record belongs to the PATH. Moving the binary does not move the grant with
+it. The old path keeps its record, the new path has none, and both permissions
+have to be granted again by hand. That is a one time cost paid when the install
+location moved, and the reason the location is now fixed.
 
 ## Verification ladder
 

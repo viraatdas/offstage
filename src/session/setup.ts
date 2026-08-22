@@ -46,10 +46,15 @@ export const DEFAULT_LABEL = 'dev.offstage.sessiond';
  * A user-writable binary is a real trade, so it is worth being precise about
  * what it does and does not give away. Anything already running as the helper
  * account could swap this file. It could NOT thereby inherit the daemon's
- * Screen Recording or Accessibility grants: those are keyed to the binary's
- * Designated Requirement, so an unsigned or differently signed replacement gets
- * nothing. The signature, not the file permissions, is what guards the
+ * Screen Recording or Accessibility grants: a TCC record is keyed to a path AND
+ * carries a code requirement, so a replacement that does not satisfy that
+ * requirement is refused (`tccd` logs `Failed to match existing code
+ * requirement`). The signature, not the file permissions, is what guards the
  * privileges here.
+ *
+ * The corollary, and the reason this path must now stay put: a record belongs
+ * to its path. Moving the binary leaves the grant behind on the old path and
+ * costs the user a fresh approval for both permissions. Do not move it again.
  */
 export function installDirFor(home: string): string {
   return path.join(home, '.offstage', 'bin');

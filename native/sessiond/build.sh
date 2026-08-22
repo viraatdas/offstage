@@ -37,8 +37,10 @@ swiftc \
   -framework ApplicationServices
 
 # Code-sign with a STABLE identity. TCC (Screen Recording, Accessibility) keys
-# a permission grant to the binary's code identity, so the choice here decides
-# whether a grant the user gives survives the next build.
+# a permission record to a PATH plus a code requirement that the binary at that
+# path must keep satisfying, so the choice here decides whether a grant the user
+# gives survives the next build. (The path half bites separately: moving the
+# binary leaves the grant behind and costs a fresh approval.)
 #
 #   Developer ID  — the grant is keyed to the Designated Requirement, which is
 #                   the signing identifier plus the team. Rebuilding changes the
