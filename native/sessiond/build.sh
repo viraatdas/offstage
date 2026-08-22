@@ -26,15 +26,17 @@ swiftc \
   -O \
   -swift-version 5 \
   -o "$out" \
-  "$dir"/Protocol.swift \
-  "$dir"/Ops.swift \
-  "$dir"/Input.swift \
-  "$dir"/Run.swift \
-  "$dir"/Server.swift \
-  "$dir"/main.swift \
+   "$dir"/Protocol.swift \
+   "$dir"/Ops.swift \
+   "$dir"/Input.swift \
+   "$dir"/Run.swift \
+   "$dir"/Server.swift \
+   "$dir"/Csreq.swift \
+   "$dir"/main.swift \
   -framework CoreGraphics \
   -framework AppKit \
-  -framework ApplicationServices
+  -framework ApplicationServices \
+  -framework Security
 
 # Code-sign with a STABLE identity. TCC (Screen Recording, Accessibility) keys
 # a permission record to a PATH plus a code requirement that the binary at that

@@ -1,10 +1,12 @@
 import Foundation
 
 // offstage-sessiond --uid <n> [--socket-dir <dir>] [--once]
+//                    [--print-csreq <path>] [--version] [--help]
 //
 // Lives inside one macOS Aqua session (normally a background helper account's)
 // and lends that session out over a unix socket: run commands there, capture
-// its framebuffer, inject into its HID stream. See docs/session-lane.md.
+// its framebuffer, inject into its HID stream. This file's README is the reference.
+// `--print-csreq` is a build/setup-time helper and exits before any of that.
 
 // EPIPE must surface as an errno on write(), not as a fatal signal: it is how
 // `run` learns the client hung up.
@@ -34,6 +36,10 @@ while i < args.count {
         socketDir = args[i]
     case "--once":
         once = true
+    case "--print-csreq":
+        i += 1
+        guard i < args.count else { die("--print-csreq needs a path to a signed binary", code: 64) }
+        printCsreq(path: args[i])
     case "--version":
         print(DAEMON_VERSION)
         exit(0)

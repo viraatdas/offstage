@@ -24,6 +24,7 @@ import type {
   SessionSetupResult,
   SessionShareResult,
   SessionStatus,
+  SessionUnshareResult,
 } from './api.js';
 import type { SessionApp } from '../session/index.js';
 
@@ -333,7 +334,7 @@ export function renderProbe(report: EntitlementsProbeReport): string[] {
 /**
  * `offstage session status`, for a human.
  *
- * The order is the order of the availability ladder in `docs/session-lane.md`,
+ * The order is the session lane's availability ladder:
  * so the first ✗ from the top is the thing to fix — and everything below it is
  * shown anyway, because "the socket is absent" reads very differently when the
  * line above it says the account has never been logged in.
@@ -457,6 +458,26 @@ export function renderSessionShare(result: SessionShareResult): string[] {
       ...wrap(
         'Read only, and only this tree: a run writes to its own .offstage/runs/<id> directory, ' +
           'which the lane opens to the helper account per run.',
+      ),
+    );
+  }
+  return lines;
+}
+
+/** `offstage session unshare` — the ACLs that were removed, verbatim. */
+export function renderSessionUnshare(result: SessionUnshareResult): string[] {
+  const lines: string[] = [
+    `${result.ok ? CHECK : CROSS} ${result.ok ? 'revoked' : 'could not fully revoke'} "${result.user}" access to ${result.target}`,
+  ];
+  for (const command of result.commands) lines.push(`  ${command}`);
+  for (const failure of result.failures) {
+    lines.push(...block(`failed: ${failure.command} — ${failure.stderr}`, '  ', '    '));
+  }
+  if (result.ok) {
+    lines.push('');
+    lines.push(
+      ...wrap(
+        'Only the entries offstage added were removed. Children that inherited read while the grant stood lose it too.',
       ),
     );
   }

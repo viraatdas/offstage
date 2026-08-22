@@ -21,7 +21,7 @@
  *   carry the session selectors — `ConnectToVirtualDisplay` and friends — which
  *   is what a virtual display actually requires. Detected here, not yet spoken.
  *
- * See `docs/macos-sessions.md` for how this was established and why no cheaper
+ * Measured on real hardware (see the README's Status section) and no cheaper
  * mechanism exists on macOS.
  */
 

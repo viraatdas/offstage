@@ -118,7 +118,7 @@ const defaultReadConfig: ReadConfig = async (configPath) => {
 /**
  * Which account the session lane should use.
  *
- * Precedence, per `docs/session-lane.md`: `OFFSTAGE_SESSION_USER` →
+ * Precedence, per the README's session section: `OFFSTAGE_SESSION_USER` →
  * `~/.config/offstage/session.json` `{"user": "..."}` → `computeruse`.
  *
  * Never throws: a malformed or unreadable config file falls through to the
@@ -342,6 +342,39 @@ export async function socketExists(socketPath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/* FileVault                                                                  */
+/* -------------------------------------------------------------------------- */
+
+/** What `fdesetup status` told us. `null` means the question could not be answered. */
+export interface FileVaultStatus {
+  active: boolean | null;
+  /** Raw stdout/stderr, for diagnostics when the answer matters. */
+  raw: string;
+}
+
+/**
+ * Parse `fdesetup status` output.
+ *
+ * The tool prints exactly one line — `FileVault is On.` / `FileVault is Off.`
+ * (or a `NOT ENABLED` variant on machines where it was never configured).
+ * Anything unrecognised is `active: null` rather than a guess, because the one
+ * thing this answer decides is whether auto-login can be armed at all.
+ */
+export function parseFileVaultStatus(output: string): boolean | null {
+  const text = output.trim();
+  if (/FileVault is On\b/i.test(text)) return true;
+  if (/FileVault is Off\b/i.test(text)) return false;
+  return null;
+}
+
+/** Run `fdesetup status` and parse it. Never throws. */
+export async function readFileVaultStatus(exec: Exec = defaultExec): Promise<FileVaultStatus> {
+  const { stdout, stderr } = await exec('/usr/bin/fdesetup', ['status']);
+  const raw = `${stdout}\n${stderr}`.trim();
+  return { active: parseFileVaultStatus(raw), raw };
 }
 
 /* -------------------------------------------------------------------------- */

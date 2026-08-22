@@ -28,6 +28,7 @@ import {
   sessionSetup,
   sessionShare,
   sessionStatus,
+  sessionUnshare,
 } from '../src/cli/api.js';
 import { main } from '../src/cli/index.js';
 import type { CliIo } from '../src/cli/index.js';
@@ -474,6 +475,57 @@ describe('sessionShare', () => {
   });
 });
 
+describe('sessionUnshare', () => {
+  it('runs the inverse ACLs and succeeds even when nothing was granted', async () => {
+    const home = await tempDir('offstage-home-');
+    const target = path.join(home, 'code', 'app');
+    const ran: Array<{ file: string; args: string[] }> = [];
+    const exec = async (file: string, args: string[]): Promise<ExecOutcome> => {
+      ran.push({ file, args });
+      // Every entry is already gone — the state an unshare wants.
+      return { stdout: '', stderr: `chmod: No ACL present '${target}'`, exitCode: 1 };
+    };
+    const { session } = seams({ exec, home });
+
+    const result = await sessionUnshare({ path: target }, { session });
+
+    expect(result.ok).toBe(true);
+    expect(ran.every((command) => command.file === '/bin/chmod')).toBe(true);
+    expect(ran.map((c) => c.args.join(' ')).join('\n')).toContain('-a computeruse allow search');
+    expect(ran.some((c) => c.args[0] === '-R' && c.args[1] === '-a')).toBe(true);
+  });
+
+  it('reports a chmod that failed for a reason other than absence', async () => {
+    const dir = await tempDir();
+    const exec = async (): Promise<ExecOutcome> => ({
+      stdout: '',
+      stderr: "chmod: /no/such/dir: No such file or directory",
+      exitCode: 1,
+    });
+    const { session } = seams({ exec, home: dir });
+
+    const result = await sessionUnshare({ path: dir }, { session });
+
+    expect(result.ok).toBe(false);
+    expect(result.failures[0]?.stderr).toContain('No such file or directory');
+  });
+
+  it('is wired into the command tree with its own renderer', async () => {
+    const home = await tempDir('offstage-home-');
+    const target = path.join(home, 'tree');
+    const exec = async (): Promise<ExecOutcome> => ({ stdout: '', stderr: '', exitCode: 0 });
+    const { session } = seams({ exec, home });
+
+    const captured = await cli(['session', 'unshare', '--json', target], { deps: { session } });
+
+    expect(captured.code).toBe(0);
+    const envelope = JSON.parse(captured.out) as { ok: boolean; user: string; target: string };
+    expect(envelope.ok).toBe(true);
+    expect(envelope.user).toBe('computeruse');
+    expect(envelope.target).toBe(target);
+  });
+});
+
 /* -------------------------------------------------------------------------- */
 /* setup                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -494,6 +546,13 @@ function setupSeams(overrides: Partial<SessionSeams> = {}, found = discovery({ s
       exitCode: 0,
       via: 'build.sh',
     }),
+    /* The freshly compiled binary is asked for its own designated requirement;
+       answer with a well-formed blob so the default scenario exercises the
+       TCC pre-seed path. */
+    exec: async (_file, args) =>
+      args.includes('--print-csreq')
+        ? { stdout: `fade0c00000000a4${'ab'.repeat(40)}\n`, stderr: '', exitCode: 0 }
+        : { stdout: '', stderr: '', exitCode: 0 },
     runRootScript: async (scriptPath) => {
       scripts.push(scriptPath);
       return 0;
@@ -523,6 +582,8 @@ describe('sessionSetup', () => {
     expect(result.script).toContain('offstage-sessiond');
     expect(result.steps.map((step) => step.step)).toEqual([
       'compile',
+      'codesign',
+      'tcc',
       'install',
       'wait',
       'permissions',
@@ -539,15 +600,23 @@ describe('sessionSetup', () => {
     expect(refused.nextSteps.join(' ')).toContain('offstage session setup --create');
   });
 
-  it('adds sysadminctl to the same root script when --create is given', async () => {
+  it('adds sysadminctl to the same root script when --create is given, with a generated password', async () => {
     let call = 0;
-    const created = discovery();
+    // After creation the account still has no GUI session — that is the state
+    // every fresh account is in, and why one human switch remains.
+    const created = discovery({
+      guiSession: { exists: false, loginDone: false, onConsole: false, sessionId: null },
+      socketPresent: false,
+    });
     const missing = discovery({ accountExists: false, uid: null, home: null });
     const { session } = setupSeams({
       // Before the script runs the account is absent; afterwards it is there.
       discover: async () => (call++ === 0 ? missing : created),
-      exec: async (file, args) => {
-        if (file === '/usr/bin/dscl' && args.includes('-list')) {
+      exec: async (_file, args) => {
+        if (args.includes('--print-csreq')) {
+          return { stdout: `fade0c00000000a4${'ab'.repeat(40)}\n`, stderr: '', exitCode: 0 };
+        }
+        if (args.includes('-list')) {
           return { stdout: '_mbsetupuser 248\ndaemon 1\nnobody -2\nviraat 501\n', stderr: '', exitCode: 0 };
         }
         return { stdout: '', stderr: '', exitCode: 0 };
@@ -561,10 +630,110 @@ describe('sessionSetup', () => {
     expect(result.uid).toBe(502);
     expect(result.script).toContain('sysadminctl -addUser');
     expect(result.script).toContain(`-fullName 'Computer Use'`);
-    expect(result.script).toContain('-password -');
+    // Non-interactive by design: a generated password, not a prompt. An empty
+    // password would leave the account unable to log in under FileVault.
+    expect(result.script).toMatch(/-password '[A-Za-z0-9]{24}'/);
     // The creation has to come before anything that chowns to that account.
     expect(result.script.indexOf('sysadminctl')).toBeLessThan(result.script.indexOf('launchctl bootstrap'));
     expect(result.nextSteps.join(' ')).toContain('fast user switching');
+  });
+
+  it('pre-seeds both TCC grants in the root script when the requirement exported cleanly', async () => {
+    const { session } = setupSeams();
+
+    const result = await sessionSetup({}, { session });
+
+    expect(result.ok).toBe(true);
+    expect(result.script).toContain("INSERT OR REPLACE INTO access");
+    expect(result.script).toContain("'kTCCServiceAccessibility'");
+    expect(result.script).toContain("'kTCCServiceScreenCapture'");
+    expect(result.script).toContain('fade0c00000000a4');
+    // The probe comes first: without Full Disk Access the inserts are skipped
+    // with an explanation instead of failing the whole install.
+    expect(result.script.indexOf('BEGIN IMMEDIATE')).toBeLessThan(result.script.indexOf('INSERT OR REPLACE'));
+    expect(result.nextSteps.join(' ')).not.toContain('Privacy & Security');
+  });
+
+  it('falls back to the manual toggles when no code requirement could be exported', async () => {
+    const { session } = setupSeams({
+      exec: async (_file, args) =>
+        args.includes('--print-csreq')
+          ? { stdout: 'not a blob at all\n', stderr: '', exitCode: 0 }
+          : { stdout: '', stderr: '', exitCode: 0 },
+      // The daemon came up without either grant, which is exactly the state
+      // pre-seeding was meant to prevent.
+      createClient: () =>
+        fakeClient({
+          hello: hello({ permissions: { screenCapture: false, accessibility: false } }),
+          permissions: { screenCapture: false, accessibility: false },
+        }),
+    });
+
+    const result = await sessionSetup({}, { session });
+
+    expect(result.steps.find((step) => step.step === 'codesign')?.ok).toBe(false);
+    expect(result.steps.find((step) => step.step === 'tcc')?.ok).toBe(false);
+    expect(result.script).not.toContain('INSERT OR REPLACE');
+    expect(result.nextSteps.join(' ')).toContain('Privacy & Security');
+  });
+
+  it('arms auto-login on request and warns when FileVault blocks it', async () => {
+    let call = 0;
+    // Even after the script ran, no session exists yet — under FileVault the
+    // helper cannot be auto-logged-in, so a human switch is still required.
+    const created = discovery({
+      guiSession: { exists: false, loginDone: false, onConsole: false, sessionId: null },
+      socketPresent: false,
+    });
+    const missing = discovery({ accountExists: false, uid: null, home: null });
+    const { session } = setupSeams({
+      discover: async () => (call++ === 0 ? missing : created),
+      exec: async (_file, args) => {
+        if (args.includes('--print-csreq')) {
+          return { stdout: `fade0c00000000a4${'ab'.repeat(40)}\n`, stderr: '', exitCode: 0 };
+        }
+        if (args.includes('-list')) {
+          return { stdout: 'viraat 501\n', stderr: '', exitCode: 0 };
+        }
+        if (args.includes('status')) {
+          return { stdout: 'FileVault is On.\n', stderr: '', exitCode: 0 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      },
+    }, missing);
+
+    const result = await sessionSetup({ create: true, autoLogin: true }, { session });
+
+    expect(result.ok).toBe(true);
+    expect(result.script).toMatch(/-autologin set -userName 'computeruse' -password '[A-Za-z0-9]{24}'/);
+    expect(result.steps.find((step) => step.step === 'auto-login')?.ok).toBe(false);
+    expect(result.nextSteps.join(' ')).toContain('FileVault');
+  });
+
+  it('persists the generated account secret through the seam once the install completed', async () => {
+    let call = 0;
+    const created = discovery();
+    const missing = discovery({ accountExists: false, uid: null, home: null });
+    const persisted: Array<{ user: string; password: string }> = [];
+    const { session } = setupSeams({
+      discover: async () => (call++ === 0 ? missing : created),
+      writeSessionConfig: async (user, password) => {
+        persisted.push({ user, password });
+      },
+      exec: async (_file, args) => {
+        if (args.includes('-list')) {
+          return { stdout: 'viraat 501\n', stderr: '', exitCode: 0 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      },
+    }, missing);
+
+    const result = await sessionSetup({ create: true }, { session });
+
+    expect(result.ok).toBe(true);
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]?.user).toBe('computeruse');
+    expect(persisted[0]?.password).toMatch(/^[A-Za-z0-9]{24}$/);
   });
 
   it('stops at a compiler it does not have, and says how to get one', async () => {

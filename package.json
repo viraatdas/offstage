@@ -47,7 +47,6 @@
   "files": [
     "dist",
     "docker",
-    "docs",
     "native",
     "skills",
     ".claude-plugin",
@@ -79,6 +78,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^24.0.0",
     "@types/plist": "^3.0.5",
     "tsx": "^4.23.12",

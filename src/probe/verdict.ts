@@ -24,9 +24,9 @@
  * Developer ID provisioning profile." That lane is described as future work.
  *
  * So: `adhoc-ok` means a disposable Tart VM works today. `needs-signing-lane`
- * means the signing lane *is* your project. See `docs/signing-lane.md`. This
+ * means the signing lane *is* your project. This
  * probe answers the question independently of how you run the VM; offstage
- * has no lane of its own for it (see `docs/verified.md`), so pair the verdict
+ * has no lane of its own for it, so pair the verdict
  * with the `tart-xcode-runner` skill or your own Tart setup.
  *
  * The registries below are deliberately explicit rather than clever. An
@@ -494,7 +494,7 @@ function summarize(verdict: Verdict, triggers: EntitlementTrigger[], total: numb
   const names = triggers.map((t) => t.key).join(', ');
   const guessed = triggers.filter((t) => t.certainty === 'namespace-heuristic').length;
   const caveat = guessed > 0 ? ` (${guessed} matched by namespace heuristic, not by an exact rule — verify ${guessed === 1 ? 'it' : 'them'})` : '';
-  return `needs-signing-lane — ${triggers.length} restricted entitlement${triggers.length === 1 ? ' requires' : 's require'} a provisioning-profile-backed identity: ${names}${caveat}. tart-xcode-runner does not automate host signing, so building that lane is the project. See docs/signing-lane.md.`;
+  return `needs-signing-lane — ${triggers.length} restricted entitlement${triggers.length === 1 ? ' requires' : 's require'} a provisioning-profile-backed identity: ${names}${caveat}. tart-xcode-runner does not automate host signing, so building that lane is the project.`;
 }
 
 /** The restricted registry, for docs and `offstage probe --explain`. */

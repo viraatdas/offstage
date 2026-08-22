@@ -4,7 +4,7 @@
  * The daemon speaks JSON Lines over a unix socket, **one request per
  * connection**: the client writes one object and a newline, the daemon answers
  * with zero or more `event` lines, then exactly one *final* line carrying
- * `ok: true` or `ok: false`, then closes. See `docs/session-lane.md` for the
+ * `ok: true` or `ok: false`, then closes. See `native/sessiond/README.md` for the
  * wire protocol itself.
  *
  * Three rules this module holds to:

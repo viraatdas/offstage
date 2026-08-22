@@ -12,6 +12,8 @@
  */
 
 import { execFile } from 'node:child_process';
+import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -26,22 +28,34 @@ import {
   installDirFor,
   DEFAULT_LABEL,
   DAEMON_LOG_NAME,
-  daemonLogPath,
+  PASSWORD_ALPHABET,
+  PASSWORD_LENGTH,
+  SESSION_CONFIG_RELATIVE_PATH,
+  SETUP_ASSISTANT_SEEN_KEYS,
   SHARE_READ_ACL,
   SHARE_TRAVERSE_ACL,
   SWIFTC_INSTALL_FIX,
+  SYSTEM_TCC_DB,
   compileDaemon,
+  daemonLogPath,
   describeAclCommand,
+  exportCsreq,
   findSwiftc,
+  generateSessionPassword,
   grantArtifactsWrite,
   grantArtifactsWriteCommands,
   launchAgentPath,
+  persistSessionConfig,
   renderInstallScript,
   renderLaunchAgentPlist,
+  setupAssistantCommands,
   shareAcl,
   shareAclCommands,
   shareAncestors,
   shellQuote,
+  tccGrantCommands,
+  unshareAcl,
+  unshareAclCommands,
 } from '../src/session/index.js';
 
 const ok = (stdout = ''): ExecOutcome => ({ stdout, stderr: '', exitCode: 0 });
@@ -331,6 +345,8 @@ describe('compileDaemon', () => {
         'AppKit',
         '-framework',
         'ApplicationServices',
+        '-framework',
+        'Security',
       ],
     });
   });
@@ -461,6 +477,76 @@ describe('shareAcl', () => {
   });
 });
 
+/* -------------------------------------------------------------------------- */
+/* Unsharing                                                                  */
+/* -------------------------------------------------------------------------- */
+
+describe('unshareAclCommands', () => {
+  const commands = unshareAclCommands({
+    target: '/Users/viraat/code/app',
+    user: 'computeruse',
+    home: '/Users/viraat',
+  });
+
+  it('is the exact inverse of the grant: same paths, same ACL text, minus signs', () => {
+    const granted = shareAclCommands({
+      target: '/Users/viraat/code/app',
+      user: 'computeruse',
+      home: '/Users/viraat',
+    });
+    expect(commands.map(describeAclCommand)).toHaveLength(granted.map(describeAclCommand).length);
+    for (let i = 0; i < granted.length; i += 1) {
+      const g = granted[i]!;
+      const r = commands[i]!;
+      // Only the +a/-a sign differs; the entry text and the target are identical.
+      expect(r.file).toBe(g.file);
+      expect(r.args.join(' ')).toBe(g.args.join(' ').replace(/\+a/g, '-a'));
+    }
+  });
+
+  it('removes recursively on the tree, which also strips inherited entries', () => {
+    expect(commands.at(-1)?.args).toEqual([
+      '-R',
+      '-a',
+      `computeruse allow ${SHARE_READ_ACL}`,
+      '/Users/viraat/code/app',
+    ]);
+  });
+});
+
+describe('unshareAcl', () => {
+  it('succeeds when every entry was already absent', async () => {
+    /* macOS chmod exits 1 with "No ACL present '<path>'" when there is nothing
+       to remove — measured, not assumed. That is the goal state of an
+       unshare, so it is success. */
+    const exec = recordingExec({
+      '/bin/chmod': fail("chmod: No ACL present '/Users/viraat'", 1),
+    });
+    const result = await unshareAcl({
+      target: '/Users/viraat/code/app',
+      user: 'computeruse',
+      home: '/Users/viraat',
+      exec,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.failures).toHaveLength(0);
+  });
+
+  it('reports a real failure instead of swallowing it', async () => {
+    const exec = recordingExec({
+      '/bin/chmod': fail('chmod: /Users/viraat/code/app: No such file or directory', 1),
+    });
+    const result = await unshareAcl({
+      target: '/Users/viraat/code/app',
+      user: 'computeruse',
+      home: '/Users/viraat',
+      exec,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.failures[0]?.stderr).toContain('No such file or directory');
+  });
+});
+
 describe('grantArtifactsWrite', () => {
   it('opens exactly one directory, with the full write set', () => {
     const [command] = grantArtifactsWriteCommands({
@@ -479,5 +565,247 @@ describe('grantArtifactsWrite', () => {
     const result = await grantArtifactsWrite({ dir: '/nope', user: 'computeruse', exec });
     expect(result.ok).toBe(false);
     expect(result.failures).toHaveLength(1);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* The generated account password                                             */
+/* -------------------------------------------------------------------------- */
+
+describe('generateSessionPassword', () => {
+  it('produces 24 characters drawn only from the unambiguous alphabet', () => {
+    for (let i = 0; i < 20; i += 1) {
+      const password = generateSessionPassword();
+      expect(password).toHaveLength(PASSWORD_LENGTH);
+      for (const char of password) {
+        expect(PASSWORD_ALPHABET).toContain(char);
+      }
+    }
+  });
+
+  it('is deterministic under an injected byte source', () => {
+    const sequence = (count: number): Uint8Array => {
+      const bytes = new Uint8Array(count);
+      for (let i = 0; i < count; i += 1) bytes[i] = (i * 7 + 3) % 256;
+      return bytes;
+    };
+    expect(generateSessionPassword(sequence)).toBe(generateSessionPassword(sequence));
+  });
+
+  it('rejects bytes that would bias the alphabet rather than wrapping them', () => {
+    /* With a 58-character alphabet, bytes >= 232 have no home. A source that
+       only produces them must still yield a password — via rejection and
+       re-asking — rather than a biased or short one. This stub alternates
+       rejected and accepted bytes so the loop is exercised without spinning. */
+    let call = 0;
+    const password = generateSessionPassword((count) => {
+      call += 1;
+      const bytes = new Uint8Array(count);
+      for (let i = 0; i < count; i += 1) bytes[i] = (i + call) % 2 === 0 ? 255 : 10;
+      return bytes;
+    });
+    expect(password).toHaveLength(PASSWORD_LENGTH);
+    for (const char of password) expect(PASSWORD_ALPHABET).toContain(char);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* The designated requirement export                                          */
+/* -------------------------------------------------------------------------- */
+
+describe('exportCsreq', () => {
+  const BLOB = `fade0c00000000a4${'ab'.repeat(40)}`;
+
+  it('returns lowercase hex from a successful --print-csreq run', async () => {
+    const exec = recordingExec({
+      ['/Users/cd/.offstage/bin/offstage-sessiond']: ok(`${BLOB}\n`),
+    } as Record<string, ExecOutcome>);
+    const result = await exportCsreq('/Users/cd/.offstage/bin/offstage-sessiond', exec);
+    expect(result).toEqual({ ok: true, hex: BLOB });
+  });
+
+  it('rejects output that is not a requirement blob', async () => {
+    const exec = recordingExec({
+      '/tmp/daemon': ok('hello world\n'),
+    } as Record<string, ExecOutcome>);
+    const result = await exportCsreq('/tmp/daemon', exec);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('not a code requirement');
+  });
+
+  it('carries the binary stderr when --print-csreq fails', async () => {
+    const exec = recordingExec({
+      '/tmp/unsigned': fail('no designated requirement for /tmp/unsigned: OSStatus -67062', 70),
+    } as Record<string, ExecOutcome>);
+    const result = await exportCsreq('/tmp/unsigned', exec);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('OSStatus -67062');
+  });
+
+  it('survives an exec that throws outright', async () => {
+    const exploding: Exec = async () => {
+      throw new Error('EACCES');
+    };
+    const result = await exportCsreq('/tmp/daemon', exploding);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('EACCES');
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Pre-seeding TCC                                                            */
+/* -------------------------------------------------------------------------- */
+
+describe('tccGrantCommands', () => {
+  const grants = tccGrantCommands({
+    clientPath: '/Users/computeruse/.offstage/bin/offstage-sessiond',
+    csreqHex: 'fade0c00000000a4ab',
+  });
+
+  it('writes one row per service, allowed, keyed to the installed path', () => {
+    expect(grants).toHaveLength(2);
+    expect(grants[0]?.args[0]).toBe(SYSTEM_TCC_DB);
+    expect(grants[0]?.args[1]).toContain("'kTCCServiceAccessibility'");
+    expect(grants[1]?.args[1]).toContain("'kTCCServiceScreenCapture'");
+    for (const grant of grants) {
+      expect(grant.file).toBe('/usr/bin/sqlite3');
+      expect(grant.args[1]).toContain(
+        "'/Users/computeruse/.offstage/bin/offstage-sessiond', 1, 2, 4, 1",
+      );
+      expect(grant.args[1]).toContain("X'fade0c00000000a4ab'");
+    }
+  });
+
+  it('matches the row shape System Settings itself writes', () => {
+    /* auth_value 2 = allowed; client_type 1; auth_reason 4; version 1;
+       indirect_object 'UNUSED' with type 0. Recorded from a real machine. */
+    expect(grants[0]?.args[1]).toBe(
+      "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) "
+        + "VALUES ('kTCCServiceAccessibility', '/Users/computeruse/.offstage/bin/offstage-sessiond', 1, 2, 4, 1, X'fade0c00000000a4ab', NULL, 0, 'UNUSED', NULL, 0, strftime('%s','now'));",
+    );
+  });
+
+  it('escapes single quotes in the client path', () => {
+    const quoted = tccGrantCommands({
+      clientPath: "/Users/o'brien/.offstage/bin/offstage-sessiond",
+      csreqHex: 'fade0cab',
+    });
+    expect(quoted[0]?.args[1]).toContain("/Users/o''brien/.offstage");
+  });
+
+  it('refuses to build SQL from non-hex input', () => {
+    expect(() =>
+      tccGrantCommands({ clientPath: '/x', csreqHex: 'not hex!' }),
+    ).toThrow(/hex/);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Setup Assistant suppression                                                */
+/* -------------------------------------------------------------------------- */
+
+describe('setupAssistantCommands', () => {
+  const commands = setupAssistantCommands({ user: 'computeruse', home: '/Users/computeruse' });
+  const rendered = commands.map((command) => `${command.file} ${command.args.join(' ')}`);
+
+  it('creates the home before writing into it, then marks .skipbuddy', () => {
+    expect(rendered[0]).toBe(
+      `/usr/bin/install -d -o computeruse -g staff -m 755 '/Users/computeruse'`,
+    );
+    expect(rendered[1]).toBe(`/usr/bin/touch '/Users/computeruse/.skipbuddy'`);
+    expect(rendered[2]).toBe(`/usr/sbin/chown computeruse '/Users/computeruse/.skipbuddy'`);
+  });
+
+  it('marks every Setup Assistant pane as already seen', () => {
+    const writes = rendered.filter((line) => line.startsWith('/usr/bin/defaults write'));
+    expect(writes.length).toBe(SETUP_ASSISTANT_SEEN_KEYS.length);
+    expect(rendered.join('\n')).toContain('DidSeeCloudSetupFinished');
+    expect(rendered.join('\n')).toContain('com.apple.SetupAssistant.plist');
+  });
+
+  it('hands ownership back to the helper account', () => {
+    const chowns = rendered.filter((line) => line.startsWith('/usr/sbin/chown'));
+    expect(chowns.length).toBeGreaterThanOrEqual(2);
+    expect(chowns.at(-1)).toContain('com.apple.SetupAssistant.plist');
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* The full script, every section                                             */
+/* -------------------------------------------------------------------------- */
+
+describe('renderInstallScript with every section armed', () => {
+  const script = renderInstallScript({
+    binarySource: '/tmp/build/offstage-sessiond',
+    plistSource: '/tmp/build/dev.offstage.sessiond.plist',
+    user: 'computeruse',
+    uid: 502,
+    home: '/Users/computeruse',
+    createAccount: { password: 'correcthorsebattery' },
+    skipSetupAssistant: true,
+    tcc: { csreqHex: 'fade0c00000000a4ab' },
+    enableFastUserSwitching: true,
+    autoLoginPassword: 'correcthorsebattery',
+  });
+
+  it('orders the sections: account → assistant → install → tcc → switching → launchd → autologin', () => {
+    const at = (needle: string): number => script.indexOf(needle);
+    expect(at('sysadminctl -addUser')).toBeGreaterThan(-1);
+    expect(at('sysadminctl -addUser')).toBeLessThan(at('.skipbuddy'));
+    expect(at('.skipbuddy')).toBeLessThan(at("install -d -o 'computeruse'"));
+    expect(at("INSERT OR REPLACE INTO access")).toBeGreaterThan(at('dev.offstage.sessiond.plist'));
+    expect(at('INSERT OR REPLACE INTO access')).toBeLessThan(at('MultipleSessionEnabled'));
+    expect(at('MultipleSessionEnabled')).toBeLessThan(at('launchctl bootstrap'));
+    expect(at('-autologin set')).toBeGreaterThan(at('launchctl kickstart'));
+  });
+
+  it('gates the TCC inserts behind a write probe that mutates nothing', () => {
+    expect(script).toContain(`sqlite3 '/Library/Application Support/com.apple.TCC/TCC.db' 'BEGIN IMMEDIATE; ROLLBACK;'`);
+    expect(script).toContain('TCC_PRESEED_SKIPPED');
+    expect(script).toContain('killall tccd');
+  });
+
+  it('lets sysadminctl refuse auto-login without failing the install', () => {
+    expect(script).toContain("-autologin set -userName 'computeruse'");
+    expect(script).toContain('AUTOLOGIN_NOT_ARMED');
+  });
+
+  it('survives /bin/sh -n, because a user reads this script before trusting it with sudo', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-script-'));
+    const file = path.join(dir, 'install.sh');
+    await fs.writeFile(file, script, { mode: 0o700 });
+    const run = promisify(execFile);
+    // A syntax error exits non-zero and prints where it broke.
+    await run('/bin/sh', ['-n', file]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Persisting the account secret                                              */
+/* -------------------------------------------------------------------------- */
+
+describe('persistSessionConfig', () => {
+  it('merges into an existing config file and tightens its mode to 0600', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-config-'));
+    const configPath = path.join(dir, SESSION_CONFIG_RELATIVE_PATH);
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    await fs.writeFile(configPath, JSON.stringify({ user: 'someoneelse', note: 'keep me' }), 'utf8');
+
+    await persistSessionConfig('computeruse', 'pw123', { HOME: dir } as NodeJS.ProcessEnv);
+
+    const written = JSON.parse(await fs.readFile(configPath, 'utf8')) as Record<string, unknown>;
+    expect(written['user']).toBe('computeruse');
+    expect(written['password']).toBe('pw123');
+    expect(written['note']).toBe('keep me');
+    const mode = (await fs.stat(configPath)).mode & 0o777;
+    expect(mode).toBe(0o600);
+  }, 15000);
+
+  it('creates the config directory when there was never one', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-config2-'));
+    await persistSessionConfig('computeruse', 'pw123', { HOME: dir } as NodeJS.ProcessEnv);
+    const configPath = path.join(dir, SESSION_CONFIG_RELATIVE_PATH);
+    const written = JSON.parse(await fs.readFile(configPath, 'utf8')) as Record<string, unknown>;
+    expect(written['password']).toBe('pw123');
   });
 });

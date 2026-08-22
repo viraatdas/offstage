@@ -69,6 +69,7 @@ import {
   installDirFor,
   DEFAULT_LABEL,
   DEFAULT_SOCKET_DIR,
+  SESSION_CONFIG_RELATIVE_PATH,
   SessionRpcError,
   SessionUnreachableError,
   compileDaemon,
@@ -76,13 +77,18 @@ import {
   defaultExec,
   describeAclCommand,
   describeSession,
+  exportCsreq,
+  generateSessionPassword,
   parseInputActions,
+  persistSessionConfig,
+  readFileVaultStatus,
   renderInstallScript,
   renderLaunchAgentPlist,
   sessionUserFullName,
   shareAcl,
   shareAclCommands,
   shellQuote,
+  unshareAcl,
 } from '../session/index.js';
 import { UpdateError, updateDaemon } from '../session/update.js';
 
@@ -890,6 +896,11 @@ export interface SessionSeams {
   now?: () => number;
   /** Caller's home, used to decide which ancestors `share` must open. */
   home?: string;
+  /**
+   * Where a generated account password is persisted (default: the real
+   * `~/.config/offstage/session.json`, mode 0600). Tests record instead.
+   */
+  writeSessionConfig?: typeof persistSessionConfig;
 }
 
 const defaultRunRootScript = async (scriptPath: string): Promise<number | null> =>
@@ -1044,8 +1055,18 @@ function asSessionError(error: unknown): never {
 export interface SessionSetupInput {
   /** Helper account. Defaults to the configured one (env → config → computeruse). */
   user?: string;
-  /** Create the account when it does not exist yet. */
+  /** Create the account when it does not exist yet, with a generated password. */
   create?: boolean;
+  /**
+   * Arm boot-time auto-login for the helper account. Opt-in: macOS refuses it
+   * under FileVault, and it changes what appears at boot (the helper session
+   * comes up first, then you switch back to your own account as usual).
+   * Needs a password: a generated one when `create` is also set, `--password`
+   * for an existing account, or an interactive prompt inside the root script.
+   */
+  autoLogin?: boolean;
+  /** Password to use for the created account or the auto-login armament. */
+  password?: string;
   /**
    * Where the script and the progress lines go. The root script is *printed
    * before it runs*, always: the user is about to type a password, and "trust
@@ -1056,7 +1077,16 @@ export interface SessionSetupInput {
 
 /** One thing setup did, and whether it worked. */
 export interface SessionSetupStep {
-  step: 'compile' | 'install' | 'wait' | 'permissions';
+  step:
+    | 'compile'
+    | 'codesign'
+    | 'account'
+    | 'assistant'
+    | 'install'
+    | 'tcc'
+    | 'wait'
+    | 'permissions'
+    | 'auto-login';
   ok: boolean;
   detail: string;
 }
@@ -1158,6 +1188,32 @@ export async function sessionSetup(
     ]);
   }
 
+  /* A created account needs a real password from the start: an empty one gets
+     no AuthenticationAuthority and cannot log in under FileVault. Generated
+     unless the caller named one, and persisted so the human can look it up
+     later — the helper account is only ever switched into on purpose. */
+  let accountPassword: string | null = null;
+  if (createAccount) {
+    accountPassword = input.password ?? generateSessionPassword();
+    say(`Password for the new "${discovery.user}" account: ${accountPassword}`);
+  }
+
+  /* Auto-login is armed with the same secret. An existing account without a
+     named password falls back to sysadminctl's own interactive prompt inside
+     the root script (`-password -`), which works because setup always runs
+     attached to a terminal. */
+  let autoLoginPassword: string | '-' | null = null;
+  let fileVault: boolean | null = null;
+  if (input.autoLogin === true) {
+    autoLoginPassword = accountPassword ?? input.password ?? '-';
+    const vault = await readFileVaultStatus(exec);
+    fileVault = vault.active;
+    if (fileVault === true) {
+      say('Note: FileVault is on. macOS refuses auto-login while it is enabled;');
+      say('the account will have to be logged in once by hand after each boot.');
+    }
+  }
+
   /* 1. Compile the daemon, as you, into a temp directory. */
   const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-session-setup-'));
   const binaryPath = path.join(workDir, DAEMON_BINARY_NAME);
@@ -1184,6 +1240,26 @@ export async function sessionSetup(
     ]);
   }
 
+  /* 1b. Export the binary's Designated Requirement. This is what makes both
+     TCC grants pre-seedable: the rows setup writes carry exactly the blob a
+     human's toggle would have written, verified byte-for-byte against rows
+     System Settings produced. */
+  const csreq = await exportCsreq(binaryPath, exec);
+  steps.push({
+    step: 'codesign',
+    ok: csreq.ok,
+    detail: csreq.ok
+      ? `designated requirement exported (${(csreq.hex?.length ?? 0) / 2} bytes)`
+      : `could not export a code requirement: ${csreq.reason}`,
+  });
+
+  /* First-login suppression matters until the account has finished one login;
+     after that its cfprefsd owns those preferences and root must leave them
+     alone. */
+  const suppressAssistant =
+    createAccount ||
+    !(discovery.guiSession.exists && discovery.guiSession.loginDone);
+
   /* 2. Render the LaunchAgent and the one script that needs root. */
   const plistPath = path.join(workDir, `${DEFAULT_LABEL}.plist`);
   await fs.writeFile(
@@ -1197,19 +1273,66 @@ export async function sessionSetup(
     'utf8',
   );
 
-  const installScript = renderInstallScript({
+  const script = renderInstallScript({
     binarySource: binaryPath,
     plistSource: plistPath,
     user: discovery.user,
     uid,
     home,
     socketDir,
+    ...(createAccount && accountPassword !== null
+      ? { createAccount: { password: accountPassword } }
+      : {}),
+    ...(suppressAssistant ? { skipSetupAssistant: true } : {}),
+    ...(csreq.hex !== undefined ? { tcc: { csreqHex: csreq.hex } } : {}),
+    /* The user menu is what makes the one remaining manual step discoverable
+       — and with auto-login armed it is how you get back to your own account. */
+    enableFastUserSwitching: true,
+    ...(autoLoginPassword !== null ? { autoLoginPassword } : {}),
   });
-  const script = createAccount
-    ? withAccountCreation(installScript, { user: discovery.user, uid, home })
-    : installScript;
   const scriptPath = path.join(workDir, 'install.sh');
   await fs.writeFile(scriptPath, script, { mode: 0o700 });
+
+  /* Record what the script is being asked to do, so `--json` carries the
+     intent even though the work itself happens inside sudo. */
+  if (createAccount) {
+    steps.push({
+      step: 'account',
+      ok: true,
+      detail: `create "${discovery.user}" (uid ${uid}) included in the root script`,
+    });
+  }
+  if (suppressAssistant) {
+    steps.push({
+      step: 'assistant',
+      ok: true,
+      detail: 'first-login Setup Assistant suppression included in the root script',
+    });
+  }
+  if (csreq.hex !== undefined) {
+    steps.push({
+      step: 'tcc',
+      ok: true,
+      detail:
+        'pre-seed Screen Recording + Accessibility for the installed path (needs Full Disk Access on this terminal)',
+    });
+  } else {
+    steps.push({
+      step: 'tcc',
+      ok: false,
+      detail: `skipped: ${csreq.reason ?? 'no code requirement'}`,
+    });
+  }
+  if (autoLoginPassword !== null) {
+    steps.push({
+      step: 'auto-login',
+      ok: fileVault !== true,
+      detail:
+        fileVault === true
+          ? 'requested but FileVault is on; sysadminctl will refuse and the script continues'
+          : 'arm boot-time auto-login for the helper account',
+    });
+  }
 
   say('');
   say('This is the only step that needs root. It is printed here in full before it runs:');
@@ -1224,6 +1347,17 @@ export async function sessionSetup(
     ok: exitCode === 0,
     detail: exitCode === 0 ? 'the root script completed' : `sudo /bin/sh ${scriptPath} exited ${exitCode ?? 'without a code'}`,
   });
+
+  /* The generated secret outlives this command only if it is written down.
+     Non-fatal by design: a failed write must not undo a completed install. */
+  if (accountPassword !== null && exitCode === 0) {
+    try {
+      await (seams.writeSessionConfig ?? persistSessionConfig)(discovery.user, accountPassword);
+    } catch {
+      say(`Note: could not persist the account password to ~/${SESSION_CONFIG_RELATIVE_PATH}.`);
+    }
+  }
+
   if (exitCode !== 0) {
     return {
       ...bail([
@@ -1302,25 +1436,44 @@ export async function sessionSetup(
 
   const status = statusFromProbe(await sessionLaneFor(d, discovery.user).probeSession());
 
+  /* What is actually left for a human, given everything the script could do
+     on its own. The TCC pre-seed removes the permission toggles entirely when
+     it ran; auto-login turns "switch once after every boot" into "log into
+     your own account like you always do". */
   const nextSteps: string[] = [];
   if (createAccount) {
     nextSteps.push(
-      `The "${discovery.user}" account (uid ${uid}) was created. Log it in once with fast user switching (user menu → Computer Use), then switch back to your own account.`,
+      `The "${discovery.user}" account (uid ${uid}) was created. Its password: ${accountPassword ?? '(the one you supplied)'}. It is also stored at ~/${SESSION_CONFIG_RELATIVE_PATH}.`,
     );
-  } else if (!status.guiSession.loginDone) {
-    nextSteps.push(
-      `Log ${discovery.user} in once with fast user switching (user menu → ${status.fullName}), then switch back; the session keeps running in the background.`,
-    );
+  }
+  if (!status.guiSession.loginDone) {
+    if (input.autoLogin === true && fileVault !== true) {
+      nextSteps.push(
+        `Reboot once. ${sessionUserFullName(status)} will be logged in automatically; when its desktop appears, switch back to your own account from the user menu (top-right). From then on every boot brings the helper session up by itself.`,
+      );
+    } else {
+      nextSteps.push(
+        `Log ${discovery.user} in once with fast user switching (user menu → ${status.fullName}), then switch back; the session keeps running in the background.${
+          input.autoLogin === true && fileVault === true
+            ? ' Auto-login was requested but FileVault blocks it, so this switch is needed after each boot.'
+            : ''
+        }`,
+      );
+    }
   }
   const missing = [
     ...(permissions?.screenCapture === false ? ['Screen Recording'] : []),
     ...(permissions?.accessibility === false ? ['Accessibility'] : []),
   ];
-  if (permissions === null || missing.length > 0) {
+  if (missing.length > 0) {
     nextSteps.push(
-      `Switch to the ${discovery.user} account once and allow ${
-        missing.length > 0 ? missing.join(' and ') : 'Screen Recording and Accessibility'
-      } for ${DAEMON_BINARY_NAME} in System Settings → Privacy & Security, then switch back. The prompts were raised inside that session, so they are waiting there.`,
+      csreq.ok
+        ? `The grants were pre-seeded but the daemon reports ${missing.join(' and ')} missing. Switch to ${discovery.user}, approve them in System Settings → Privacy & Security for ${DAEMON_BINARY_NAME}, then switch back and run \`offstage session status\`.`
+        : `Switch to the ${discovery.user} account once and allow ${missing.join(' and ')} for ${DAEMON_BINARY_NAME} in System Settings → Privacy & Security, then switch back.`,
+    );
+  } else if (permissions === null && !csreq.ok) {
+    nextSteps.push(
+      `Screen Recording and Accessibility still need a human switch: log into ${discovery.user}, approve both for ${DAEMON_BINARY_NAME} in System Settings → Privacy & Security, and switch back. (Pre-seeding them needs Full Disk Access on the terminal running setup.)`,
     );
   }
   nextSteps.push(
@@ -1338,41 +1491,6 @@ export async function sessionSetup(
     permissions,
     nextSteps,
   };
-}
-
-/**
- * Splice the account creation into the root script, after `set -eu` and before
- * anything that assumes the account exists.
- *
- * `-UID` is passed explicitly, which `docs/session-lane.md` does not ask for,
- * because the LaunchAgent plist and `launchctl bootstrap gui/<uid>` both need
- * the uid *before* the script runs — and a uid sysadminctl picked for itself
- * would only be knowable afterwards. The uid is chosen from the free ones on
- * this machine (see {@link nextFreeUid}).
- *
- * `-password -` makes `sysadminctl` prompt on the terminal. That is deliberate:
- * an account with no password gets no `AuthenticationAuthority` and no
- * SecureToken, and under FileVault it can never log in — which is exactly the
- * state this lane cannot use.
- */
-function withAccountCreation(
-  script: string,
-  account: { user: string; uid: number; home: string },
-): string {
-  const marker = 'set -eu\n';
-  const at = script.indexOf(marker);
-  const lines = [
-    '',
-    `# Create the "${account.user}" account. You will be prompted for a password for it;`,
-    '# an account with no password has no SecureToken and cannot log in under FileVault.',
-    `if ! /usr/bin/dscl . -read ${shellQuote(`/Users/${account.user}`)} UniqueID >/dev/null 2>&1; then`,
-    `  /usr/sbin/sysadminctl -addUser ${shellQuote(account.user)} -fullName ${shellQuote('Computer Use')} -password - -UID ${account.uid} -home ${shellQuote(account.home)}`,
-    'fi',
-    '',
-  ].join('\n');
-  if (at < 0) return `${script}\n${lines}`;
-  const cut = at + marker.length;
-  return `${script.slice(0, cut)}${lines}${script.slice(cut)}`;
 }
 
 /**
@@ -1457,6 +1575,58 @@ export function sessionSharePlan(input: { path: string; user: string; home?: str
     user: input.user,
     home: input.home ?? os.homedir(),
   }).map(describeAclCommand);
+}
+
+/* --------------------------------- unshare -------------------------------- */
+
+export interface SessionUnshareResult {
+  ok: boolean;
+  user: string;
+  target: string;
+  /** The `chmod -a` commands, exactly as run (absence-tolerant). */
+  commands: string[];
+  failures: Array<{ command: string; stderr: string; exitCode: number | null }>;
+}
+
+/**
+ * Revoke exactly what {@link sessionShare} granted: the read ACL on the tree —
+ * recursively, including entries children inherited while the grant stood —
+ * and the traverse-only entries on its ancestors.
+ *
+ * The tree does not have to exist any more for this to be worth calling;
+ * a `chmod` that finds nothing to remove is success, and anything else comes
+ * back in `failures`.
+ */
+export async function sessionUnshare(
+  input: { path: string; user?: string },
+  deps?: Partial<ApiDeps>,
+): Promise<SessionUnshareResult> {
+  const d = withDefaults(deps);
+  const seams = seamsOf(d);
+  if (typeof input?.path !== 'string' || input.path.trim() === '') {
+    throw new OffstageUsageError('offstage session unshare needs a directory to unshare.');
+  }
+  const target = path.resolve(input.path);
+
+  const discoverOptions: DescribeSessionOptions = {};
+  if (input.user !== undefined) discoverOptions.user = input.user;
+  if (seams.socketDir !== undefined) discoverOptions.socketDir = seams.socketDir;
+  if (seams.exec !== undefined) discoverOptions.exec = seams.exec;
+  const discovery = await (seams.discover ?? describeSession)(discoverOptions);
+
+  const result = await unshareAcl({
+    target,
+    user: discovery.user,
+    home: seams.home ?? os.homedir(),
+    ...(seams.exec === undefined ? {} : { exec: seams.exec }),
+  });
+  return {
+    ok: result.ok,
+    user: discovery.user,
+    target,
+    commands: result.commands,
+    failures: result.failures,
+  };
 }
 
 const fileExists = async (target: string): Promise<boolean> => {

@@ -459,6 +459,24 @@ describe('SessionLane.run', () => {
     expect(result.diagnostics.join('\n')).toContain("other account's screen, not yours");
   });
 
+  it('collects what the command left in the artifacts directory, .xcresult bundles included', async () => {
+    /* xcodebuild writes its result bundle — a directory — into
+       $OFFSTAGE_ARTIFACTS; a lane that only registered its own log and
+       screenshot would drop exactly the artifact a real macOS run exists to
+       produce. */
+    await fs.mkdir(path.join(artifactsDir, 'App.xcresult'), { recursive: true });
+    await fs.writeFile(path.join(artifactsDir, 'trace.mp4'), 'fake video');
+    const { lane } = laneWith({});
+    const result = await lane.run(request());
+
+    const kinds = new Map(result.artifacts.map((artifact) => [artifact.path, artifact.kind]));
+    expect(kinds.get(path.join(artifactsDir, 'App.xcresult'))).toBe('xcresult');
+    expect(kinds.get(path.join(artifactsDir, 'trace.mp4'))).toBe('video');
+    const diagnostics = result.diagnostics.join('\n');
+    expect(diagnostics).toContain('collected as artifacts: App.xcresult, trace.mp4');
+    expect(diagnostics).toContain('owned by "computeruse"');
+  });
+
   it('turns a screenshot TCC failure into a diagnostic, never an error', async () => {
     const client = fakeClient({
       screenshot: async () => {

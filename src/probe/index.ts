@@ -18,7 +18,7 @@
  *
  * The narrative answer — what ad-hoc signing covers, why re-signing the current
  * output is not enough, and what a real signing lane has to do — lives in
- * `docs/signing-lane.md`.
+ * the README's probe section.
  */
 
 export {

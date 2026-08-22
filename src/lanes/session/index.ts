@@ -9,7 +9,7 @@
  * to spawn the command. Windows open there. Nothing reaches the console user's
  * display, and nothing takes their keyboard focus.
  *
- * Read `docs/session-lane.md` for the substrate; three things about *this file*
+ * Read the README's session section for the substrate; three things about *this file*
  * are worth stating up front:
  *
  * - **It is session isolation, not machine isolation.** Same kernel, same disk,
@@ -89,6 +89,45 @@ export const ISOLATION_NOTE =
 /** `offstage session setup` — the fix for every "the daemon is not there" rung. */
 export const SETUP_FIX = 'offstage session setup';
 
+/** Upper bound on entries collected from one run's artifacts directory. */
+export const MAX_COLLECTED_ARTIFACTS = 50;
+
+/**
+ * What kind of artifact a leftover entry in `$OFFSTAGE_ARTIFACTS` is.
+ *
+ * An `.xcresult` bundle is a directory, and it is what a real `xcodebuild`
+ * run leaves behind; a video is whatever the command recorded; everything
+ * else is `other`. Pure, exported for tests.
+ */
+export function classifyExtraArtifact(name: string): LaneArtifact['kind'] {
+  if (/\.xcresult$/i.test(name)) return 'xcresult';
+  if (/\.(mp4|webm|mov|mkv|mjpeg)$/i.test(name)) return 'video';
+  return 'other';
+}
+
+/**
+ * Everything the command left in its artifacts directory beyond the log and
+ * the screenshot the lane itself wrote.
+ *
+ * Bounded (`MAX_COLLECTED_ARTIFACTS`), sorted by name so results are stable,
+ * and never throws — an unreadable artifacts directory simply contributes no
+ * extra artifacts.
+ */
+async function collectRunArtifacts(
+  artifactsDir: string,
+): Promise<Array<{ kind: LaneArtifact['kind']; path: string }>> {
+  const reserved = new Set([COMMAND_LOG_FILENAME, SCREENSHOT_FILENAME]);
+  const entries = await fs.readdir(artifactsDir, { withFileTypes: true }).catch(() => []);
+  return entries
+    .filter((entry) => !reserved.has(entry.name))
+    .slice(0, MAX_COLLECTED_ARTIFACTS)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((entry) => ({
+      kind: classifyExtraArtifact(entry.name),
+      path: artifactPath(artifactsDir, entry.name),
+    }));
+}
+
 /* -------------------------------------------------------------------------- */
 /* Options                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -158,7 +197,7 @@ export class SessionLane implements LaneRunner {
   }
 
   /**
-   * Walk the ladder from `docs/session-lane.md`, stopping at the first rung
+   * Walk the availability ladder, stopping at the first rung
    * that fails. Never throws: a discovery that explodes is reported as
    * unavailable with the exception's own message, because a lane that throws
    * out of `isAvailable()` breaks `offstage doctor` for every other lane too.
@@ -460,6 +499,20 @@ export class SessionLane implements LaneRunner {
       screenshotNotes.push(describeScreenshotFailure(error, discovery.user));
     }
 
+    /* 5b. Whatever else the command left in its artifacts directory belongs in
+           artifacts[] too. An .xcresult bundle — where xcodebuild's result
+           lands — is a *directory*, and it is exactly the thing a real
+           xcodebuild run produces; a lane that only registered files it
+           created itself would silently drop it. */
+    const collected = await collectRunArtifacts(request.artifactsDir);
+    artifacts.push(...collected.map((entry) => ({ kind: entry.kind, path: entry.path })));
+    const collectedNote =
+      collected.length === 0
+        ? null
+        : `The command left ${collected.length} entr${collected.length === 1 ? 'y' : 'ies'} in $OFFSTAGE_ARTIFACTS, collected as artifacts: ${collected
+            .map((entry) => path.basename(entry.path))
+            .join(', ')}. They are owned by "${discovery.user}" — the uid that ran the command — and were written through the write grant on this directory and no other.`;
+
     const output = capture.text();
     const timedOut = outcome.timedOut;
     const exitCode = outcome.exitCode;
@@ -467,6 +520,7 @@ export class SessionLane implements LaneRunner {
     const failures = status === 'failed' ? parseFailures(output, { cwd: request.cwd }) : [];
 
     const diagnostics = [sessionLine, `Command: ${request.command.join(' ')}`];
+    if (collectedNote !== null) diagnostics.push(collectedNote);
     diagnostics.push(
       `The command's environment was the daemon's own session environment plus OFFSTAGE_ARTIFACTS=${request.artifactsDir} and OFFSTAGE_LANE=session; DISPLAY was removed, and HOME/USER/TMPDIR are the "${discovery.user}" account's own.`,
     );

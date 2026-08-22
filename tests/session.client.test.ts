@@ -3,7 +3,7 @@
  *
  * No `offstage-sessiond` is installed on the machine these were written on, and
  * none is needed: this file stands up a `net.createServer` on a socket in a
- * temp directory that speaks the protocol from `docs/session-lane.md` — one
+ * temp directory that speaks the daemon's protocol — one
  * request per connection, zero or more `event` lines, then exactly one final
  * line, then close. That exercises the real client over a real unix socket,
  * which is the half of the protocol offstage owns.

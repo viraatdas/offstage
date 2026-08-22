@@ -66,7 +66,7 @@ import { z } from 'zod';
  *   apps, so macOS-native GUI work (`open -a`, `xcodebuild test`, a headed
  *   browser on real Metal) runs there without touching the console user's
  *   screen. Session isolation, not machine isolation: same OS, same disk.
- *   See `docs/session-lane.md`.
+ *   See `native/sessiond/README.md`.
  * - `container` — a Linux container with an Xvfb virtual framebuffer, for web
  *   work that genuinely needs a headed browser and a real compositor.
  *

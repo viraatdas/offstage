@@ -16,13 +16,14 @@
  */
 
 import fs from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 
 import plist from 'plist';
 
 import type { Exec, ExecOutcome } from './discover.js';
-import { DEFAULT_SOCKET_DIR, defaultExec } from './discover.js';
+import { DEFAULT_SOCKET_DIR, SESSION_CONFIG_RELATIVE_PATH, defaultExec } from './discover.js';
 
 /* -------------------------------------------------------------------------- */
 /* Constants                                                                  */
@@ -174,6 +175,142 @@ export function launchAgentPath(home: string, label: string = DEFAULT_LABEL): st
 }
 
 /* -------------------------------------------------------------------------- */
+/* The helper account's password                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Alphabet for generated helper-account passwords. Unambiguous characters
+ * only — this string is read aloud from a terminal, typed by hand into a login
+ * pane on occasion, and quoted through `/bin/sh`.
+ */
+export const PASSWORD_ALPHABET = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/** Length of a generated password. 24 over an 58-character alphabet. */
+export const PASSWORD_LENGTH = 24;
+
+/** Where random bytes come from; a seam so tests are deterministic. */
+export type RandomBytes = (count: number) => Uint8Array;
+
+const defaultRandomBytes: RandomBytes = (count) => randomBytes(count);
+
+/**
+ * Generate a random password for the helper account.
+ *
+ * Rejection sampling rather than `% alphabet.length`, because `Uint8Array`
+ * values are uniform over 0–255 and 256 does not divide by the alphabet size;
+ * the bias would be small but it costs nothing to do right.
+ */
+export function generateSessionPassword(random: RandomBytes = defaultRandomBytes): string {
+  const chars: string[] = [];
+  while (chars.length < PASSWORD_LENGTH) {
+    const bytes = random(Math.max(16, PASSWORD_LENGTH));
+    for (const byte of bytes) {
+      if (byte >= 256 - (256 % PASSWORD_ALPHABET.length)) continue;
+      chars.push(PASSWORD_ALPHABET[byte % PASSWORD_ALPHABET.length] as string);
+      if (chars.length === PASSWORD_LENGTH) break;
+    }
+  }
+  return chars.join('');
+}
+
+/* -------------------------------------------------------------------------- */
+/* The daemon's Designated Requirement                                        */
+/* -------------------------------------------------------------------------- */
+
+export interface CsreqResult {
+  ok: boolean;
+  /** Lowercase hex of the requirement blob, ready for a sqlite `X''` literal. */
+  hex?: string;
+  reason?: string;
+}
+
+/**
+ * Ask the freshly compiled daemon for its own Designated Requirement.
+ *
+ * `offstage-sessiond --print-csreq <path>` prints the exact BLOB TCC stores in
+ * its `csreq` column when a grant is made — verified byte-for-byte against a
+ * row System Settings itself wrote. With it, setup can pre-seed both grants
+ * (see {@link tccGrantCommands}) instead of asking a human to toggle them
+ * inside the helper session.
+ *
+ * Never throws; a failure comes back as `ok: false` with the daemon's own
+ * words.
+ */
+export async function exportCsreq(binaryPath: string, exec: Exec = defaultExec): Promise<CsreqResult> {
+  let outcome: ExecOutcome;
+  try {
+    outcome = await exec(binaryPath, ['--print-csreq', binaryPath]);
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+  }
+  const hex = outcome.stdout.trim().toLowerCase();
+  if (outcome.exitCode !== 0) {
+    return { ok: false, reason: outcome.stderr.trim() || outcome.stdout.trim() || `exited ${outcome.exitCode ?? 'without a code'}` };
+  }
+  /* A requirement blob starts with the 0xFADE0C00 magic and carries its own
+     length, so real ones are tens of bytes at minimum. Anything else means the
+     binary printed something that is not a requirement. */
+  if (!/^[0-9a-f]+$/.test(hex) || hex.length < 32 || hex.length % 2 !== 0 || !hex.startsWith('fade0c')) {
+    return { ok: false, reason: `not a code requirement blob: ${JSON.stringify(hex.slice(0, 40))}` };
+  }
+  return { ok: true, hex };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Pre-seeding TCC                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The system-level TCC database. Screen Recording and Accessibility are
+ * *system* services on every macOS since Catalina: both live here, not in any
+ * user's database, which is why one root write can grant them for all
+ * sessions.
+ */
+export const SYSTEM_TCC_DB = '/Library/Application Support/com.apple.TCC/TCC.db';
+
+/** The two services the daemon needs, in the order they are granted. */
+export const TCC_SERVICES = ['kTCCServiceAccessibility', 'kTCCServiceScreenCapture'] as const;
+
+/**
+ * One sqlite statement per service, shaped exactly like the row System
+ * Settings writes when a human toggles the switch: same `auth_value` (2 =
+ * allowed), same `auth_reason`, same client_type, `csreq` carrying the binary's
+ * Designated Requirement.
+ *
+ * Pure data, snapshot-tested. The script runs these only after a successful
+ * write-probe ({@link TCC_WRITE_PROBE_SQL}), because without Full Disk Access
+ * even root cannot open this database for writing under SIP.
+ */
+export function tccGrantCommands(options: {
+  /** Absolute installed path of the daemon — the record's key. */
+  clientPath: string;
+  /** Hex of the daemon's Designated Requirement, from {@link exportCsreq}. */
+  csreqHex: string;
+  dbPath?: string;
+}): Array<{ file: string; args: string[] }> {
+  const db = options.dbPath ?? SYSTEM_TCC_DB;
+  if (!/^[0-9a-f]+$/.test(options.csreqHex) || options.csreqHex.length % 2 !== 0) {
+    throw new Error('csreq must be lowercase hex');
+  }
+  return TCC_SERVICES.map((service) => ({
+    file: '/usr/bin/sqlite3',
+    args: [
+      db,
+      `INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) `
+        + `VALUES ('${service}', '${options.clientPath.replace(/'/g, "''")}', 1, 2, 4, 1, X'${options.csreqHex}', NULL, 0, 'UNUSED', NULL, 0, strftime('%s','now'));`,
+    ],
+  }));
+}
+
+/**
+ * Acquires the database's write lock and gives it straight back. Mutates
+ * nothing — but under SIP only a process with Full Disk Access can acquire it,
+ * which makes this the honest probe of whether the pre-seed will work before
+ * the first INSERT fails mid-script.
+ */
+export const TCC_WRITE_PROBE_SQL = 'BEGIN IMMEDIATE; ROLLBACK;';
+
+/* -------------------------------------------------------------------------- */
 /* The root install script                                                    */
 /* -------------------------------------------------------------------------- */
 
@@ -206,6 +343,131 @@ export interface InstallScriptOptions {
    * would otherwise go nowhere.
    */
   socketDir?: string;
+  /**
+   * Create the helper account as part of this script, with this password.
+   * Non-interactive on purpose: an interactive prompt here would break every
+   * scripted install, and the password is machine-local random data. It is
+   * visible in `ps` for the moment `sysadminctl` runs — accepted, because it
+   * guards only the throwaway helper account.
+   */
+  createAccount?: { password: string };
+  /**
+   * Write the first-login suppression files (`.skipbuddy` and the
+   * Setup Assistant "already seen" keys) into a home that has never finished a
+   * first login, so nobody has to click through region/Apple ID/Siri panes for
+   * an account that exists to be driven by a robot.
+   */
+  skipSetupAssistant?: boolean;
+  /**
+   * Pre-grant Screen Recording and Accessibility to the installed daemon path,
+   * using this Designated Requirement ({@link exportCsreq}). Needs Full Disk
+   * Access on the invoking terminal; the script probes first and degrades to a
+   * printed explanation instead of failing.
+   */
+  tcc?: { csreqHex: string };
+  /** Show the fast-user-switching menu, so switching is one click when it is needed. */
+  enableFastUserSwitching?: boolean;
+  /**
+   * Arm boot-time auto-login for the helper account with this password.
+   * Opt-in: macOS refuses auto-login under FileVault, and arming it changes
+   * what appears at boot. `sysadminctl` reports the FileVault refusal itself.
+   */
+  autoLoginPassword?: string;
+}
+
+/**
+ * The Setup Assistant panes a fresh local account is shown on first login, as
+ * the "already seen" keys of its own `com.apple.SetupAssistant` preferences.
+ * Unknown keys are harmless; known-but-missing keys cost one click each inside
+ * an account nobody is watching.
+ */
+export const SETUP_ASSISTANT_SEEN_KEYS = [
+  'DidSeeCloudSetupFinished',
+  'DidSeePrivacySetup',
+  'DidSeeSiriSetup',
+  'DidScreenTimeSetup',
+  'DidSeeTrueToneSetup',
+  'DidSeeAppearanceSetup',
+  'DidSeeTouchIDSetup',
+  'DidSeeBiometricSetup',
+  'DidSeeUnlockWithWatchSetup',
+  'DidSeeiCloudStorageSetup',
+  'DidSeeDefaultBrowserSetup',
+  'DidSeeWelcome',
+] as const;
+
+/**
+ * The `.skipbuddy` marker plus one `-bool true` per {@link SETUP_ASSISTANT_SEEN_KEYS},
+ * written into the helper account's own preferences before its first login.
+ *
+ * Root writes the plists directly because there is no cfprefsd instance for an
+ * account that has never logged in — nothing can race or clobber them — and
+ * then hands ownership back so the account's first launch trusts its own
+ * preferences.
+ */
+export function setupAssistantCommands(options: {
+  user: string;
+  home: string;
+}): Array<{ file: string; args: string[] }> {
+  const preferences = path.join(options.home, 'Library', 'Preferences');
+  const plistPath = path.join(preferences, 'com.apple.SetupAssistant.plist');
+  /* Only paths and keys are quoted; flags stay bare so the rendered script
+     reads like something a person can proofread before typing their password. */
+  const q = shellQuote;
+  const commands: Array<{ file: string; args: string[] }> = [
+    /* An account that exists in the directory but has never logged in can have
+       no home yet; everything below writes into it. */
+    {
+      file: '/usr/bin/install',
+      args: ['-d', '-o', options.user, '-g', 'staff', '-m', '755', q(options.home)],
+    },
+    /* macbuddy checks this marker at the root of the home directory. */
+    { file: '/usr/bin/touch', args: [q(path.join(options.home, '.skipbuddy'))] },
+    {
+      file: '/usr/sbin/chown',
+      args: [options.user, q(path.join(options.home, '.skipbuddy'))],
+    },
+    {
+      file: '/usr/bin/install',
+      args: ['-d', '-o', options.user, '-g', 'staff', '-m', '755', q(preferences)],
+    },
+  ];
+  for (const key of SETUP_ASSISTANT_SEEN_KEYS) {
+    commands.push({ file: '/usr/bin/defaults', args: ['write', q(plistPath), key, '-bool', 'true'] });
+  }
+  commands.push({ file: '/usr/sbin/chown', args: [options.user, q(plistPath)] });
+  return commands;
+}
+
+/**
+ * Persist the helper account's password beside its configuration.
+ *
+ * The password is machine-local random data guarding a throwaway account, and
+ * it is the one secret future automation needs (auto-login re-armament, a UI
+ * scripted first switch). It is stored at `~/.config/offstage/session.json`,
+ * mode 0600, next to the `user` key this file already carries.
+ */
+export async function persistSessionConfig(
+  user: string,
+  password: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  const home = env['HOME'] ?? os.homedir();
+  const configPath = path.join(home, SESSION_CONFIG_RELATIVE_PATH);
+  let merged: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(await fs.readFile(configPath, 'utf8'));
+    if (typeof parsed === 'object' && parsed !== null) merged = parsed as Record<string, unknown>;
+  } catch {
+    /* First write wins; an unreadable or absent file is not an error. */
+  }
+  merged['user'] = user;
+  merged['password'] = password;
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  await fs.writeFile(configPath, `${JSON.stringify(merged, null, 2)}\n`);
+  /* writeFile's mode only applies at creation; chmod so a pre-existing,
+     wider file is tightened too. */
+  await fs.chmod(configPath, 0o600);
 }
 
 /**
@@ -213,11 +475,14 @@ export interface InstallScriptOptions {
  *
  * It is printed before it runs, on purpose: the user is about to type a
  * password, and "trust me" is not an acceptable thing for a tool to say at that
- * moment. Every line is `install(1)` or `launchctl` — no compilation, no
- * network, no package manager.
+ * moment. Every line is `install(1)`, `launchctl`, `sqlite3`, `defaults`,
+ * `sysadminctl` or `chown` — no compilation, no network, no package manager.
  *
  * `bootout` is allowed to fail: on a first install there is nothing to unload,
- * and `launchctl` exits non-zero for that. Everything else is fatal (`set -e`).
+ * and `launchctl` exits non-zero for that. The TCC pre-seed probe is allowed
+ * to fail the same way: without Full Disk Access the inserts are skipped with
+ * a printed explanation rather than aborting an otherwise complete install.
+ * Everything else is fatal (`set -e`).
  *
  * The three `install -d` lines for the socket directory, `Library/Logs` and
  * `Library/LaunchAgents` are not padding: launchd creates no parent directory
@@ -238,11 +503,37 @@ export function renderInstallScript(options: InstallScriptOptions): string {
   const plistTarget = launchAgentPath(options.home, label);
   const service = `gui/${options.uid}/${label}`;
 
-  return [
+  const lines: string[] = [
     '#!/bin/sh',
     '# offstage session setup — installs offstage-sessiond into the',
     `# ${options.user} account's GUI session. This is the only step that needs root.`,
     'set -eu',
+  ];
+
+  if (options.createAccount !== undefined) {
+    lines.push(
+      '',
+      `# Create the "${options.user}" account if it does not exist yet.`,
+      '# An empty password would leave the account unable to log in; a real one',
+      "# lets a human switch into it once, which is all this lane ever asks.",
+      `if ! /usr/bin/dscl . -read ${shellQuote(`/Users/${options.user}`)} UniqueID >/dev/null 2>&1; then`,
+      `  /usr/sbin/sysadminctl -addUser ${shellQuote(options.user)} -fullName ${shellQuote('Computer Use')} -password ${shellQuote(options.createAccount.password)} -UID ${options.uid} -home ${shellQuote(options.home)}`,
+      'fi',
+    );
+  }
+
+  if (options.skipSetupAssistant === true) {
+    lines.push(
+      '',
+      '# First-login suppression: this account exists to be driven, and nobody',
+      '# will click through Setup Assistant inside it.',
+      ...setupAssistantCommands({ user: options.user, home: options.home }).map(
+        (command) => `${command.file} ${command.args.join(' ')}`,
+      ),
+    );
+  }
+
+  lines.push(
     '',
     `install -d -o ${shellQuote(options.user)} -g staff -m 755 ${shellQuote(installDir)}`,
     `install -o ${shellQuote(options.user)} -g staff -m 755 ${shellQuote(options.binarySource)} ${shellQuote(target)}`,
@@ -257,19 +548,77 @@ export function renderInstallScript(options: InstallScriptOptions): string {
     `install -d -o ${shellQuote(options.user)} -g staff -m 755 ${shellQuote(agentsDir)}`,
     `install -o ${shellQuote(options.user)} -g staff -m 644 ${shellQuote(options.plistSource)} ${shellQuote(plistTarget)}`,
     '',
+  );
+
+  if (options.tcc !== undefined) {
+    const db = shellQuote(SYSTEM_TCC_DB);
+    const grants = tccGrantCommands({
+      clientPath: target,
+      csreqHex: options.tcc.csreqHex,
+    });
+    lines.push(
+      '# Pre-seed both TCC grants so the daemon comes up trusted, with no',
+      '# toggles and no prompts inside the helper session. Rows are shaped',
+      '# exactly like the ones System Settings writes: same auth values, same',
+      '# code requirement the binary already satisfies.',
+      `if ! /usr/bin/sqlite3 ${db} ${shellQuote(TCC_WRITE_PROBE_SQL)} >/dev/null 2>&1; then`,
+      `  echo 'TCC_PRESEED_SKIPPED: even root could not open the TCC database for writing.'`,
+      `  echo '  The terminal that ran this command needs Full Disk Access'`,
+      `  echo '  (System Settings > Privacy & Security > Full Disk Access).'`,
+      `  echo '  Grant it and re-run this command, or approve Screen Recording and'`,
+      `  echo '  Accessibility by hand inside the helper session later.'`,
+      `else`,
+      ...grants.map(
+        (grant) =>
+          `  ${grant.file} ${db} ${shellQuote(grant.args[1] ?? '')}`,
+      ),
+      `  /usr/bin/killall tccd >/dev/null 2>&1 || true`,
+      `fi`,
+      '',
+    );
+  }
+
+  if (options.enableFastUserSwitching === true) {
+    lines.push(
+      '# Show the fast-user-switching menu, so the one manual switch this lane',
+      '# asks for is discoverable instead of hidden behind a settings pane.',
+      `/usr/bin/defaults write '/Library/Preferences/.GlobalPreferences' MultipleSessionEnabled -bool true`,
+      '',
+    );
+  }
+
+  lines.push(
     `launchctl bootout ${shellQuote(service)} 2>/dev/null || true`,
     `launchctl bootstrap ${shellQuote(`gui/${options.uid}`)} ${shellQuote(plistTarget)}`,
     `launchctl kickstart -k ${shellQuote(service)}`,
-    '',
-  ].join('\n');
+  );
+
+  if (options.autoLoginPassword !== undefined) {
+    lines.push(
+      '',
+      '# Arm boot-time auto-login for the helper account (opt-in). Under',
+      '# FileVault, sysadminctl reports that auto-login cannot be enabled;',
+      '# that refusal is allowed to print without failing the install.',
+      `/usr/sbin/sysadminctl -autologin set -userName ${shellQuote(options.user)} -password ${shellQuote(options.autoLoginPassword)} \\`,
+      `  || echo 'AUTOLOGIN_NOT_ARMED: sysadminctl refused (FileVault blocks auto-login).'`,
+    );
+  }
+
+  lines.push('');
+  return lines.join('\n');
 }
 
 /* -------------------------------------------------------------------------- */
 /* swiftc                                                                     */
 /* -------------------------------------------------------------------------- */
 
-/** Frameworks the daemon links: screen capture, event posting, app listing. */
-export const DAEMON_FRAMEWORKS = ['CoreGraphics', 'AppKit', 'ApplicationServices'] as const;
+/** Frameworks the daemon links: screen capture, event posting, app listing, requirement export. */
+export const DAEMON_FRAMEWORKS = [
+  'CoreGraphics',
+  'AppKit',
+  'ApplicationServices',
+  'Security',
+] as const;
 
 /** The fix for a machine with no Swift compiler. */
 export const SWIFTC_INSTALL_FIX = 'xcode-select --install';
@@ -555,6 +904,60 @@ async function runAclCommands(commands: AclCommand[], exec: Exec): Promise<AclRe
  */
 export async function shareAcl(options: ShareAclOptions): Promise<AclResult> {
   return await runAclCommands(shareAclCommands(options), options.exec ?? defaultExec);
+}
+
+export interface UnshareAclOptions {
+  /** Tree whose read grant should be revoked, absolute. */
+  target: string;
+  /** Helper account short name. */
+  user: string;
+  /** Home directory of the tree's owner — the caller. Defaults to `os.homedir()`. */
+  home?: string;
+  exec?: Exec;
+}
+
+/**
+ * The exact inverses of {@link shareAclCommands}: remove the read ACL from the
+ * tree (recursively, which also strips the entries children inherited while
+ * the grant stood) and the traverse-only entry from each ancestor.
+ *
+ * Pure, snapshot-tested, and deliberately symmetric with the grant: these are
+ * only the entries offstage itself added.
+ */
+export function unshareAclCommands(options: Omit<UnshareAclOptions, 'exec'>): AclCommand[] {
+  const home = options.home ?? os.homedir();
+  const target = path.resolve(options.target);
+  const commands: AclCommand[] = shareAncestors(target, home).map((ancestor) => ({
+    file: '/bin/chmod',
+    args: ['-a', `${options.user} allow ${SHARE_TRAVERSE_ACL}`, ancestor],
+    kind: 'traverse' as const,
+    target: ancestor,
+  }));
+  commands.push({
+    file: '/bin/chmod',
+    args: ['-R', '-a', `${options.user} allow ${SHARE_READ_ACL}`, target],
+    kind: 'read',
+    target,
+  });
+  return commands;
+}
+
+/** macOS `chmod` exits 1 with this text when the ACL being removed is not there. */
+const NO_ACL_PRESENT = /No ACL present/;
+
+/**
+ * Revoke what {@link shareAcl} granted.
+ *
+ * Removing an ACL entry that is already absent makes `chmod` exit 1 with
+ * "No ACL present" — measured, not assumed. That is success for an unshare:
+ * the goal state is "the grant is gone", however it got there. Any other
+ * failure (ENOENT on a deleted tree, a permissions error) is reported as such
+ * in `failures`. Never throws.
+ */
+export async function unshareAcl(options: UnshareAclOptions): Promise<AclResult> {
+  const result = await runAclCommands(unshareAclCommands(options), options.exec ?? defaultExec);
+  const realFailures = result.failures.filter((failure) => !NO_ACL_PRESENT.test(failure.stderr));
+  return { ...result, ok: realFailures.length === 0, failures: realFailures };
 }
 
 export interface GrantArtifactsWriteOptions {

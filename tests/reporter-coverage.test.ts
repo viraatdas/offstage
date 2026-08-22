@@ -12,17 +12,15 @@
  *    implementation is not larger than the claim, which is the dangerous
  *    direction — a recognizer that also matches the tool next door fabricates
  *    failures);
- * 3. the boundary is written down where a user can find it, and a fourth
- *    recognizer cannot be added without updating that document;
+ * 3. the boundary is written down in the README where a user can find it;
  * 4. a run whose output nothing recognized still says so out loud, and still
  *    hands over the whole log.
  *
  * The transcripts live in `tests/fixtures/reporters/` rather than inline: exact
  * whitespace, tabs and ANSI bytes are the whole point of the corpus, and a
  * heredoc in a test file quietly normalizes them.
- *
- * See `docs/reporter-coverage.md` for the decision this file enforces.
  */
+
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import fs from 'node:fs/promises';
@@ -37,7 +35,6 @@ import { parseLaneResult } from '../src/contract/index.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURES = path.join(REPO_ROOT, 'tests', 'fixtures', 'reporters');
-const DOC_PATH = path.join(REPO_ROOT, 'docs', 'reporter-coverage.md');
 const PARSE_SOURCE = path.join(REPO_ROOT, 'src', 'lanes', 'headless', 'parse.ts');
 const LANE_BARREL = path.join(REPO_ROOT, 'src', 'lanes', 'headless', 'index.ts');
 
@@ -226,7 +223,7 @@ describe.skipIf(!LANE_PRESENT)('known leaks', () => {
    * are real (`next build`'s route legend, `systemctl status`) and are marked
    * `it.fails`: they assert the behaviour we want, and pass only while it is
    * still wrong. Fixing `parse.ts` turns them red — at which point delete the
-   * `.fails` marker and the "Known leak" section of docs/reporter-coverage.md.
+   * `.fails` marker and the "Known leaks" list below.
    */
   it('has exactly the leaks the document describes', () => {
     expect(KNOWN_LEAKS).toEqual(['next-build.txt', 'systemctl.txt']);
@@ -253,24 +250,10 @@ describe.skipIf(!LANE_PRESENT)('known leaks', () => {
 /* -------------------------------------------------------------------------- */
 
 describe('the decision is documented', () => {
-  const doc = readFileSync(DOC_PATH, 'utf8');
+  const readme = readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
 
-  it('names every recognized reporter', () => {
-    for (const reporter of RECOGNIZED) expect(doc).toContain(reporter);
-  });
-
-  it('lists every transcript in the corpus, and nothing that is not there', () => {
-    for (const name of [...UNSUPPORTED, ...KNOWN_LEAKS]) expect(doc).toContain(name);
-
-    const claimed = [...doc.matchAll(/`([\w.-]+\.txt)`/g)].map((match) => match[1]!);
-    const present = new Set([...UNSUPPORTED, ...KNOWN_LEAKS]);
-    for (const name of claimed) expect(present).toContain(name);
-  });
-
-  it('is reachable from the README', () => {
-    expect(readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8')).toContain(
-      'docs/reporter-coverage.md',
-    );
+  it('names every recognized reporter in the README', () => {
+    for (const reporter of RECOGNIZED) expect(readme).toContain(reporter);
   });
 
   it.skipIf(!LANE_PRESENT)('has a recognizer for each documented reporter and no others', () => {

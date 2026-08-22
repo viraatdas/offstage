@@ -30,7 +30,7 @@ describe('what counts as shipped', () => {
   });
 
   it('leaves out what ships but cannot change behaviour, so the guard stays worth obeying', () => {
-    expect(isShipped('docs/usage.md')).toBe(false);
+    expect(isShipped('tests/e2e.test.ts')).toBe(false);
     expect(isShipped('README.md')).toBe(false);
     expect(isShipped('tests/plugin.test.ts')).toBe(false);
     expect(isShipped('.github/workflows/ci.yml')).toBe(false);
@@ -56,7 +56,7 @@ describe('the verdict', () => {
   });
 
   it('passes when only unshipped files changed', () => {
-    const result = verdict({ ...base, changed: ['docs/usage.md', 'README.md'] });
+    const result = verdict({ ...base, changed: ['tests/e2e.test.ts', 'README.md'] });
     expect(result.ok).toBe(true);
     expect(result.message).toContain('no shipped file changed');
   });

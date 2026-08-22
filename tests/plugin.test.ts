@@ -150,7 +150,7 @@ describe('skills/offstage/SKILL.md', () => {
 
 describe('what npm ships', () => {
   it('includes every directory the plugin and the skill live in', () => {
-    for (const entry of ['dist', 'docker', 'docs', 'skills', '.claude-plugin', '.mcp.json']) {
+    for (const entry of ['dist', 'docker', 'native', 'skills', '.claude-plugin', '.mcp.json']) {
       expect(pkg.files, `package.json files must include ${entry}`).toContain(entry);
     }
   });

@@ -296,7 +296,7 @@ func perform(_ action: InputAction) throws {
         // and an A/B against the previous timing (10 steps, 8 ms, no settle)
         // did not separate them. So this shape is a best effort on how AppKit
         // is documented to track drags, NOT a verified fix. `drag` is listed as
-        // unverified in docs/verified.md and should be treated as such.
+        // unverified end to end and should be treated as such.
         let (down, up, dragged) = downUpTypes(button)
         post(mouseEvent(.mouseMoved, fx, fy, button))
         sleepMs(30)

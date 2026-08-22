@@ -55,6 +55,7 @@ import {
   sessionSetup,
   sessionShare,
   sessionStatus,
+  sessionUnshare,
 } from './api.js';
 import type { ApiDeps } from './api.js';
 import {
@@ -69,6 +70,7 @@ import {
   renderSessionSetup,
   renderSessionShare,
   renderSessionStatus,
+  renderSessionUnshare,
 } from './render.js';
 
 /** Where the CLI writes and how it stops. Replaced wholesale in tests. */
@@ -259,9 +261,13 @@ export function createProgram(io: CliIo): { program: Command; exitCode: () => nu
 
   session
     .command('setup')
-    .description('Compile offstage-sessiond, install it into the helper session, and ask for the TCC grants.')
+    .description(
+      'Compile offstage-sessiond, install it into the helper session, pre-grant its TCC permissions, and create the account when asked.',
+    )
     .option('--user <name>', 'helper account to install into (default: the configured one)')
-    .option('--create', 'create the account when it does not exist yet', false)
+    .option('--create', 'create the account when it does not exist yet (with a generated password)', false)
+    .option('--password <pw>', 'password for --create or for arming auto-login on an existing account')
+    .option('--auto-login', 'arm boot-time auto-login so every reboot brings the helper session up by itself', false)
     .option('--json', 'emit the setup report as JSON', false)
     .action(async function setupAction(this: Command) {
       const options = this.opts();
@@ -274,10 +280,15 @@ export function createProgram(io: CliIo): { program: Command; exitCode: () => nu
             'which has to be able to prompt you for a password. Run it in a terminal.',
         );
       }
+      if (options.password !== undefined && typeof options.password !== 'string') {
+        throw new OffstageUsageError('--password needs the password as its value.');
+      }
       const result = await sessionSetup(
         {
           ...(options.user === undefined ? {} : { user: options.user as string }),
           ...(options.create ? { create: true } : {}),
+          ...(options.autoLogin ? { autoLogin: true } : {}),
+          ...(options.password === undefined ? {} : { password: options.password as string }),
           // The root script is printed before it runs. Always stderr under
           // --json, so stdout stays exactly one JSON document.
           io: (line) => (json ? io.stderr(line) : io.stdout(line)),
@@ -301,6 +312,22 @@ export function createProgram(io: CliIo): { program: Command; exitCode: () => nu
         io.deps,
       );
       emit(jsonFlag(this), result, renderSessionShare(result));
+      setExit(result.ok ? 0 : 70);
+    });
+
+  session
+    .command('unshare')
+    .description('Revoke the read-only access `share` granted on one directory tree.')
+    .argument('<dir>', 'the tree to revoke')
+    .option('--user <name>', 'helper account to revoke from (default: the configured one)')
+    .option('--json', 'emit the removed ACLs as JSON', false)
+    .action(async function unshareAction(this: Command, dir: string) {
+      const options = this.opts();
+      const result = await sessionUnshare(
+        { path: dir, ...(options.user === undefined ? {} : { user: options.user as string }) },
+        io.deps,
+      );
+      emit(jsonFlag(this), result, renderSessionUnshare(result));
       setExit(result.ok ? 0 : 70);
     });
 
