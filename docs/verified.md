@@ -81,8 +81,8 @@ and `tests/cli.session.test.ts` holds the regression.
 | 2. LaunchAgent bootstrapped into the helper session; `hello` reports `onConsole: false`; `open -a TextEdit` starts under the helper uid | ✅ passed, 2026-08-20, session 258 / uid 502 |
 | 3. Screen Recording granted → `screenshot` returns a PNG of a desktop that is not the console's | ✅ passed, 2026-08-20 — a 3456×2234 PNG of the `computeruse` desktop (TextEdit + its own Dock) captured while `viraat` stayed on console |
 | 4. Accessibility granted → `input` types into an app and the next screenshot shows it | ✅ passed, 2026-08-21, session 258 / uid 502 — Screen Recording and Accessibility both granted, a PNG of the hidden desktop captured, two clicks at point coordinates landed on the intended Calculator buttons (`75`), discrete key events entered `8675`, and one `type` action entered `8675309`. The console session's display never changed. |
-| 4b. `input` drag and scroll | **not verified.** `click`, `key` and `type` are proven (rung 4). `drag` has been observed both moving a window and doing nothing at the same coordinates, and an A/B against the earlier timing did not separate the two, so its implementation is a best effort rather than a fix. `scroll` has never been exercised at all. |
-| 5. `offstage run --lane session -- npx playwright test --headed` against a shared repo | not yet |
+| 4b. `input` drag and scroll | ✅ passed, 2026-08-21, session 258 / uid 502 — `drag` moved a System Settings window from one corner of the hidden desktop to another, and two `scroll` actions moved a Finder list from `App Store…Image Capture` to `News…Time Machine`. Both confirmed by before/after screenshots. `scroll` requires `dx` even for a purely vertical scroll, which is friction, not a fault. |
+| 5. `offstage run --lane session -- npx playwright test --headed` against a shared repo | ✅ passed, 2026-08-21, session 258 / uid 502 — a real headed Chromium ran a spec to completion (`PASSED, exit 0`) and a screenshot of the hidden desktop shows the browser window frontmost and rendering the page, while `IOConsoleUsers` reported `viraat` on console throughout and every keystroke in that window went to the user's own apps. Independently corroborated earlier by a mid-run process tree under uid 502 carrying GPU and renderer helpers and **no** `--headless` flag. |
 
 ### A real finding: input must go through the SESSION event tap
 
@@ -182,6 +182,28 @@ binary at that path has to keep satisfying. The two halves fail differently:
 The security argument still holds, for the right reason: a swapped binary at the
 granted path is refused because it fails the requirement, not because grants are
 path-independent.
+
+### Two things reported as broken that are not
+
+Recorded because both were stated as findings during the same session and both
+were wrong, which is worth as much as the real ones.
+
+**The clipboard works.** `pbcopy` into the helper session followed by `pbpaste`
+round-tripped `CLIPTEST-9931` cleanly. An earlier attempt came back empty and was
+written up as "spawned processes are not in the session's bootstrap namespace".
+It was measured during the window when the daemon was being moved and restarted
+repeatedly, and it does not reproduce.
+
+**`drag` was not broken either.** It was reported as failing after a window did
+not move. The window in question was the Calculator, and the coordinates landed
+on a title-bar *button*, not on draggable chrome. Against a window with a wide
+title bar it works, and an A/B against the older timing was inconclusive rather
+than damning. The current implementation keeps the more careful timing because
+it is closer to how AppKit documents drag tracking, not because the old one was
+proven broken.
+
+The lesson in both: a single negative observation on a shared, changing machine
+is a hypothesis, not a finding.
 
 ### Two further bugs rung 4 only exposed once it could be seen
 
