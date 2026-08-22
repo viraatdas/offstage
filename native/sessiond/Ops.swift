@@ -154,44 +154,157 @@ func opAccess(_ req: [String: Any]) throws -> [String: Any] {
 
 // MARK: - apps
 
-/// Pump the main runloop briefly so AppKit delivers its pending workspace
-/// notifications. This process runs as a launchd daemon with no NSApplication
-/// event loop, and `NSWorkspace`'s snapshot of `runningApplications` only
-/// updates when the main runloop turns: without this, an app opened seconds
-/// ago is simply missing from the list (measured: TextEdit frontmost on
-/// screen while `apps` denied it existed).
-func refreshWorkspaceState() {
-    let deadline = Date().addingTimeInterval(0.1)
-    let runloop = RunLoop.main
-    while runloop.run(mode: .default, before: deadline) && Date() < deadline {
-        // Drain until the deadline; run(mode:before:) returns false once the
-        // deadline passes with nothing scheduled, which ends the loop.
+/// Launch Services' own registry, read through `lsappinfo`.
+///
+/// This replaced `NSWorkspace.runningApplications` after that API proved to
+/// serve frozen snapshots from a launchd-daemon context: Calculator and
+/// Safari were visibly running — one of them frontmost, menu bar and all —
+/// while the list denied either existed. Without a full NSApplication context
+/// the workspace only learns about changes sporadically, and a 0.1-second
+/// runloop pump per request did not fix it. `lsappinfo` asks LaunchServices
+/// directly and is always current; it is what Apple's own tools use.
+func runLsAppInfo(_ args: [String]) -> String {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/lsappinfo")
+    process.arguments = args
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = FileHandle.nullDevice
+    do { try process.run() } catch { return "" }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    return String(data: data, encoding: .utf8) ?? ""
+}
+
+struct LSAppEntry {
+    let asn: String
+    let name: String?
+    let bundleId: String?
+    let pid: Int32
+    /// "regular" for Foreground apps, "accessory" for UIElement (menu-bar /
+    /// LSUIElement) apps. BackgroundOnly daemons are not skipped-invisible
+    /// apps anyone drives, so they are left out entirely.
+    let policy: String
+}
+
+/// The header of one entry: `<digits>) "<name>" ASN:<0x0-0x…>:` — deliberately
+/// strict, because continuation lines like `parentASN="loginwindow" ASN:…`
+/// also carry ` ASN:` plus quotes and would otherwise split apps in half.
+func lsAppHeader(_ line: Substring) -> (name: String, asn: String)? {
+    guard let paren = line.firstIndex(of: ")"), paren > line.startIndex else { return nil }
+    let indexPart = line[line.startIndex..<paren]
+    guard !indexPart.isEmpty, indexPart.allSatisfy({ $0.isNumber }) else { return nil }
+    var rest = line[line.index(after: paren)...]
+    rest = rest.drop(while: { $0 == " " })
+    guard rest.first == "\"",
+          let openQuote = rest.firstIndex(of: "\""),
+          let closeQuote = rest[rest.index(after: openQuote)...].firstIndex(of: "\""),
+          let asnRange = rest.range(of: " ASN:"), asnRange.lowerBound > closeQuote else { return nil }
+    let name = String(rest[rest.index(after: openQuote)..<closeQuote])
+    let afterAsn = rest[asnRange.upperBound...]
+    guard let asnEnd = afterAsn.firstIndex(of: ":") else { return nil }
+    return (name, String(afterAsn[..<asnEnd]))
+}
+
+func parseLsAppList(_ output: String) -> [LSAppEntry] {
+    var entries: [LSAppEntry] = []
+    var name: String? = nil
+    var asn: String? = nil
+    var bundleId: String? = nil
+    var pid: Int32? = nil
+    var type: String? = nil
+
+    func flush() {
+        if let asn, let pid {
+            switch type {
+            case "Foreground":
+                entries.append(LSAppEntry(asn: asn, name: name, bundleId: bundleId, pid: pid, policy: "regular"))
+            case "UIElement":
+                entries.append(LSAppEntry(asn: asn, name: name, bundleId: bundleId, pid: pid, policy: "accessory"))
+            default:
+                break
+            }
+        }
+        name = nil; asn = nil; bundleId = nil; pid = nil; type = nil
     }
+
+    for rawLine in output.split(separator: "\n") {
+        let line = Substring(rawLine).drop(while: { $0 == " " || $0 == "\t" })
+
+        if let header = lsAppHeader(line) {
+            flush()
+            name = header.name
+            asn = header.asn
+            continue
+        }
+
+        guard asn != nil else { continue }
+
+        /* Fields are read independently rather than as an else-if chain:
+           `pid` and `type` share one physical line
+           (`pid = 21635 type="UIElement" flavor=3 …`), so first-match-per-line
+           silently dropped every `type`. */
+        if bundleId == nil, let v = quotedValue(in: line, key: "bundleID") {
+            bundleId = v == "NULL" ? nil : v
+        }
+        if pid == nil, let r = line.range(of: "pid = ") {
+            let digits = line[r.upperBound...].prefix { $0.isNumber }
+            pid = Int32(digits)
+        }
+        if type == nil, let v = quotedValue(in: line, key: "type") {
+            type = v
+        }
+
+        // `type` is the last field an app entry needs; once it and the pid are
+        // in, this entry is complete.
+        if type != nil && pid != nil {
+            flush()
+        }
+    }
+    flush()
+    return entries
+}
+
+/// The value inside double quotes after `<key>="`, or the bare token when the
+/// field reads `[ NULL ]` → returns "NULL".
+func quotedValue(in line: Substring, key: String) -> String? {
+    guard let keyRange = line.range(of: "\(key)=") else { return nil }
+    let rest = line[keyRange.upperBound...]
+    if rest.hasPrefix("\"") {
+        let inner = rest[rest.index(after: rest.startIndex)...]
+        if let end = inner.firstIndex(of: "\"") {
+            return String(inner[..<end])
+        }
+        return nil
+    }
+    let token = rest.prefix { !$0.isWhitespace && $0 != "]" }
+    return String(token).isEmpty ? nil : String(token)
 }
 
 func opApps(_ req: [String: Any]) throws -> [String: Any] {
-    refreshWorkspaceState()
-    let front = frontmostWindowPid()
     // Accessory apps are listed on purpose: LSUIElement/menu-bar tools — which
     // is what a lot of utility apps an agent wants to test actually are — never
     // get the regular policy, and filtering them out made every launch of such
     // an app look like a failure ("open" succeeded but apps denied it existed,
-    // measured with GestureEngine, dev.viraat.GestureEngine). The policy is
-    // reported so callers can tell them apart.
-    let apps = NSWorkspace.shared.runningApplications
-        .filter { $0.activationPolicy == .regular || $0.activationPolicy == .accessory }
-        .map { app -> [String: Any] in
-            var entry: [String: Any] = [
-                "pid": Int(app.processIdentifier),
-                // Live, for the same reason sessionTargetPid() is.
-                "active": app.processIdentifier == front,
-                "hidden": app.isHidden,
-                "policy": app.activationPolicy == .regular ? "regular" : "accessory",
-            ]
-            entry["name"] = app.localizedName ?? NSNull()
-            entry["bundleId"] = app.bundleIdentifier ?? NSNull()
-            return entry
-        }
+    // measured with GestureEngine, dev.viraat.GestureEngine).
+    let listing = runLsAppInfo(["list"])
+    let frontRaw = runLsAppInfo(["front"]).trimmingCharacters(in: .whitespacesAndNewlines)
+    let frontAsn = frontRaw.hasPrefix("ASN:")
+        ? String(frontRaw.dropFirst("ASN:".count).drop { $0 == ":" })
+        : frontRaw
+
+    let apps: [[String: Any]] = parseLsAppList(listing).map { entry in
+        [
+            "pid": Int(entry.pid),
+            // CGWindowList-derived and live; lsappinfo does not expose a
+            // reliable hidden flag, so hidden is reported as false.
+            "active": !frontAsn.isEmpty && entry.asn == frontAsn,
+            "hidden": false,
+            "policy": entry.policy as Any,
+            "name": entry.name ?? NSNull(),
+            "bundleId": entry.bundleId ?? NSNull(),
+        ]
+    }
     return ["ok": true, "apps": apps]
 }
 

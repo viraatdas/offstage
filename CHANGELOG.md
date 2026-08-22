@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.4
+
+### Fixed
+
+- **`offstage session apps` is finally truthful.** The daemon now reads
+  Launch Services directly (`lsappinfo`) instead of `NSWorkspace`, which from
+  a launchd-daemon context served frozen snapshots: Calculator and Safari were
+  visibly running — one frontmost — while the list denied either existed.
+  That staleness was the root cause of a real agent session relaunching an app
+  six times and then abandoning isolation.
+
+### Added
+
+- `apps` entries carry their activation `policy` (`regular` | `accessory`),
+  and menu-bar / LSUIElement apps are listed. Before this, launching such an
+  app looked identical to a failed launch — which is exactly what
+  GestureEngine (a trackpad-gesture utility) is, and why the agent gave up.
+
 ## 0.3.3
 
 ### Fixed
