@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.3
+
+### Fixed
+
+- `offstage session launch` routes bare app names through `open -a`. Without
+  it, `open` treated the name as a file path relative to the helper account's
+  home directory (`open Calculator` exits 1 with "The file
+  /Users/computeruse/Calculator does not exist") — measured on a live helper
+  session via the published package.
+
 ## 0.3.2
 
 ### Added

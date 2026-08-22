@@ -1923,11 +1923,19 @@ export async function sessionLaunch(
      cwd before crossing the socket — the helper account's own cwd would be
      its home directory, where the relative path means nothing (measured:
      `open -n build/GestureEngine.app` exited 1 exactly that way). A bare
-     name stays bare: `open -a Calculator` resolves it on the other side. */
+     name goes through `open -a`, because without it `open` treats the name
+     as a file path too (`open Calculator` exits 1 complaining
+     `/Users/computeruse/Calculator does not exist`). */
   const looksLikePath = /[\\/]/.test(input.target) || /\.app$/i.test(input.target.trim());
-  const target = looksLikePath ? path.resolve(input.cwd ?? process.cwd(), input.target) : input.target;
+  const targetArg = looksLikePath ? path.resolve(input.cwd ?? process.cwd(), input.target) : input.target;
 
-  const argv = ['open', ...(input.fresh === true ? ['-n'] : []), target, ...(input.args ?? [])];
+  const argv = [
+    'open',
+    ...(input.fresh === true ? ['-n'] : []),
+    ...(looksLikePath ? [] : ['-a']),
+    targetArg,
+    ...(input.args ?? []),
+  ];
   let openOutput = '';
   try {
     const outcome = await client.run({
@@ -1969,7 +1977,7 @@ export async function sessionLaunch(
   if (input.fresh === true) {
     try {
       for (const app of await client.apps()) {
-        if (appMatchesTarget(target, app)) preExistingPids.add(app.pid);
+        if (appMatchesTarget(targetArg, app)) preExistingPids.add(app.pid);
       }
     } catch {
       /* A failed snapshot must not block the launch; the poll below simply
@@ -1989,7 +1997,7 @@ export async function sessionLaunch(
       apps = [];
     }
     const found = apps.find(
-      (app) => appMatchesTarget(target, app) && !preExistingPids.has(app.pid),
+      (app) => appMatchesTarget(targetArg, app) && !preExistingPids.has(app.pid),
     );
     if (found !== undefined) {
       return { ok: true, target: input.target, app: found, waitedMs: now() - startedAtMs, diagnostics };

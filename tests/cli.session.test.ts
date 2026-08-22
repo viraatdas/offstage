@@ -581,6 +581,23 @@ describe('sessionLaunch', () => {
     expect(runCall?.payload).toEqual(['open', '-n', '/Users/viraat/code/GestureEngine/build/GestureEngine.app']);
   });
 
+  it('routes bare app names through `open -a`, because bare paths mean files', async () => {
+    // Measured on a live helper session: `open Calculator` exits 1 with
+    // "The file /Users/computeruse/Calculator does not exist." — open only
+    // resolves application names when given -a.
+    const base = fakeClient();
+    const CALCULATOR = { pid: 5120, name: 'Calculator', bundleId: 'com.apple.calculator', active: true, hidden: false };
+    const client = { ...base, async apps() { return [CALCULATOR]; } } as unknown as FakeClient;
+    const { session } = seams({ client });
+
+    const result = await sessionLaunch({ target: 'Calculator' }, { session });
+
+    expect(result.ok).toBe(true);
+    expect(result.app?.name).toBe('Calculator');
+    const runCall = base.calls.find((call) => call.op === 'run');
+    expect(runCall?.payload).toEqual(['open', '-a', 'Calculator']);
+  });
+
   it('fails honestly when the app never registers, and says what to do instead', async () => {
     const base = fakeClient();
     const client = { ...base, async apps() { return []; } } as unknown as FakeClient;
