@@ -293,6 +293,36 @@ $ offstage session screenshot                      # toggle flipped: Listening �
 Nothing appeared on screen at any point; every screenshot in that sequence is
 the *other* account's desktop.
 
+### Installing your own app into the guest account
+
+The refusal row above is about *distributable artifacts* — `.dmg` mounts,
+`.pkg` installers, anything whose job is rewriting the machine both accounts
+share. Your own app under development is different: it's just another GUI
+process, and it runs happily on the second account straight from your build
+directory (`session launch build/App.app`), exactly as GestureEngine does
+above.
+
+If you want it "installed" into the guest anyway, skip the installer and copy
+the bundle into the helper account's own Applications folder — no sudo, no
+refusal:
+
+```bash
+offstage run --lane session -- sh -c 'mkdir -p /Users/computeruse/Applications && cp -R build/GestureEngine.app /Users/computeruse/Applications/'
+offstage session launch --fresh /Users/computeruse/Applications/GestureEngine.app
+```
+
+Three practical notes from doing this for real:
+
+- Use the helper account's absolute home path
+  (`/Users/computeruse/...`); inside the session lane, `$HOME` is an
+  unresolved shell expansion to the router and relative paths resolve against
+  the helper's home, not yours.
+- Kill old instances before relaunching (`offstage run --lane session --
+  pkill -x MyApp`): LaunchServices gets confused by several copies of one
+  bundle id registering at once.
+- A freshly copied bundle can take tens of seconds to register while macOS
+  verifies the new file — pass `--wait-ms 60000` instead of retrying.
+
 Two lessons from driving it shaped this release:
 
 - **Menu-bar apps are invisible to naive app lists.** `LSUIElement` apps get

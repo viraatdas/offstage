@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.5
+
+### Added
+
+- Documented the "install your app into the guest account" pattern: copy the
+  bundle into the helper account's own `~/Applications` through the session
+  lane (no sudo, no installer, no refusal), then `session launch --fresh`
+  with a generous `--wait-ms`. Includes the three practical notes learned by
+  doing it: absolute guest paths, single-instance hygiene before relaunch,
+  and slow first registration of freshly copied bundles.
+
 ## 0.3.4
 
 ### Fixed

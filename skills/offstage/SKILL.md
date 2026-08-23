@@ -135,6 +135,19 @@ For the same reason, never exec the binary inside `App.app/Contents/MacOS/`
 directly, even through the session lane: it bypasses LaunchServices, so the app
 may never appear in `offstage_session_apps`. Launch bundles as bundles.
 
+**"Installing" the user's app into the guest account** (when they want it
+tested from an installed location) is a copy, not an installer — `.pkg`/`.dmg`
+are refused outright, but this is not that:
+
+```
+offstage_run { lane:"session", command:["sh","-c","mkdir -p /Users/computeruse/Applications && cp -R build/App.app /Users/computeruse/Applications/"] }
+offstage_session_launch { target: "/Users/computeruse/Applications/App.app", fresh: true, waitMs: 60000 }
+```
+
+Use absolute paths under the helper account's home; kill old instances
+(`pkill -x App` via the session lane) before relaunching; expect a freshly
+copied bundle to register slowly (hence the generous `waitMs`).
+
 It is **session isolation, not machine isolation** — same kernel, same disk.
 Anything that could change the machine (`.dmg`, `.pkg`, `installer`,
 `hdiutil`) is refused outright: offstage has no lane that isolates that, so it
