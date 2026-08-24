@@ -1,7 +1,7 @@
 /**
  * The classifier's central promise: it decides *before* anything runs.
  *
- * That means no browser, no docker, no xcodebuild — no external process at all,
+ * That means no browser, no docker, no xcodebuild, no external process at all,
  * not even a cheap `which`. It is checked three ways here, because a promise
  * this load-bearing should not rest on one assertion:
  *
@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-// Any spawn attempt from inside classify() — direct or transitive — lands here.
+// Any spawn attempt from inside classify(), direct or transitive, lands here.
 vi.mock('node:child_process', () => {
   const forbid = (name: string) => (): never => {
     throw new Error(`classify() must not spawn processes, but it called ${name}()`);

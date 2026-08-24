@@ -1,5 +1,5 @@
 /**
- * The headless lane — no isolation, because none is needed.
+ * The headless lane, no isolation, because none is needed.
  *
  * ```ts
  * import { headlessLane } from '../lanes/headless/index.js';

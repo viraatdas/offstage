@@ -1,8 +1,10 @@
 /**
- * offstage — the programmatic API behind the CLI.
+ * offstage: the programmatic API behind the CLI.
  *
- * This module is the single dispatch path: `src/cli/index.ts` renders it for a
- * terminal, and `src/mcp/core.ts` hands it to an agent. Neither of them decides
+ * Four verbs live here, and they are the whole product: `doctor` says which
+ * lanes can run, `route` decides where a command belongs, `run` sends it there,
+ * and `probe` reads a macOS app's entitlements. `src/cli/index.ts` renders them
+ * for a terminal and `src/mcp/core.ts` hands them to an agent; neither decides
  * anything. Every routing rule, every safety refusal, and every write to
  * `.offstage/runs/<id>/result.json` happens exactly once, here.
  *
@@ -13,16 +15,20 @@
  * console.log(outcome.result.status, outcome.resultPath);
  * ```
  *
+ * The session lane's own verbs are not here. Bringing that lane up lives in
+ * `./session.ts` and driving it lives in `./session-control.ts`, because both
+ * are about one lane's substrate rather than about routing a command. What they
+ * share with this file is {@link ApiDeps}, whose seams they read through
+ * {@link withDefaults}.
+ *
  * The four functions return typed values and throw only for caller error
  * ({@link OffstageUsageError}). A run that fails, times out, or is refused
- * comes back as a valid `LaneResult`, never as an exception — the contract's
+ * comes back as a valid `LaneResult`, never as an exception: the contract's
  * rule 2, hoisted one level up so the CLI and the MCP server can share it.
  */
 
-import { spawn } from 'node:child_process';
 import { type Dirent, readFileSync, readdirSync, statSync } from 'node:fs';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -44,60 +50,20 @@ import { allocateRunDir, writeResult } from '../contract/artifacts.js';
 import type { ContainerRuntimeProbe } from '../lanes/container/index.js';
 import { containerLane, describeRuntimeProbe } from '../lanes/container/index.js';
 import { headlessLane } from '../lanes/headless/index.js';
-import type { SessionLane, SessionLaneOptions, SessionProbe } from '../lanes/session/index.js';
-import { createSessionLane, describeSessionProbe, sessionLane } from '../lanes/session/index.js';
+import type { SessionProbe } from '../lanes/session/index.js';
+import { describeSessionProbe, sessionLane } from '../lanes/session/index.js';
 import type { EntitlementsProbeReport } from '../probe/index.js';
 import { probeEntitlements } from '../probe/index.js';
 import type { ClassifyHints } from '../router/index.js';
 import { classify, tokenizeShellish } from '../router/index.js';
-import type {
-  CompileDaemonResult,
-  DescribeSessionOptions,
-  Exec,
-  GuiSessionState,
-  InputAction,
-  SessionApp,
-  SessionClient,
-  SessionClientFactory,
-  SessionDiscovery,
-  SessionHello,
-  SessionPermissions,
-} from '../session/index.js';
-import {
-  DAEMON_BINARY_NAME,
-  DAEMON_SOURCE_RELATIVE_DIR,
-  installDirFor,
-  DEFAULT_LABEL,
-  DEFAULT_SOCKET_DIR,
-  SESSION_CONFIG_RELATIVE_PATH,
-  SessionRpcError,
-  SessionUnreachableError,
-  compileDaemon,
-  createSessionClient,
-  defaultExec,
-  describeAclCommand,
-  describeSession,
-  exportCsreq,
-  generateSessionPassword,
-  parseInputActions,
-  persistSessionConfig,
-  readFileVaultStatus,
-  renderInstallScript,
-  renderLaunchAgentPlist,
-  sessionUserFullName,
-  shareAcl,
-  shareAclCommands,
-  shellQuote,
-  unshareAcl,
-} from '../session/index.js';
-import { UpdateError, updateDaemon } from '../session/update.js';
+import type { SessionSeams } from './session.js';
 
 /* -------------------------------------------------------------------------- */
 /* Errors                                                                     */
 /* -------------------------------------------------------------------------- */
 
 /**
- * The caller asked for something impossible — a cwd that does not exist, an
+ * The caller asked for something impossible: a cwd that does not exist, an
  * empty command, a lane that is not one of the four. This is the only thing
  * these functions throw, and it always means the *call* was wrong, never that
  * the run was bad.
@@ -158,7 +124,7 @@ export const defaultDeps: ApiDeps = {
   directoryExists,
 };
 
-function withDefaults(overrides?: Partial<ApiDeps>): ApiDeps {
+export function withDefaults(overrides?: Partial<ApiDeps>): ApiDeps {
   return overrides ? { ...defaultDeps, ...overrides } : defaultDeps;
 }
 
@@ -202,7 +168,7 @@ function resolveCommand(command: unknown): string[] {
 
   // `offstage route -- "npx playwright test --headed"` arrives as ONE argv
   // entry. Read literally, it is a program with a very odd name: no browser is
-  // named, so it classifies as headless — a wrong answer that reads as a
+  // named, so it classifies as headless: a wrong answer that reads as a
   // confident one. `run` fails closed (ENOENT on a binary with spaces in its
   // name), but `route` would quietly mislead.
   //
@@ -232,7 +198,7 @@ function resolveCommand(command: unknown): string[] {
 /**
  * Map the ambient environment onto router hints.
  *
- * The router deliberately reads no environment variables — it takes `{cwd,
+ * The router deliberately reads no environment variables: it takes `{cwd,
  * command, hints}` and nothing else, so that a caller can always see what it
  * was told. That leaves one real signal living in the environment:
  * `PWDEBUG=1`, which forces Playwright headed no matter what argv or the
@@ -256,7 +222,7 @@ export function hintsFromEnv(env: NodeJS.ProcessEnv, headed?: boolean): Classify
 export interface LaneHealth {
   lane: Lane;
   availability: LaneAvailability;
-  /** Extra lines worth printing under the lane — the container runtime probe's steps. */
+  /** Extra lines worth printing under the lane: the container runtime probe's steps. */
   detail: string[];
 }
 
@@ -300,7 +266,7 @@ export interface OffstageInstall {
   fromSource: boolean;
   /**
    * Set when a checkout's compiled `dist/` predates the sources or the version
-   * it claims — meaning the running code is not what the repository says.
+   * it claims: meaning the running code is not what the repository says.
    */
   staleBuild?: string;
 }
@@ -316,7 +282,7 @@ let cachedInstall: OffstageInstall | undefined;
  *
  * Synchronous because the MCP server must name itself while constructing the
  * server object, before anything can be awaited. It is the single source for
- * the CLI and the server both, so the two cannot drift — they did once: the
+ * the CLI and the server both, so the two cannot drift. They did once: the
  * server introduced itself as 0.1.0 over the wire while doctor correctly
  * reported 0.2.1.
  */
@@ -397,7 +363,7 @@ export function detectStaleBuild(root: string, modulePath: string, version: stri
   return (
     `this build is ${behind} older than its sources, so the running code is not what ` +
     `${root} currently says it is (it reports ${version}). Run \`npm run build\` and restart ` +
-    `whatever started this process — a long-lived MCP server keeps the build it launched with.`
+    `whatever started this process: a long-lived MCP server keeps the build it launched with.`
   );
 }
 
@@ -445,7 +411,7 @@ function mtimeOf(target: string): number {
   }
 }
 
-/** `3 minutes`, `2 hours`, `4 days` — enough precision to tell "just now" from "forgot to rebuild". */
+/** `3 minutes`, `2 hours`, `4 days`: enough precision to tell "just now" from "forgot to rebuild". */
 function formatAge(ms: number): string {
   const minutes = Math.round(ms / 60_000);
   if (minutes < 1) return 'less than a minute';
@@ -461,7 +427,7 @@ function formatAge(ms: number): string {
  * fix for the ones that are not.
  *
  * This probes and never mutates: it does not start Colima or pull an image.
- * A lane whose `isAvailable()` throws — a contract violation —
+ * A lane whose `isAvailable()` throws, a contract violation,
  * is reported as unavailable with the thrown message rather than taking the
  * whole report down.
  */
@@ -560,7 +526,7 @@ export interface RunInput extends CommandInput {
    * Called with the router's verdict and the lane that will actually run, after
    * classification and before dispatch. The CLI uses it to print where the
    * command is going before a long run starts producing nothing on screen.
-   * Anything it throws is ignored — it is a notification, not a hook.
+   * Anything it throws is ignored: it is a notification, not a hook.
    */
   onDecision?: (event: { decision: RouteDecision; lane: Lane; laneSource: 'router' | 'explicit' }) => void;
 }
@@ -763,7 +729,7 @@ function refuseDowngrade(args: {
       `but the router routed it to the ${decision.lane} lane. Nothing was executed.`,
     `Router's reason: ${decision.reason}`,
     `Fix: drop --lane headless and let offstage use the ${decision.lane} lane, or run ` +
-      '`offstage doctor` if that lane is unavailable. There is no flag that bypasses this — ' +
+      '`offstage doctor` if that lane is unavailable. There is no flag that bypasses this: ' +
       'a headed browser appearing on your desktop is the one outcome offstage exists to prevent.',
   ];
 }
@@ -826,8 +792,8 @@ export interface ProbeInput {
 
 /**
  * Answer the one question that decides whether macOS app testing is a weekend
- * or a month: can a disposable ad-hoc-signed VM run this, or does a signing
- * lane have to be built first?
+ * or a month: is ad-hoc signing enough to build and test this app, or does a
+ * real Developer ID identity have to be wired in first?
  */
 export async function probe(
   input: ProbeInput,
@@ -842,1213 +808,4 @@ export async function probe(
       ? {}
       : { allowExternalTools: input.allowExternalTools }),
   });
-}
-
-/* -------------------------------------------------------------------------- */
-/* session                                                                    */
-/* -------------------------------------------------------------------------- */
-
-/**
- * The session lane is there, but it cannot do this right now — no helper
- * account, no daemon, or a TCC grant the daemon does not have.
- *
- * Distinct from {@link OffstageUsageError} on purpose: the *call* was fine, the
- * substrate is not. It carries the same `fix` string the lane and the daemon
- * produce, so the CLI, an agent and a script all get the identical repair
- * instruction. Exit code 69 (`EX_UNAVAILABLE`), which is what a `skipped` run
- * exits with too.
- */
-export class OffstageSessionError extends Error {
-  readonly exitCode = 69;
-  readonly fix: string | undefined;
-  readonly code: string;
-
-  constructor(message: string, options: { fix?: string; code?: string } = {}) {
-    super(message);
-    this.name = 'OffstageSessionError';
-    this.fix = options.fix;
-    this.code = options.code ?? 'session-unavailable';
-  }
-}
-
-/**
- * Every impure thing the session functions touch. All optional: the CLI and the
- * MCP server pass none of it, and a test passes exactly the seams it needs
- * (they are merged over the defaults one key at a time, not wholesale).
- */
-export interface SessionSeams {
-  /** A pre-built lane. When absent, one is built from the seams below. */
-  lane?: SessionLane;
-  discover?: (options: DescribeSessionOptions) => Promise<SessionDiscovery>;
-  createClient?: SessionClientFactory;
-  /** Exec for `chmod +a`, `dscl` and the Swift compiler. */
-  exec?: Exec;
-  compileDaemon?: typeof compileDaemon;
-  /**
-   * Run the printed root script with the terminal attached, so `sudo` and
-   * `sysadminctl -password -` can prompt. Resolves with its exit code.
-   */
-  runRootScript?: (scriptPath: string) => Promise<number | null>;
-  sleep?: (ms: number) => Promise<void>;
-  /** Directory holding `build.sh` and the daemon's Swift sources. */
-  sourceDir?: string;
-  socketDir?: string;
-  now?: () => number;
-  /** Caller's home, used to decide which ancestors `share` must open. */
-  home?: string;
-  /**
-   * Where a generated account password is persisted (default: the real
-   * `~/.config/offstage/session.json`, mode 0600). Tests record instead.
-   */
-  writeSessionConfig?: typeof persistSessionConfig;
-}
-
-const defaultRunRootScript = async (scriptPath: string): Promise<number | null> =>
-  await new Promise((resolve) => {
-    // stdio inherited on purpose: sudo has to be able to prompt for a password
-    // on the user's own terminal, and `sysadminctl -password -` prompts too.
-    const child = spawn('sudo', ['/bin/sh', scriptPath], { stdio: 'inherit' });
-    child.on('error', () => resolve(null));
-    child.on('close', (code) => resolve(code));
-  });
-
-/**
- * Sleep between daemon polls. The timer must stay ref'd: an unref'd timer is
- * the only thing on the event loop between two `hello` attempts, so Node would
- * exit with an "unsettled top-level await" in the middle of `setup` — which is
- * exactly what happened on the first live run.
- */
-export const defaultSleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-
-/** The daemon's Swift sources inside whichever copy of offstage is running. */
-export function daemonSourceDir(): string {
-  const root = offstageInstall().root;
-  return path.join(root === '' ? process.cwd() : root, DAEMON_SOURCE_RELATIVE_DIR);
-}
-
-function seamsOf(deps: ApiDeps): SessionSeams {
-  return deps.session ?? {};
-}
-
-/**
- * The lane to ask. A caller-supplied one wins; otherwise the shared instance,
- * unless a specific account or seam was named, in which case a lane is built
- * for it. `probeSession()` is the only method used here — the lane owns the
- * availability ladder and nothing re-implements it.
- */
-function sessionLaneFor(deps: ApiDeps, user?: string): SessionLane {
-  const seams = seamsOf(deps);
-  if (seams.lane !== undefined) return seams.lane;
-
-  const options: SessionLaneOptions = {};
-  if (user !== undefined) options.user = user;
-  if (seams.socketDir !== undefined) options.socketDir = seams.socketDir;
-  if (seams.discover !== undefined) options.discover = seams.discover;
-  if (seams.createClient !== undefined) options.createClient = seams.createClient;
-  if (seams.exec !== undefined) options.exec = seams.exec;
-  if (seams.now !== undefined) options.now = seams.now;
-
-  const shared = deps.lanes.session;
-  const canUseShared =
-    Object.keys(options).length === 0 && typeof (shared as { probeSession?: unknown }).probeSession === 'function';
-  return canUseShared ? (shared as SessionLane) : createSessionLane(options);
-}
-
-/** Everything `offstage session status` reports, and what `--json` emits. */
-export interface SessionStatus {
-  available: boolean;
-  reason: string | null;
-  fix: string | null;
-  user: string;
-  fullName: string;
-  uid: number | null;
-  home: string | null;
-  accountExists: boolean;
-  guiSession: GuiSessionState;
-  socketPath: string;
-  socketPresent: boolean;
-  daemon: SessionHello['daemon'] | null;
-  display: SessionHello['display'] | null;
-  permissions: SessionPermissions | null;
-  /** Missing TCC grants and anything else worth saying even when available. */
-  notes: string[];
-  /** The probe rendered the way `offstage doctor` renders it. */
-  detail: string[];
-}
-
-function statusFromProbe(probe: SessionProbe): SessionStatus {
-  const { availability, discovery, hello, notes } = probe;
-  return {
-    available: availability.available,
-    reason: availability.reason ?? null,
-    fix: availability.fix ?? null,
-    user: discovery.user,
-    fullName: sessionUserFullName(discovery),
-    uid: discovery.uid,
-    home: discovery.home,
-    accountExists: discovery.accountExists,
-    guiSession: discovery.guiSession,
-    socketPath: discovery.socketPath,
-    socketPresent: discovery.socketPresent,
-    daemon: hello?.daemon ?? null,
-    display: hello?.display ?? null,
-    permissions: hello?.permissions ?? null,
-    notes,
-    detail: describeSessionProbe(probe),
-  };
-}
-
-/**
- * Report the helper account, its session, the socket, the daemon and both TCC
- * grants — plus the fix for whichever rung failed first.
- *
- * Reads only. It never starts anything, never prompts, and never touches the
- * console session.
- */
-export async function sessionStatus(
-  input: { user?: string } = {},
-  deps?: Partial<ApiDeps>,
-): Promise<SessionStatus> {
-  const d = withDefaults(deps);
-  return statusFromProbe(await sessionLaneFor(d, input.user).probeSession());
-}
-
-/** A client for the daemon, or the lane's own reason why there is not one. */
-async function sessionConnect(
-  deps: ApiDeps,
-  user?: string,
-): Promise<{ client: SessionClient; probe: SessionProbe }> {
-  const probe = await sessionLaneFor(deps, user).probeSession();
-  if (!probe.availability.available) {
-    throw new OffstageSessionError(
-      probe.availability.reason ?? 'The session lane is not available on this machine.',
-      { fix: probe.availability.fix ?? undefined, code: 'session-unavailable' },
-    );
-  }
-  const factory = seamsOf(deps).createClient ?? createSessionClient;
-  return { client: factory({ socketPath: probe.discovery.socketPath }), probe };
-}
-
-/** Turn a daemon refusal into the one error shape the CLI and MCP both render. */
-function asSessionError(error: unknown): never {
-  if (error instanceof OffstageSessionError) throw error;
-  if (error instanceof SessionRpcError) {
-    throw new OffstageSessionError(error.message, {
-      ...(error.fix === undefined ? {} : { fix: error.fix }),
-      code: error.code,
-    });
-  }
-  if (error instanceof SessionUnreachableError) {
-    throw new OffstageSessionError(
-      `The offstage session daemon did not answer on ${error.socketPath}: ${error.message}`,
-      { fix: 'offstage session setup', code: 'unreachable' },
-    );
-  }
-  throw error;
-}
-
-/* ---------------------------------- setup --------------------------------- */
-
-export interface SessionSetupInput {
-  /** Helper account. Defaults to the configured one (env → config → computeruse). */
-  user?: string;
-  /** Create the account when it does not exist yet, with a generated password. */
-  create?: boolean;
-  /**
-   * Arm boot-time auto-login for the helper account. Opt-in: macOS refuses it
-   * under FileVault, and it changes what appears at boot (the helper session
-   * comes up first, then you switch back to your own account as usual).
-   * Needs a password: a generated one when `create` is also set, `--password`
-   * for an existing account, or an interactive prompt inside the root script.
-   */
-  autoLogin?: boolean;
-  /** Password to use for the created account or the auto-login armament. */
-  password?: string;
-  /**
-   * Where the script and the progress lines go. The root script is *printed
-   * before it runs*, always: the user is about to type a password, and "trust
-   * me" is not an acceptable thing for a tool to say at that moment.
-   */
-  io?: (line: string) => void;
-}
-
-/** One thing setup did, and whether it worked. */
-export interface SessionSetupStep {
-  step:
-    | 'compile'
-    | 'codesign'
-    | 'account'
-    | 'assistant'
-    | 'install'
-    | 'tcc'
-    | 'wait'
-    | 'permissions'
-    | 'auto-login';
-  ok: boolean;
-  detail: string;
-}
-
-export interface SessionSetupResult {
-  ok: boolean;
-  user: string;
-  uid: number | null;
-  /** Exactly what was run as root, so `--json` carries it as well as the terminal. */
-  script: string;
-  scriptPath: string | null;
-  steps: SessionSetupStep[];
-  /** The status after the install, when the daemon came up. */
-  status: SessionStatus | null;
-  permissions: SessionPermissions | null;
-  /** What the human still has to do, in order. Empty when nothing is left. */
-  nextSteps: string[];
-}
-
-/** How long the daemon gets to bind its socket and answer `hello`. */
-const SETUP_HELLO_TIMEOUT_MS = 15_000;
-const SETUP_HELLO_POLL_MS = 500;
-
-/**
- * Install `offstage-sessiond` into the helper account's GUI session.
- *
- * The only step that needs root is one shell script, and it is printed in full
- * before `sudo` is invoked on it. Everything before that (compiling the daemon,
- * rendering the plist) and everything after (waiting for `hello`, asking for
- * the TCC prompts) runs as you.
- *
- * Never throws for an environment problem: a machine with no Swift compiler, a
- * missing account, or a `sudo` the user cancelled all come back as
- * `ok: false` with the reason in `steps` and the repair in `nextSteps`.
- */
-export async function sessionSetup(
-  input: SessionSetupInput = {},
-  deps?: Partial<ApiDeps>,
-): Promise<SessionSetupResult> {
-  const d = withDefaults(deps);
-  const seams = seamsOf(d);
-  const say = input.io ?? ((): void => {});
-  const exec = seams.exec ?? defaultExec;
-  const socketDir = seams.socketDir ?? DEFAULT_SOCKET_DIR;
-  const discoverFn = seams.discover ?? describeSession;
-  const steps: SessionSetupStep[] = [];
-
-  const discoverOptions: DescribeSessionOptions = { socketDir };
-  if (input.user !== undefined) discoverOptions.user = input.user;
-  if (seams.exec !== undefined) discoverOptions.exec = seams.exec;
-  let discovery = await discoverFn(discoverOptions);
-
-  const bail = (nextSteps: string[]): SessionSetupResult => ({
-    ok: false,
-    user: discovery.user,
-    uid: discovery.uid,
-    script: '',
-    scriptPath: null,
-    steps,
-    status: null,
-    permissions: null,
-    nextSteps,
-  });
-
-  if (discovery.platform !== 'darwin') {
-    return bail([
-      `The session lane is macOS-only; this host is ${discovery.platform}. Nothing was installed.`,
-    ]);
-  }
-
-  /* The plist names a uid and a home, and launchd's domain is `gui/<uid>`, so
-     both have to be known before the script is written — which means an account
-     that does not exist yet has to be created with a uid we chose rather than
-     one sysadminctl picked for us. */
-  let createAccount = false;
-  let uid = discovery.uid;
-  let home = discovery.home;
-  if (!discovery.accountExists) {
-    if (input.create !== true) {
-      return bail([
-        `There is no "${discovery.user}" account on this Mac.`,
-        `Create it: offstage session setup --create${input.user === undefined ? '' : ` --user ${input.user}`}`,
-      ]);
-    }
-    createAccount = true;
-    uid = await nextFreeUid(exec);
-    home = `/Users/${discovery.user}`;
-    if (uid === null) {
-      return bail([
-        'Could not read the existing uids from the directory service, so no free uid could be chosen for the new account.',
-        'Create the account yourself in System Settings → Users & Groups, then run `offstage session setup` again.',
-      ]);
-    }
-  }
-  if (uid === null || home === null) {
-    return bail([
-      `The "${discovery.user}" account exists but the directory service reports no uid or home directory for it.`,
-      `Check it with: dscl . -read /Users/${discovery.user} UniqueID NFSHomeDirectory`,
-    ]);
-  }
-
-  /* A created account needs a real password from the start: an empty one gets
-     no AuthenticationAuthority and cannot log in under FileVault. Generated
-     unless the caller named one, and persisted so the human can look it up
-     later — the helper account is only ever switched into on purpose. */
-  let accountPassword: string | null = null;
-  if (createAccount) {
-    accountPassword = input.password ?? generateSessionPassword();
-    say(`Password for the new "${discovery.user}" account: ${accountPassword}`);
-  }
-
-  /* Auto-login is armed with the same secret. An existing account without a
-     named password falls back to sysadminctl's own interactive prompt inside
-     the root script (`-password -`), which works because setup always runs
-     attached to a terminal. */
-  let autoLoginPassword: string | '-' | null = null;
-  let fileVault: boolean | null = null;
-  if (input.autoLogin === true) {
-    autoLoginPassword = accountPassword ?? input.password ?? '-';
-    const vault = await readFileVaultStatus(exec);
-    fileVault = vault.active;
-    if (fileVault === true) {
-      say('Note: FileVault is on. macOS refuses auto-login while it is enabled;');
-      say('the account will have to be logged in once by hand after each boot.');
-    }
-  }
-
-  /* 1. Compile the daemon, as you, into a temp directory. */
-  const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-session-setup-'));
-  const binaryPath = path.join(workDir, DAEMON_BINARY_NAME);
-  const sourceDir = seams.sourceDir ?? daemonSourceDir();
-  say(`Compiling ${DAEMON_BINARY_NAME} from ${sourceDir}…`);
-  const compile: CompileDaemonResult = await (seams.compileDaemon ?? compileDaemon)({
-    sourceDir,
-    outPath: binaryPath,
-    ...(seams.exec === undefined ? {} : { exec: seams.exec }),
-  });
-  steps.push({
-    step: 'compile',
-    ok: compile.ok,
-    detail: compile.ok
-      ? `built ${binaryPath} via ${compile.via}`
-      : (compile.reason ?? `${compile.command} exited ${compile.exitCode ?? 'without a code'}`),
-  });
-  if (!compile.ok) {
-    const tail = (compile.stderr || compile.stdout).trim().split('\n').slice(-8);
-    return bail([
-      compile.reason ?? 'The offstage session daemon did not compile, so nothing was installed.',
-      ...(compile.fix === undefined ? [] : [`Fix: ${compile.fix}`]),
-      ...tail,
-    ]);
-  }
-
-  /* 1b. Export the binary's Designated Requirement. This is what makes both
-     TCC grants pre-seedable: the rows setup writes carry exactly the blob a
-     human's toggle would have written, verified byte-for-byte against rows
-     System Settings produced. */
-  const csreq = await exportCsreq(binaryPath, exec);
-  steps.push({
-    step: 'codesign',
-    ok: csreq.ok,
-    detail: csreq.ok
-      ? `designated requirement exported (${(csreq.hex?.length ?? 0) / 2} bytes)`
-      : `could not export a code requirement: ${csreq.reason}`,
-  });
-
-  /* First-login suppression matters until the account has finished one login;
-     after that its cfprefsd owns those preferences and root must leave them
-     alone. */
-  const suppressAssistant =
-    createAccount ||
-    !(discovery.guiSession.exists && discovery.guiSession.loginDone);
-
-  /* 2. Render the LaunchAgent and the one script that needs root. */
-  const plistPath = path.join(workDir, `${DEFAULT_LABEL}.plist`);
-  await fs.writeFile(
-    plistPath,
-    renderLaunchAgentPlist({
-      binaryPath: path.join(installDirFor(home), DAEMON_BINARY_NAME),
-      uid,
-      socketDir,
-      home,
-    }),
-    'utf8',
-  );
-
-  const script = renderInstallScript({
-    binarySource: binaryPath,
-    plistSource: plistPath,
-    user: discovery.user,
-    uid,
-    home,
-    socketDir,
-    ...(createAccount && accountPassword !== null
-      ? { createAccount: { password: accountPassword } }
-      : {}),
-    ...(suppressAssistant ? { skipSetupAssistant: true } : {}),
-    ...(csreq.hex !== undefined ? { tcc: { csreqHex: csreq.hex } } : {}),
-    /* The user menu is what makes the one remaining manual step discoverable
-       — and with auto-login armed it is how you get back to your own account. */
-    enableFastUserSwitching: true,
-    ...(autoLoginPassword !== null ? { autoLoginPassword } : {}),
-  });
-  const scriptPath = path.join(workDir, 'install.sh');
-  await fs.writeFile(scriptPath, script, { mode: 0o700 });
-
-  /* Record what the script is being asked to do, so `--json` carries the
-     intent even though the work itself happens inside sudo. */
-  if (createAccount) {
-    steps.push({
-      step: 'account',
-      ok: true,
-      detail: `create "${discovery.user}" (uid ${uid}) included in the root script`,
-    });
-  }
-  if (suppressAssistant) {
-    steps.push({
-      step: 'assistant',
-      ok: true,
-      detail: 'first-login Setup Assistant suppression included in the root script',
-    });
-  }
-  if (csreq.hex !== undefined) {
-    steps.push({
-      step: 'tcc',
-      ok: true,
-      detail:
-        'pre-seed Screen Recording + Accessibility for the installed path (needs Full Disk Access on this terminal)',
-    });
-  } else {
-    steps.push({
-      step: 'tcc',
-      ok: false,
-      detail: `skipped: ${csreq.reason ?? 'no code requirement'}`,
-    });
-  }
-  if (autoLoginPassword !== null) {
-    steps.push({
-      step: 'auto-login',
-      ok: fileVault !== true,
-      detail:
-        fileVault === true
-          ? 'requested but FileVault is on; sysadminctl will refuse and the script continues'
-          : 'arm boot-time auto-login for the helper account',
-    });
-  }
-
-  say('');
-  say('This is the only step that needs root. It is printed here in full before it runs:');
-  say('');
-  for (const line of script.split('\n')) say(`    ${line}`);
-  say('');
-  say(`Running: sudo /bin/sh ${scriptPath}`);
-
-  const exitCode = await (seams.runRootScript ?? defaultRunRootScript)(scriptPath);
-  steps.push({
-    step: 'install',
-    ok: exitCode === 0,
-    detail: exitCode === 0 ? 'the root script completed' : `sudo /bin/sh ${scriptPath} exited ${exitCode ?? 'without a code'}`,
-  });
-
-  /* The generated secret outlives this command only if it is written down.
-     Non-fatal by design: a failed write must not undo a completed install. */
-  if (accountPassword !== null && exitCode === 0) {
-    try {
-      await (seams.writeSessionConfig ?? persistSessionConfig)(discovery.user, accountPassword);
-    } catch {
-      say(`Note: could not persist the account password to ~/${SESSION_CONFIG_RELATIVE_PATH}.`);
-    }
-  }
-
-  if (exitCode !== 0) {
-    return {
-      ...bail([
-        'The install script did not complete, so the daemon was not bootstrapped.',
-        `Re-run it yourself to see the failure: sudo /bin/sh ${scriptPath}`,
-      ]),
-      script,
-      scriptPath,
-      uid,
-    };
-  }
-
-  /* 3. Wait for the daemon to bind and answer. launchd bootstraps
-        asynchronously, so the socket is not there the instant sudo returns. */
-  discovery = await discoverFn({ ...discoverOptions, user: discovery.user });
-  const socketPath = discovery.socketPath;
-  const clientFactory = seams.createClient ?? createSessionClient;
-  const sleep = seams.sleep ?? defaultSleep;
-  const now = seams.now ?? Date.now;
-  const deadline = now() + SETUP_HELLO_TIMEOUT_MS;
-  let hello: SessionHello | null = null;
-  let lastError = '';
-  say(`Waiting for the daemon on ${socketPath}…`);
-  for (;;) {
-    try {
-      hello = await clientFactory({ socketPath }).hello();
-      break;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-      if (now() >= deadline) break;
-      await sleep(SETUP_HELLO_POLL_MS);
-    }
-  }
-  steps.push({
-    step: 'wait',
-    ok: hello !== null,
-    detail:
-      hello === null
-        ? `no answer on ${socketPath} within ${SETUP_HELLO_TIMEOUT_MS / 1000}s: ${lastError}`
-        : `hello from pid ${hello.daemon.pid}, onConsole ${hello.session.onConsole}`,
-  });
-
-  if (hello === null) {
-    return {
-      ...bail([
-        `The daemon did not answer on ${socketPath} within ${SETUP_HELLO_TIMEOUT_MS / 1000} seconds.`,
-        !discovery.guiSession.exists || !discovery.guiSession.loginDone
-          ? `The "${discovery.user}" account has no logged-in GUI session yet, and a LaunchAgent only starts inside one. Log ${discovery.user} in once with fast user switching (user menu → ${sessionUserFullName(discovery)}), then switch back and run \`offstage session status\`.`
-          : `Check the daemon's log: ${path.join(home, 'Library', 'Logs', 'offstage-sessiond.log')}`,
-      ]),
-      script,
-      scriptPath,
-      uid,
-    };
-  }
-
-  /* 4. Raise the TCC prompts. They appear inside the helper session, where the
-        user sees them on their next switch — nothing pops up on this screen. */
-  let permissions: SessionPermissions | null = null;
-  try {
-    permissions = await clientFactory({ socketPath }).requestPermissions();
-    steps.push({
-      step: 'permissions',
-      ok: permissions.screenCapture && permissions.accessibility,
-      detail: `Screen Recording ${permissions.screenCapture ? 'granted' : 'not granted'}, Accessibility ${
-        permissions.accessibility ? 'granted' : 'not granted'
-      }`,
-    });
-  } catch (error) {
-    steps.push({
-      step: 'permissions',
-      ok: false,
-      detail: `could not raise the permission prompts: ${error instanceof Error ? error.message : String(error)}`,
-    });
-  }
-
-  const status = statusFromProbe(await sessionLaneFor(d, discovery.user).probeSession());
-
-  /* What is actually left for a human, given everything the script could do
-     on its own. The TCC pre-seed removes the permission toggles entirely when
-     it ran; auto-login turns "switch once after every boot" into "log into
-     your own account like you always do". */
-  const nextSteps: string[] = [];
-  if (createAccount) {
-    nextSteps.push(
-      `The "${discovery.user}" account (uid ${uid}) was created. Its password: ${accountPassword ?? '(the one you supplied)'}. It is also stored at ~/${SESSION_CONFIG_RELATIVE_PATH}.`,
-    );
-  }
-  if (!status.guiSession.loginDone) {
-    if (input.autoLogin === true && fileVault !== true) {
-      nextSteps.push(
-        `Reboot once. ${sessionUserFullName(status)} will be logged in automatically; when its desktop appears, switch back to your own account from the user menu (top-right). From then on every boot brings the helper session up by itself.`,
-      );
-    } else {
-      nextSteps.push(
-        `Log ${discovery.user} in once with fast user switching (user menu → ${status.fullName}), then switch back; the session keeps running in the background.${
-          input.autoLogin === true && fileVault === true
-            ? ' Auto-login was requested but FileVault blocks it, so this switch is needed after each boot.'
-            : ''
-        }`,
-      );
-    }
-  }
-  const missing = [
-    ...(permissions?.screenCapture === false ? ['Screen Recording'] : []),
-    ...(permissions?.accessibility === false ? ['Accessibility'] : []),
-  ];
-  if (missing.length > 0) {
-    nextSteps.push(
-      csreq.ok
-        ? `The grants were pre-seeded but the daemon reports ${missing.join(' and ')} missing. Switch to ${discovery.user}, approve them in System Settings → Privacy & Security for ${DAEMON_BINARY_NAME}, then switch back and run \`offstage session status\`.`
-        : `Switch to the ${discovery.user} account once and allow ${missing.join(' and ')} for ${DAEMON_BINARY_NAME} in System Settings → Privacy & Security, then switch back.`,
-    );
-  } else if (permissions === null && !csreq.ok) {
-    nextSteps.push(
-      `Screen Recording and Accessibility still need a human switch: log into ${discovery.user}, approve both for ${DAEMON_BINARY_NAME} in System Settings → Privacy & Security, and switch back. (Pre-seeding them needs Full Disk Access on the terminal running setup.)`,
-    );
-  }
-  nextSteps.push(
-    'Give the helper account read access to a repository before running anything in it: offstage session share <dir>',
-  );
-
-  return {
-    ok: true,
-    user: discovery.user,
-    uid,
-    script,
-    scriptPath,
-    steps,
-    status,
-    permissions,
-    nextSteps,
-  };
-}
-
-/**
- * The lowest free uid at or above 502 — 501 is the first human account on a
- * Mac, and 502 is the conventional second one.
- *
- * Returns `null` when the directory service could not be read at all, which is
- * the one case where guessing would be wrong.
- */
-async function nextFreeUid(exec: Exec): Promise<number | null> {
-  const outcome = await exec('/usr/bin/dscl', ['.', '-list', '/Users', 'UniqueID']);
-  if (outcome.exitCode !== 0) return null;
-  const taken = new Set<number>();
-  for (const line of outcome.stdout.split('\n')) {
-    const value = Number(line.trim().split(/\s+/).pop());
-    if (Number.isInteger(value)) taken.add(value);
-  }
-  if (taken.size === 0) return null;
-  let candidate = 502;
-  while (taken.has(candidate)) candidate += 1;
-  return candidate;
-}
-
-/* ---------------------------------- share --------------------------------- */
-
-export interface SessionShareResult {
-  ok: boolean;
-  user: string;
-  target: string;
-  /** The `chmod +a` commands, exactly as run. */
-  commands: string[];
-  failures: Array<{ command: string; stderr: string; exitCode: number | null }>;
-}
-
-/**
- * Give the helper account read access to one tree, and nothing else.
- *
- * Traverse-only (`search`) on each ancestor so the path is reachable, read on
- * the tree itself. It never grants write: a run's output goes to
- * `$OFFSTAGE_ARTIFACTS`, which the lane opens per run because it owns it.
- */
-export async function sessionShare(
-  input: { path: string; user?: string },
-  deps?: Partial<ApiDeps>,
-): Promise<SessionShareResult> {
-  const d = withDefaults(deps);
-  const seams = seamsOf(d);
-  if (typeof input?.path !== 'string' || input.path.trim() === '') {
-    throw new OffstageUsageError('offstage session share needs a directory to share.');
-  }
-  const target = path.resolve(input.path);
-  if (!(await d.directoryExists(target)) && !(await fileExists(target))) {
-    throw new OffstageUsageError(`No such file or directory: ${target}`, 66);
-  }
-
-  const discoverOptions: DescribeSessionOptions = {};
-  if (input.user !== undefined) discoverOptions.user = input.user;
-  if (seams.socketDir !== undefined) discoverOptions.socketDir = seams.socketDir;
-  if (seams.exec !== undefined) discoverOptions.exec = seams.exec;
-  const discovery = await (seams.discover ?? describeSession)(discoverOptions);
-
-  const options = {
-    target,
-    user: discovery.user,
-    home: seams.home ?? os.homedir(),
-    ...(seams.exec === undefined ? {} : { exec: seams.exec }),
-  };
-  const result = await shareAcl(options);
-  return {
-    ok: result.ok,
-    user: discovery.user,
-    target,
-    commands: result.commands,
-    failures: result.failures,
-  };
-}
-
-/** The `chmod +a` plan for a tree, without running it. Pure, for `--json` and docs. */
-export function sessionSharePlan(input: { path: string; user: string; home?: string }): string[] {
-  return shareAclCommands({
-    target: path.resolve(input.path),
-    user: input.user,
-    home: input.home ?? os.homedir(),
-  }).map(describeAclCommand);
-}
-
-/* --------------------------------- unshare -------------------------------- */
-
-export interface SessionUnshareResult {
-  ok: boolean;
-  user: string;
-  target: string;
-  /** The `chmod -a` commands, exactly as run (absence-tolerant). */
-  commands: string[];
-  failures: Array<{ command: string; stderr: string; exitCode: number | null }>;
-}
-
-/**
- * Revoke exactly what {@link sessionShare} granted: the read ACL on the tree —
- * recursively, including entries children inherited while the grant stood —
- * and the traverse-only entries on its ancestors.
- *
- * The tree does not have to exist any more for this to be worth calling;
- * a `chmod` that finds nothing to remove is success, and anything else comes
- * back in `failures`.
- */
-export async function sessionUnshare(
-  input: { path: string; user?: string },
-  deps?: Partial<ApiDeps>,
-): Promise<SessionUnshareResult> {
-  const d = withDefaults(deps);
-  const seams = seamsOf(d);
-  if (typeof input?.path !== 'string' || input.path.trim() === '') {
-    throw new OffstageUsageError('offstage session unshare needs a directory to unshare.');
-  }
-  const target = path.resolve(input.path);
-
-  const discoverOptions: DescribeSessionOptions = {};
-  if (input.user !== undefined) discoverOptions.user = input.user;
-  if (seams.socketDir !== undefined) discoverOptions.socketDir = seams.socketDir;
-  if (seams.exec !== undefined) discoverOptions.exec = seams.exec;
-  const discovery = await (seams.discover ?? describeSession)(discoverOptions);
-
-  const result = await unshareAcl({
-    target,
-    user: discovery.user,
-    home: seams.home ?? os.homedir(),
-    ...(seams.exec === undefined ? {} : { exec: seams.exec }),
-  });
-  return {
-    ok: result.ok,
-    user: discovery.user,
-    target,
-    commands: result.commands,
-    failures: result.failures,
-  };
-}
-
-const fileExists = async (target: string): Promise<boolean> => {
-  try {
-    await fs.stat(target);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-/* ------------------------------- screenshot ------------------------------- */
-
-export interface SessionScreenshotInput {
-  /** Longest edge of the returned image, in pixels. Omit for the full framebuffer. */
-  maxDimension?: number;
-  /**
-   * Where to write the PNG. `undefined` writes to
-   * `<cwd>/.offstage/screenshots/<timestamp>.png`; `null` writes nothing and
-   * returns the bytes only, which is what the MCP tool wants.
-   */
-  out?: string | null;
-  cwd?: string;
-  user?: string;
-}
-
-export interface SessionScreenshotResult {
-  /** Absolute path of the PNG on disk, or `null` when nothing was written. */
-  path: string | null;
-  /** The image's own pixel size — not the display's point size. */
-  width: number;
-  height: number;
-  /** Backing scale of the captured display: pixels per point. */
-  scale: number;
-  png: Buffer;
-}
-
-/** Capture the helper session's screen. Never the console's — the daemon is in the other session. */
-export async function sessionScreenshot(
-  input: SessionScreenshotInput = {},
-  deps?: Partial<ApiDeps>,
-): Promise<SessionScreenshotResult> {
-  const d = withDefaults(deps);
-  if (
-    input.maxDimension !== undefined &&
-    (!Number.isInteger(input.maxDimension) || input.maxDimension <= 0)
-  ) {
-    throw new OffstageUsageError('--max must be a positive whole number of pixels.');
-  }
-
-  const { client } = await sessionConnect(d, input.user);
-  let shot;
-  try {
-    shot = await client.screenshot(
-      input.maxDimension === undefined ? {} : { maxDimension: input.maxDimension },
-    );
-  } catch (error) {
-    return asSessionError(error);
-  }
-
-  let out: string | null = null;
-  if (input.out !== null) {
-    out =
-      input.out ??
-      path.join(
-        path.resolve(input.cwd ?? process.cwd()),
-        '.offstage',
-        'screenshots',
-        `${new Date().toISOString().replace(/[:.]/g, '-')}.png`,
-      );
-    await fs.mkdir(path.dirname(out), { recursive: true });
-    await fs.writeFile(out, shot.png);
-  }
-
-  return { path: out, width: shot.width, height: shot.height, scale: shot.scale, png: shot.png };
-}
-
-/* ---------------------------------- input --------------------------------- */
-
-export interface SessionInputResult {
-  performed: number;
-  actions: InputAction[];
-}
-
-/**
- * Inject keyboard and mouse events into the helper session.
- *
- * Coordinates are **points** in the helper display's global space, origin at
- * its top-left — the same space `status.display` reports and the same space a
- * screenshot describes once divided by `scale`.
- */
-export async function sessionInput(
-  input: { actions: unknown; user?: string },
-  deps?: Partial<ApiDeps>,
-): Promise<SessionInputResult> {
-  const d = withDefaults(deps);
-  let actions: InputAction[];
-  try {
-    actions = parseInputActions(input?.actions);
-  } catch (error) {
-    throw new OffstageUsageError(
-      `Those are not valid input actions: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-  if (actions.length === 0) {
-    throw new OffstageUsageError('offstage session input needs at least one action.');
-  }
-
-  const { client } = await sessionConnect(d, input.user);
-  try {
-    const { performed } = await client.input(actions);
-    return { performed, actions };
-  } catch (error) {
-    return asSessionError(error);
-  }
-}
-
-/* --------------------------------- update --------------------------------- */
-
-export interface SessionUpdateResult {
-  /** Where the new binary now lives, inside the helper account's home. */
-  installedTo: string;
-  previousPid: number;
-  currentPid: number;
-}
-
-/**
- * Rebuild the daemon and install it, without asking for any privilege.
- *
- * Setup needs root once. Nothing after it does, and that is deliberate: an
- * admin prompt raised from a background task puts a dialog on the console that
- * captures the keyboard until it is answered. The binary lives in the helper
- * account's own home, so the daemon can replace it over its own socket.
- */
-export async function sessionUpdate(
-  input: { user?: string } = {},
-  deps?: Partial<ApiDeps>,
-): Promise<SessionUpdateResult> {
-  const d = withDefaults(deps);
-  const seams = seamsOf(d);
-  const { client } = await sessionConnect(d, input.user);
-
-  let home: string;
-  try {
-    home = (await client.hello()).user.home;
-  } catch (error) {
-    return asSessionError(error);
-  }
-
-  /* Staging has to be somewhere the HELPER account can read, and os.tmpdir()
-     is not it: on macOS that resolves to a per-user /var/folders tree whose
-     parent is mode 700, so another uid cannot traverse into it however the leaf
-     is chmod'd. Verified the hard way, as `cp: Permission denied`. /tmp is the
-     shared, world-traversable one. mkdtemp still gives an unpredictable name,
-     and the directory is widened only to r-x. */
-  const workDir = await fs.mkdtemp('/tmp/offstage-session-update-');
-  await fs.chmod(workDir, 0o755);
-  const binaryPath = path.join(workDir, DAEMON_BINARY_NAME);
-  const sourceDir = seams.sourceDir ?? daemonSourceDir();
-
-  const compile: CompileDaemonResult = await (seams.compileDaemon ?? compileDaemon)({
-    sourceDir,
-    outPath: binaryPath,
-    ...(seams.exec === undefined ? {} : { exec: seams.exec }),
-  });
-  if (!compile.ok) {
-    throw new OffstageSessionError(
-      `Could not build ${DAEMON_BINARY_NAME} from ${sourceDir}: ${
-        compile.reason ?? `${compile.command} exited ${compile.exitCode ?? 'without a code'}`
-      }`,
-      { code: 'session-build-failed' },
-    );
-  }
-  await fs.chmod(binaryPath, 0o755);
-
-  try {
-    const result = await updateDaemon({ client, home, source: binaryPath });
-    return {
-      installedTo: result.installedTo,
-      previousPid: result.previousPid,
-      currentPid: result.currentPid,
-    };
-  } catch (error) {
-    if (error instanceof UpdateError) {
-      throw new OffstageSessionError(error.message, { code: 'session-update-failed' });
-    }
-    return asSessionError(error);
-  }
-}
-
-/* ---------------------------------- apps ---------------------------------- */
-
-/** The regular-activation-policy apps running in the helper session. */
-export async function sessionApps(
-  input: { user?: string } = {},
-  deps?: Partial<ApiDeps>,
-): Promise<SessionApp[]> {
-  const d = withDefaults(deps);
-  const { client } = await sessionConnect(d, input.user);
-  try {
-    return await client.apps();
-  } catch (error) {
-    return asSessionError(error);
-  }
-}
-
-/* --------------------------------- launch --------------------------------- */
-
-export interface SessionLaunchInput {
-  /** App name (`TextEdit`) or path to an `.app` bundle (`build/MyApp.app`). */
-  target: string;
-  /** Extra arguments for `open` — files to open, `-a`, etc. */
-  args?: string[];
-  cwd?: string;
-  user?: string;
-  /**
-   * Open a NEW instance even if one is already running (`open -n`). Testing
-   * flows usually want this: plain `open` would just activate the existing
-   * instance and the registration check below would match the old process.
-   */
-  fresh?: boolean;
-  /**
-   * How long to wait for the app to register before giving up. First launches
-   * can trip a Gatekeeper scan, so this is generous by default.
-   */
-  waitMs?: number;
-}
-
-export interface SessionLaunchResult {
-  /**
-   * True only when `open` succeeded AND the app registered with LaunchServices
-   * inside the helper session — the state `offstage session apps` reports from.
-   * A bare `open` returning 0 does not tell you that; this does.
-   */
-  ok: boolean;
-  target: string;
-  /** The registered app, when it appeared. */
-  app: SessionApp | null;
-  waitedMs: number;
-  diagnostics: string[];
-}
-
-/** How long {@link sessionLaunch} waits for a launch to register, by default. */
-export const SESSION_LAUNCH_DEFAULT_WAIT_MS = 20_000;
-
-/** Poll interval between `apps` checks while waiting for a launch to register. */
-export const SESSION_LAUNCH_POLL_MS = 400;
-
-/**
- * Does this running app correspond to the launch target?
- *
- * Matches the bundle's basename (`GestureEngine.app` → `gestureengine`)
- * against the app's display name or the last component of its bundle id
- * (`dev.viraat.GestureEngine` → `gestureengine`). Pure, exported for tests.
- */
-export function appMatchesTarget(
-  target: string,
-  app: Pick<SessionApp, 'name' | 'bundleId'>,
-): boolean {
-  let expected = path.basename(target.trim()).toLowerCase();
-  if (expected.endsWith('.app')) expected = expected.slice(0, -4);
-  if (expected === '') return false;
-  if ((app.name ?? '').toLowerCase() === expected) return true;
-  const lastBundleComponent = (app.bundleId ?? '').split('.').pop() ?? '';
-  return lastBundleComponent === expected;
-}
-
-/**
- * Open an app inside the helper session and wait until it is really there.
- *
- * The lesson this encodes came from a real agent session: `open` exits 0 the
- * moment LaunchServices accepts the request, which says nothing about whether
- * the app finished launching — Gatekeeper scans, first-run panes and slow
- * disks all delay it. An agent that treats exit 0 as success launches three
- * more copies and then gives up on isolation entirely. This waits until the
- * app actually appears in the session's own app list, and reports its pid.
- */
-export async function sessionLaunch(
-  input: SessionLaunchInput,
-  deps?: Partial<ApiDeps>,
-): Promise<SessionLaunchResult> {
-  const d = withDefaults(deps);
-  const seams = seamsOf(d);
-  if (typeof input?.target !== 'string' || input.target.trim() === '') {
-    throw new OffstageUsageError('offstage session launch needs an app name or a path to an .app bundle.');
-  }
-  const now = seams.now ?? Date.now;
-  const sleep = seams.sleep ?? defaultSleep;
-  const startedAtMs = now();
-
-  const { client } = await sessionConnect(d, input.user);
-
-  /* A path-shaped target (`build/App.app`) is resolved against the CALLER's
-     cwd before crossing the socket — the helper account's own cwd would be
-     its home directory, where the relative path means nothing (measured:
-     `open -n build/GestureEngine.app` exited 1 exactly that way). A bare
-     name goes through `open -a`, because without it `open` treats the name
-     as a file path too (`open Calculator` exits 1 complaining
-     `/Users/computeruse/Calculator does not exist`). */
-  const looksLikePath = /[\\/]/.test(input.target) || /\.app$/i.test(input.target.trim());
-  const targetArg = looksLikePath ? path.resolve(input.cwd ?? process.cwd(), input.target) : input.target;
-
-  const argv = [
-    'open',
-    ...(input.fresh === true ? ['-n'] : []),
-    ...(looksLikePath ? [] : ['-a']),
-    targetArg,
-    ...(input.args ?? []),
-  ];
-  let openOutput = '';
-  try {
-    const outcome = await client.run({
-      argv,
-      // `open` runs wherever it pleases inside the helper session; the app
-      // bundle carries its own working directory.
-      cwd: input.cwd ?? (await client.hello()).user.home,
-      timeoutMs: 30_000,
-      onOutput: (chunk) => {
-        if (openOutput.length < 2000) openOutput += chunk.toString('utf8');
-      },
-    });
-    if (outcome.exitCode !== 0) {
-      return {
-        ok: false,
-        target: input.target,
-        app: null,
-        waitedMs: now() - startedAtMs,
-        diagnostics: [
-          outcome.timedOut
-            ? '`open` did not return within 30s.'
-            : `\`open\` exited ${outcome.exitCode ?? 'to a signal'}${
-                outcome.signal === null ? '' : ` (${outcome.signal})`
-              }.`,
-          ...(openOutput.trim() === '' ? [] : [`Its output: ${openOutput.trim().split('\n').slice(-4).join(' | ')}`]),
-        ],
-      };
-    }
-  } catch (error) {
-    return asSessionError(error);
-  }
-
-  /* When `fresh` is set, snapshot which matching pids already exist so the
-     poll can demand a NEW one. Matching a stale instance would report success
-     while `open -n`'s process went somewhere else entirely — measured live:
-     two old copies were running and the poll happily blessed one of them. */
-  const diagnostics: string[] = [];
-  let preExistingPids = new Set<number>();
-  if (input.fresh === true) {
-    try {
-      for (const app of await client.apps()) {
-        if (appMatchesTarget(targetArg, app)) preExistingPids.add(app.pid);
-      }
-    } catch {
-      /* A failed snapshot must not block the launch; the poll below simply
-         loses its freshness guarantee and matches any registration. */
-      diagnostics.push('could not snapshot pre-existing apps; matching any registration.');
-    }
-  }
-
-  const deadline = now() + (input.waitMs ?? SESSION_LAUNCH_DEFAULT_WAIT_MS);
-  for (;;) {
-    let apps: SessionApp[];
-    try {
-      apps = await client.apps();
-    } catch (error) {
-      /* A transient socket hiccup must not end the poll — the launch may be fine. */
-      diagnostics.push(`apps poll failed transiently: ${error instanceof Error ? error.message : String(error)}`);
-      apps = [];
-    }
-    const found = apps.find(
-      (app) => appMatchesTarget(targetArg, app) && !preExistingPids.has(app.pid),
-    );
-    if (found !== undefined) {
-      return { ok: true, target: input.target, app: found, waitedMs: now() - startedAtMs, diagnostics };
-    }
-    if (now() >= deadline) {
-      const stale = [...preExistingPids];
-      return {
-        ok: false,
-        target: input.target,
-        app: null,
-        waitedMs: now() - startedAtMs,
-        diagnostics: [
-          `"${input.target}" did not register with the helper session within the wait window.`,
-          ...(stale.length > 0
-            ? [`A matching app was already running (pid ${stale.join(', pid ')}); \`fresh\` asked for a new instance and none appeared.`]
-            : []),
-          'First launches can be slow while Gatekeeper verifies the bundle; one retry usually succeeds.',
-          'Take a screenshot before trying anything else — the window may simply not have a regular activation policy.',
-          'Never fall back to launching the app outside offstage; that puts it on the user\'s screen.',
-        ],
-      };
-    }
-    await sleep(SESSION_LAUNCH_POLL_MS);
-  }
-}
-
-/* ---------------------------------- open ---------------------------------- */
-
-/**
- * `open <target> [args…]`, in the helper session.
- *
- * Deliberately a thin call into {@link run} with `lane: 'session'` rather than
- * a fifth code path: it gets the run directory, the `result.json`, the
- * screenshot and the diagnostics for free, and an agent that reads one run
- * envelope can read this one. When you need to know the app actually came up —
- * not just that `open` handed off the request — use {@link sessionLaunch}.
- */
-export async function sessionOpen(
-  input: { target: string; args?: string[]; cwd?: string; timeoutMs?: number },
-  deps?: Partial<ApiDeps>,
-): Promise<RunOutcome> {
-  if (typeof input?.target !== 'string' || input.target.trim() === '') {
-    throw new OffstageUsageError('offstage session open needs an app name or a path to open.');
-  }
-  return await run(
-    {
-      ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
-      command: ['open', input.target, ...(input.args ?? [])],
-      lane: 'session',
-      ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
-    },
-    deps,
-  );
 }

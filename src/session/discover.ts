@@ -6,14 +6,14 @@
  * module is the part that answers "is that true right now?", and it answers it
  * from two pieces of recorded-able text plus one `stat`:
  *
- * 1. `ioreg -n Root -d1 -a` — an XML plist whose `IOConsoleUsers` array is the
+ * 1. `ioreg -n Root -d1 -a`: an XML plist whose `IOConsoleUsers` array is the
  *    kernel's own list of GUI sessions. Each entry carries the uid, the short
  *    name, whether the session finished logging in (`kCGSessionLoginDoneKey`)
  *    and whether it is the one on the screen (`kCGSSessionOnConsoleKey`).
- * 2. `dscl . -read /Users/<name> UniqueID NFSHomeDirectory RealName` — the
+ * 2. `dscl . -read /Users/<name> UniqueID NFSHomeDirectory RealName`: the
  *    account record, which tells us the account exists at all and where its
  *    home is (needed for the LaunchAgent path).
- * 3. `stat` on `<socketDir>/<uid>.sock` — has the daemon ever bound?
+ * 3. `stat` on `<socketDir>/<uid>.sock`: has the daemon ever bound?
  *
  * Everything except the `stat` is a **pure function over captured text**
  * ({@link parseConsoleUsers}, {@link parseDsclRecord}), and the only way this
@@ -45,7 +45,7 @@ export interface ExecOutcome {
 /**
  * The one way this module (and `setup.ts`) touches the outside world.
  *
- * Deliberately narrow — file, args, captured output — so a test can hand back
+ * Deliberately narrow (file, args, captured output) so a test can hand back
  * recorded text and drive every branch without `ioreg`, `dscl`, `chmod` or
  * `swiftc` ever running.
  */
@@ -68,7 +68,7 @@ export const defaultExec: Exec = async (file, args) => {
     };
   } catch (error) {
     /* execa still throws for a binary that does not exist at all. A missing
-       `ioreg` is data too — it means "not macOS, or not a usable one". */
+       `ioreg` is data too: it means "not macOS, or not a usable one". */
     return { stdout: '', stderr: describeError(error), exitCode: null };
   }
 };
@@ -152,17 +152,17 @@ export async function resolveSessionUser(
 /* ioreg: the kernel's list of GUI sessions                                   */
 /* -------------------------------------------------------------------------- */
 
-/** One entry of `IOConsoleUsers` — a GUI session as the kernel sees it. */
+/** One entry of `IOConsoleUsers`: a GUI session as the kernel sees it. */
 export interface ConsoleUser {
   /** `kCGSSessionUserIDKey`. */
   uid: number | null;
-  /** `kCGSSessionUserNameKey` — the short name. */
+  /** `kCGSSessionUserNameKey`: the short name. */
   user: string | null;
-  /** `kCGSessionLongUserNameKey` — the full name, as the user menu shows it. */
+  /** `kCGSessionLongUserNameKey`: the full name, as the user menu shows it. */
   fullName: string | null;
-  /** `kCGSSessionOnConsoleKey` — is this the session on the physical screen? */
+  /** `kCGSSessionOnConsoleKey`: is this the session on the physical screen? */
   onConsole: boolean;
-  /** `kCGSessionLoginDoneKey` — a real Aqua session, not a login window. */
+  /** `kCGSessionLoginDoneKey`: a real Aqua session, not a login window. */
   loginDone: boolean;
   /** `kCGSSessionIDKey`. */
   sessionId: number | null;
@@ -256,7 +256,7 @@ export interface DsclRecord {
  * ```
  *
  * A missing account prints `<dscl_cmd> DS Error: -14136 (eDSRecordNotFound)`
- * and exits non-zero, which is `exists: false` — see {@link readAccount}.
+ * and exits non-zero, which is `exists: false`: see {@link readAccount}.
  */
 export function parseDsclRecord(output: string): DsclRecord {
   const values = new Map<string, string>();
@@ -329,7 +329,7 @@ export async function readConsoleUsers(exec: Exec = defaultExec): Promise<Consol
 /* The socket                                                                 */
 /* -------------------------------------------------------------------------- */
 
-/** `<socketDir>/<uid>.sock` — where `offstage-sessiond` binds. */
+/** `<socketDir>/<uid>.sock`: where `offstage-sessiond` binds. */
 export function sessionSocketPath(uid: number | null, socketDir: string = DEFAULT_SOCKET_DIR): string {
   return path.join(socketDir, `${uid ?? 'unknown'}.sock`);
 }
@@ -358,7 +358,7 @@ export interface FileVaultStatus {
 /**
  * Parse `fdesetup status` output.
  *
- * The tool prints exactly one line — `FileVault is On.` / `FileVault is Off.`
+ * The tool prints exactly one line: `FileVault is On.` / `FileVault is Off.`
  * (or a `NOT ENABLED` variant on machines where it was never configured).
  * Anything unrecognised is `active: null` rather than a guess, because the one
  * thing this answer decides is whether auto-login can be armed at all.

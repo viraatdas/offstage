@@ -1,15 +1,15 @@
 /**
  * The guard that keeps a release deliverable.
  *
- * The decision is a pure function so the interesting cases — the ones that
- * involve a git history you would otherwise have to fabricate — are testable
+ * The decision is a pure function so the interesting cases, the ones that
+ * involve a git history you would otherwise have to fabricate, are testable
  * without a repository. The integration side (does it read this repo's tags)
  * is covered by CI running the script for real.
  */
 
 import { describe, expect, it } from 'vitest';
 
-// @ts-expect-error — plain ESM development script, deliberately outside tsconfig's src.
+// @ts-expect-error: plain ESM development script, deliberately outside tsconfig's src.
 import { SHIPPED, isShipped, verdict } from '../scripts/release-guard.mjs';
 
 const base = {

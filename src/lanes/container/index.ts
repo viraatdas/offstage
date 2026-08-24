@@ -1,5 +1,5 @@
 /**
- * The container lane — headed browser work on a virtual framebuffer.
+ * The container lane: headed browser work on a virtual framebuffer.
  *
  * This is the lane for commands that genuinely need a *headed* browser:
  * `--headed`, `headless: false`, extension loading, WebGL, video capture. It
@@ -30,10 +30,10 @@
  * - **It never touches your screen.** No X socket is forwarded, no host
  *   `--display` is honoured, and `DISPLAY` in `req.env` is dropped rather than
  *   passed through. If no container runtime is usable, the lane returns
- *   `skipped` with the command to fix it — it does not "helpfully" fall back to
+ *   `skipped` with the command to fix it: it does not "helpfully" fall back to
  *   running headed work on your actual desktop.
  * - **It never throws.** Missing runtime, failed build, timeout, a container
- *   that dies mid-run — all of them come back as a valid `LaneResult`.
+ *   that dies mid-run: all of them come back as a valid `LaneResult`.
  * - **It never leaks containers.** Every container is `--rm`, uniquely named,
  *   and force-removed on the timeout path.
  * - **It is safe to run concurrently.** Container names carry a random suffix,
@@ -78,7 +78,7 @@ import { detectContainerRuntime } from './runtime.js';
 export * from './runtime.js';
 
 /* -------------------------------------------------------------------------- */
-/* Constants — the guest-side layout the Dockerfile and entrypoint agree on   */
+/* Constants: the guest-side layout the Dockerfile and entrypoint agree on   */
 /* -------------------------------------------------------------------------- */
 
 /** Where the repository appears inside the container. */
@@ -215,7 +215,7 @@ export interface DockerAssetFile {
  * window manager. Names are hashed alongside contents, so renaming a file is a
  * change too.
  *
- * Twelve hex characters is 48 bits — collision-free for a build context that
+ * Twelve hex characters is 48 bits: collision-free for a build context that
  * changes a few dozen times in its life, and short enough to read in
  * `docker images`.
  */
@@ -231,8 +231,8 @@ export function imageTagFor(imageName: string, files: DockerAssetFile[]): string
  * A container name that is unique per run and legal for docker/podman
  * (`[a-zA-Z0-9][a-zA-Z0-9_.-]*`).
  *
- * The run id stays in the name — readable in `docker ps`, and it ties a stray
- * container back to the run directory that spawned it — but the random suffix
+ * The run id stays in the name (readable in `docker ps`, and it ties a stray
+ * container back to the run directory that spawned it) but the random suffix
  * is what actually guarantees two concurrent runs cannot collide, even if a
  * caller reuses an artifacts directory.
  */
@@ -275,7 +275,7 @@ const TRAILING_RULE = /[\s─━┄┈-]{4,}$/;
  * Deliberately narrow: it understands Playwright's list reporter and
  * Vitest/Jest `FAIL` lines, and gives up on anything else rather than
  * hallucinating structure. The contract explicitly allows an empty `failures`
- * array next to `status: 'failed'` — when parsing finds nothing, the lane puts
+ * array next to `status: 'failed'`, when parsing finds nothing, the lane puts
  * the tail of the log in `diagnostics` instead, which is far more useful than a
  * confidently wrong file:line.
  */
@@ -389,7 +389,7 @@ export interface RunPlan {
 /**
  * Turn a request into the exact argv for `docker run`.
  *
- * Split out from `run()` so the wiring can be asserted without a daemon — which
+ * Split out from `run()` so the wiring can be asserted without a daemon, which
  * matters, because the machine this lane was written on has none, and "the
  * mounts and the display are right" is the part most worth pinning down.
  */
@@ -462,7 +462,7 @@ export interface DockerAssets {
   dockerfile: string;
   /** Absolute path to the entrypoint script. */
   entrypoint: string;
-  /** Every file in the build context, sorted — this is what the tag hashes. */
+  /** Every file in the build context, sorted: this is what the tag hashes. */
   files: DockerAssetFile[];
 }
 

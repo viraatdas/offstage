@@ -2,7 +2,7 @@
  * Adversarial routing: commands written to defeat the classifier.
  *
  * Every case here is a shape a real repository produces and a naive reader gets
- * wrong. Two of them were genuine defects when this file was written — an
+ * wrong. Two of them were genuine defects when this file was written: an
  * `env PWDEBUG=1` prefix and a command hidden inside `sh -c` both routed to the
  * headless lane at *high* confidence, which would have opened a browser window
  * on the user's real screen. They are regression tests now.
@@ -164,7 +164,7 @@ const browser = await puppeteer.launch({ headless: process.env.CI ? true : false
     expect(decision.lane).toBe('headless');
     expect(decision.confidence).toBe('low');
     expect(decision.reason).toContain('process.env.CI');
-    // The reason must quote what it could not evaluate — that is what makes a
+    // The reason must quote what it could not evaluate: that is what makes a
     // low-confidence answer actionable rather than a shrug.
     expect(decision.reason).toMatch(/without ever executing|does not evaluate|cannot know/);
   });
@@ -234,7 +234,7 @@ describe('a repository that is both a web app and a macOS app', () => {
 
 describe('commands that hide the deciding flag behind shell syntax', () => {
   // Every case here was found by an adversarial audit of the shipped tree, and
-  // every one of them routed to the headless lane — several at HIGH confidence,
+  // every one of them routed to the headless lane: several at HIGH confidence,
   // with the reason affirmatively stating that no display was involved.
   const routedToContainer: Array<[string, string[]]> = [
     ['a -- separator between -c and the script', ['sh', '-c', '--', 'npx playwright test --headed']],
@@ -266,8 +266,8 @@ describe('commands that hide the deciding flag behind shell syntax', () => {
 describe('what offstage cannot resolve, it says it cannot resolve', () => {
   // A shell expansion is the one thing reading cannot settle: only the shell
   // that runs the command knows what `$FLAGS` becomes. The rule is the same as
-  // for a config computed at runtime — keep the cheap lane, drop the
-  // confidence, quote the thing — and NOT to report the confident default.
+  // for a config computed at runtime (keep the cheap lane, drop the
+  // confidence, quote the thing) and NOT to report the confident default.
   const unresolvable: string[][] = [
     ['npx', 'playwright', 'test', '$FLAGS'],
     ['sh', '-c', 'npx playwright test ${HEADED:+--headed}'],
@@ -397,7 +397,7 @@ describe('a wrapper does not hide the command from the router', () => {
 
 describe('a symlink or a rename does not hide the binary from the router', () => {
   /* `ln -sf /usr/sbin/installer ./totally-safe-tool` and then `./totally-safe-tool
-     -pkg payload -target /` — with `payload` carrying no `.pkg` extension —
+     -pkg payload -target /`, with `payload` carrying no `.pkg` extension,
      routed to `headless` with no refusal. The refusal keyed off the literal
      basename of argv[0], so a symlink under an innocuous name, or a copy
      renamed the same way, walked straight past it while the path-content
@@ -497,7 +497,7 @@ async function exists(p: string): Promise<boolean> {
 describe('a byte-identical copy does not hide the binary from the router', () => {
   /* The one hole name resolution cannot close: `cp /usr/sbin/installer
      ./totally-safe-tool` leaves no symlink, no shared basename, no filesystem
-     link of any kind — realpath points at the copy itself. Identical bytes do
+     link of any kind: realpath points at the copy itself. Identical bytes do
      identical things, so the resolved file's SHA-256 is matched against the
      known machine-changing tools' own digests. */
 

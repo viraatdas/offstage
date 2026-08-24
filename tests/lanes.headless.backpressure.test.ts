@@ -10,7 +10,7 @@
  * keeps the suite quick):
  *
  * - awaiting the write (honouring backpressure) blocked the child on a full
- *   pipe and the run was killed by its own 20s timeout — reported `errored`,
+ *   pipe and the run was killed by its own 20s timeout: reported `errored`,
  *   "the command never finished", which was false;
  * - firing and forgetting queued ~4MB in memory with no bound and then sat in
  *   `end()`, returning after 24.6s against that same 20s deadline.
@@ -122,7 +122,7 @@ describe('a log sink that cannot keep up', () => {
 
   it('still returns when the deadline is shorter than the stall window', async () => {
     /* A caller asking for an answer in 1s gets one, wedged disk or not. That
-       the deadline specifically — rather than the stall backstop — is what
+       the deadline specifically, rather than the stall backstop, is what
        stops the wait is pinned deterministically in the LogSink tests below. */
     const dir = await wedgedLogDir();
 
@@ -249,8 +249,8 @@ describe('LogSink', () => {
     log.write('start\n');
     for (let i = 0; i < 20; i++) log.write('x'.repeat(1_000));
 
-    /* The sink comes back to life as the run ends, so the queue — marker and
-       all — reaches disk. When it does not, the marker is abandoned with
+    /* The sink comes back to life as the run ends, so the queue, marker and
+       all, reaches disk. When it does not, the marker is abandoned with
        everything else and the diagnostic stops claiming one: the next test. */
     const drip = setInterval(() => void sink.release(2_000), 20);
     closers.push(() => clearInterval(drip));

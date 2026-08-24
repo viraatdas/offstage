@@ -109,7 +109,7 @@ describe('--json', () => {
     const parsed = JSON.parse(result.out) as { lane: string };
     expect(parsed.lane).toBe('headless');
     expect(result.err).toContain('lane:');
-    // stdout must be parseable on its own — nothing human may leak into it.
+    // stdout must be parseable on its own, nothing human may leak into it.
     expect(result.out.trimStart().startsWith('{')).toBe(true);
   });
 

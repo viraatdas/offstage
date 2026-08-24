@@ -26,7 +26,7 @@ const codexBlock = `[mcp_servers.${NAME}]\ncommand = "node"\nargs = ["${SERVER}"
 const claudeCommand = `claude mcp add ${NAME} -- node ${SERVER}`;
 
 if (printOnly) {
-  console.log(`# Claude Code\n${claudeCommand}\n\n# Codex — append to ~/.codex/config.toml\n${codexBlock}`);
+  console.log(`# Claude Code\n${claudeCommand}\n\n# Codex: append to ~/.codex/config.toml\n${codexBlock}`);
   process.exit(0);
 }
 
@@ -35,7 +35,7 @@ execFileSync('npm', ['run', 'build'], { cwd: ROOT, stdio: 'inherit' });
 
 const claude = spawnSync('claude', ['mcp', 'add', NAME, '--', 'node', SERVER], { cwd: ROOT, stdio: 'inherit' });
 if (claude.error) {
-  console.log(`\nNo \`claude\` on PATH — register it yourself:\n  ${claudeCommand}`);
+  console.log(`\nNo \`claude\` on PATH. Register it yourself:\n  ${claudeCommand}`);
 } else if (claude.status !== 0) {
   console.log(`\n\`claude mcp add\` exited ${claude.status}. If ${NAME} already exists, remove it first:\n  claude mcp remove ${NAME}`);
 } else {

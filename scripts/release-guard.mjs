@@ -3,14 +3,14 @@
  * Refuse a release that cannot reach anyone.
  *
  * `claude plugin update` compares the version declared in
- * `.claude-plugin/plugin.json` — not the git SHA. So a commit that edits a
+ * `.claude-plugin/plugin.json`, not the git SHA. So a commit that edits a
  * shipped file without bumping the version is invisible to everyone already
  * installed: the marketplace clone moves, the cache does not, and only an
  * uninstall/install cycle picks it up.
  *
  * That is not hypothetical. v0.2.2 shipped, then commit 240108a changed
- * `.mcp.json` — the file telling people to register a local checkout under a
- * name that would not collide with the plugin's own — and could never be
+ * `.mcp.json`, the file telling people to register a local checkout under a
+ * name that would not collide with the plugin's own, and could never be
  * delivered to a single existing install.
  *
  * This guard fails when a file that ships has changed since the last version
@@ -48,7 +48,7 @@ export function verdict({ tag, previous, current, changed, pluginVersion }) {
     };
   }
 
-  if (tag === null) return { ok: true, message: 'no version tag yet — nothing to compare against.' };
+  if (tag === null) return { ok: true, message: 'no version tag yet, nothing to compare against.' };
 
   const shipped = changed.filter(isShipped);
   if (shipped.length === 0) {
@@ -75,7 +75,7 @@ function lastVersionTag() {
   try {
     return git('describe', '--tags', '--abbrev=0', '--match', 'v*');
   } catch {
-    return null; // No tags reachable — a fresh clone with fetch-depth 1, or a repo before its first release.
+    return null; // No tags reachable: a fresh clone with fetch-depth 1, or a repo before its first release.
   }
 }
 
@@ -94,7 +94,7 @@ function main() {
   const changed = tag ? git('diff', '--name-only', `${tag}..HEAD`).split('\n').filter(Boolean) : [];
   const result = verdict({ tag, previous: tag ? versionAt(tag) : null, current, changed, pluginVersion });
 
-  console.log(result.ok ? `release-guard: ok — ${result.message}` : `release-guard: FAILED\n\n${result.message}`);
+  console.log(result.ok ? `release-guard: ok: ${result.message}` : `release-guard: FAILED\n\n${result.message}`);
   process.exit(result.ok ? 0 : 1);
 }
 

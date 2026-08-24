@@ -1,6 +1,7 @@
 .rudder/
 .rudder-worktrees/
 RUDDER.md
+DECISIONS.md
 RUDDER_SHARED.md
 .claude/skills/rudder-*/
 

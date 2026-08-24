@@ -4,7 +4,7 @@
  * Every offstage execution gets its own directory under `.offstage/runs/<id>/`
  * in the repository being tested. The lane writes its logs, screenshots and
  * bundles there; the CLI writes `result.json` there when the lane returns. That
- * directory *is* the run — it is self-contained, safe to archive, and safe to
+ * directory *is* the run: it is self-contained, safe to archive, and safe to
  * delete.
  *
  * Run ids sort lexicographically in chronological order, so `ls .offstage/runs`
@@ -61,7 +61,7 @@ export function makeRunId(now: Date = new Date(), suffix?: string): string {
 }
 
 /**
- * Allocate — and create — a run directory under `<cwd>/.offstage/runs/<id>/`.
+ * Allocate, and create, a run directory under `<cwd>/.offstage/runs/<id>/`.
  *
  * The directory exists by the time this resolves, so a lane can write into it
  * immediately without its own `mkdir` dance.
@@ -87,7 +87,7 @@ export async function allocateRunDir(options: AllocateRunDirOptions = {}): Promi
  * The first thing offstage does for a new user is write logs and results into
  * their repository. Left alone, that shows up as untracked files in `git
  * status` and, sooner or later, in someone's commit. Telling users to add a
- * line to their own `.gitignore` puts the burden in the wrong place — a
+ * line to their own `.gitignore` puts the burden in the wrong place: a
  * self-ignoring directory needs nothing from them and touches no file they own.
  *
  * Best effort by design: a read-only or already-present file is not worth
@@ -171,7 +171,7 @@ export async function writeResult(result: LaneResult): Promise<string> {
  * `readResult('.offstage/runs/<id>')` and `readResult('.../result.json')` work.
  *
  * @throws {Error} if the file is missing, is not JSON, or does not satisfy the
- * contract — the message lists every violated rule.
+ * contract: the message lists every violated rule.
  */
 export async function readResult(target: string): Promise<LaneResult> {
   const file = target.endsWith(RESULT_FILENAME) ? target : path.join(target, RESULT_FILENAME);
@@ -196,7 +196,7 @@ export async function readResult(target: string): Promise<LaneResult> {
 }
 
 /**
- * List run ids under `<cwd>/.offstage/runs`, oldest first — which, because run
+ * List run ids under `<cwd>/.offstage/runs`, oldest first, which, because run
  * ids are timestamp-prefixed, is just lexicographic order.
  *
  * Returns `[]` when nothing has ever been run here.

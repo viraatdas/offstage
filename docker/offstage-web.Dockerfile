@@ -1,4 +1,4 @@
-# offstage-web — the container lane's Xvfb box.
+# offstage-web: the container lane's Xvfb box.
 #
 # WHAT THIS IS
 #   A Debian image that runs *headed* browser work against a real X server with a
@@ -8,12 +8,12 @@
 #   the artifacts mount.
 #
 #   The illusion, bottom up:
-#     Xvfb      — an X server whose framebuffer is plain memory, no hardware.
-#     fluxbox   — a window manager, so windows are mapped, focused and sized the
+#     Xvfb      : an X server whose framebuffer is plain memory, no hardware.
+#     fluxbox   : a window manager, so windows are mapped, focused and sized the
 #                 way a real desktop does it. Browsers behave differently with no
 #                 WM (no focus events, odd window geometry), and "behaves like a
 #                 real desktop" is the entire reason this lane exists.
-#     imagemagick + x11-apps — `import` (with an `xwd | convert` fallback) grabs
+#     imagemagick + x11-apps: `import` (with an `xwd | convert` fallback) grabs
 #                 the root window at the end of the run. That screenshot is the
 #                 only evidence a human gets that the headed run really rendered.
 #
@@ -77,15 +77,15 @@ ENV OFFSTAGE_DISPLAY_NUM=99 \
     OFFSTAGE_SCREEN=1280x900x24 \
     OFFSTAGE_ARTIFACTS=/offstage/artifacts
 
-# World-writable so the lane can pass `--user $(id -u):$(id -g)` on Linux — which
-# it does, to keep artifacts owned by the human rather than by root — and the run
+# World-writable so the lane can pass `--user $(id -u):$(id -g)` on Linux (which
+# it does, to keep artifacts owned by the human rather than by root) and the run
 # still has somewhere to write.
 RUN mkdir -p /ms-playwright /offstage/artifacts /workspace /tmp/offstage \
     && chmod 1777 /ms-playwright /offstage /offstage/artifacts /tmp/offstage
 
 # Fluxbox configuration. Without this the window manager tries to paint a JPEG
 # wallpaper, fails inside a container, and throws an xmessage error dialog into
-# every screenshot — one that also steals focus from the browser under test.
+# every screenshot, one that also steals focus from the browser under test.
 # See the comment block in fluxbox-init for the full story.
 #
 # The style is *derived* from Debian's rather than vendored: the sed keeps every

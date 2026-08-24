@@ -20,8 +20,8 @@ import AppKit
 //                     ever appeared in the target app. Events go into a void.
 //   .cgSessionEventTap  the per-session entry point. Posted from a process
 //                     inside session N, the event enters session N's stream and
-//                     the window server routes it to that session's key window
-//                     — confirmed in its log, delivered to the helper session's
+//                     the window server routes it to that session's key window,
+//                     confirmed in its log, delivered to the helper session's
 //                     frontmost app, with nothing reaching the console session.
 //
 // So input is posted to the session event tap. Correct routing, real keyboard
@@ -33,7 +33,7 @@ import AppKit
 // refused outright rather than trusted not to happen: see `perform`.
 //
 // Coordinates are points in global display space, origin top-left of the main
-// display — the same space hello.display describes.
+// display: the same space hello.display describes.
 
 /// The pid every synthetic event is delivered to: the frontmost app in *this*
 /// session. `nil` when nothing is frontmost, or when it is the daemon itself
@@ -75,7 +75,7 @@ let MODIFIERS: [String: CGEventFlags] = [
 
 /// A validated action. The request is parsed into these *in full* before any
 /// event is posted (see README: this refines the spec's "first failing
-/// action" wording — a malformed list performs nothing and reports
+/// action" wording: a malformed list performs nothing and reports
 /// performed: 0, which is the safer behaviour for injected input).
 enum InputAction {
     case move(x: Double, y: Double)
@@ -250,7 +250,7 @@ func perform(_ action: InputAction) throws {
     // Resolve the delivery target once per action, from the session's current
     // frontmost app. A click that changes which app is frontmost is followed by
     // its own action anyway, so the next one re-resolves. No target means we
-    // refuse — see the note at the top of this file on why there is no
+    // refuse: see the note at the top of this file on why there is no
     // HID-tap fallback.
     // Hard refusal, not a warning: posting into the session event tap while
     // this session is the one on the console would type on the user's real

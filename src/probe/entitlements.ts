@@ -1,12 +1,12 @@
 /**
- * offstage — entitlements collection.
+ * offstage: entitlements collection.
  *
- * Given something the user actually has on disk — an `.xcodeproj`, an
- * `.xcworkspace`, a bare `.entitlements` file, a built `.app`, or a `.dmg` —
+ * Given something the user actually has on disk (an `.xcodeproj`, an
+ * `.xcworkspace`, a bare `.entitlements` file, a built `.app`, or a `.dmg`)
  * this module collects the entitlements that product effectively requests, then
  * hands them to {@link classifyEntitlements} for the verdict that decides
- * whether a disposable, ad-hoc-signed Tart VM works today (`adhoc-ok`) or
- * needs a host-side signing lane built first (`needs-signing-lane`).
+ * whether ad-hoc signing is enough to build and test it (`adhoc-ok`) or a real
+ * Developer ID identity has to be wired in first (`needs-signing-lane`).
  *
  * ## Evidence, ranked
  *
@@ -24,7 +24,7 @@
  *
  * Anything weaker than "we read the signature or the declared entitlements
  * file" comes back as `confidence: 'low'` with a note saying why. A probe that
- * found nothing reports `adhoc-ok` at low confidence — which means "no evidence
+ * found nothing reports `adhoc-ok` at low confidence, which means "no evidence
  * of a blocker", not "proven fine".
  *
  * ## External tools
@@ -72,8 +72,8 @@ export interface EntitlementsSource {
   path: string;
   origin: SourceOrigin;
   /**
-   * `declared` — the project, the signature, or the user named this file.
-   * `scanned` — offstage found it by looking around, so it may belong to a
+   * `declared` (the project, the signature, or the user named this file.
+   * `scanned`) offstage found it by looking around, so it may belong to a
    * target you never build. Scanned-only evidence caps confidence at `low`.
    */
   discovery: 'declared' | 'scanned';
@@ -104,8 +104,8 @@ export interface EntitlementsProbeReport {
   targetKind: ProbeTargetKind;
   verdict: Verdict;
   /**
-   * `high` — offstage read declared entitlements or a real code signature.
-   * `low`  — the verdict rests on weaker evidence (nothing found, only files
+   * `high`: offstage read declared entitlements or a real code signature.
+   * `low`: the verdict rests on weaker evidence (nothing found, only files
    * discovered by scanning, or a built product inspected without `codesign`).
    * A `low` `adhoc-ok` means "found no blocker", not "proved there is none".
    */
@@ -170,7 +170,7 @@ export interface ProbeOptions {
    */
   runCommand?: CommandRunner;
   /**
-   * Set `false` to keep the probe purely file-based — no `codesign`, no
+   * Set `false` to keep the probe purely file-based, no `codesign`, no
    * `hdiutil`. Defaults to `true`, but external tools are attempted only on
    * Darwin unless a `runCommand` is injected.
    */
@@ -271,7 +271,7 @@ export function extractEmbeddedPlist(buffer: Buffer): string | null {
 /**
  * Parse `codesign -d --entitlements :-` output, with or without the leading
  * blob header. Returns `null` when the binary is unsigned or carries no
- * entitlements — which is a legitimate answer, not an error.
+ * entitlements, which is a legitimate answer, not an error.
  */
 export function parseCodesignEntitlements(stdout: Buffer): Record<string, unknown> | null {
   if (stdout.length === 0) return null;
@@ -282,7 +282,7 @@ export function parseCodesignEntitlements(stdout: Buffer): Record<string, unknow
 
 /**
  * Parse a `.provisionprofile` / `.mobileprovision` and return its `Entitlements`
- * dictionary — the set of capabilities Apple allowlisted for that App ID.
+ * dictionary: the set of capabilities Apple allowlisted for that App ID.
  */
 export function parseProvisioningProfile(buffer: Buffer): Record<string, unknown> | null {
   const xml = extractEmbeddedPlist(buffer);
@@ -299,8 +299,8 @@ export function parseProvisioningProfile(buffer: Buffer): Record<string, unknown
  * and resolve it against the project's source root.
  *
  * A real pbxproj parser is not worth it here: the setting is a flat
- * `KEY = value;` line in every Xcode-generated project, and the alternative —
- * shelling out to `xcodebuild -showBuildSettings` — needs Xcode installed and a
+ * `KEY = value;` line in every Xcode-generated project, and the alternative,
+ * shelling out to `xcodebuild -showBuildSettings`, needs Xcode installed and a
  * scheme, which is exactly what this probe must work without.
  *
  * Settings that interpolate variables offstage cannot resolve (`$(TARGET_NAME)`)
@@ -335,7 +335,7 @@ export function entitlementsPathsFromPbxproj(
  *
  * Locations look like `group:App/App.xcodeproj` or `container:App.xcodeproj`,
  * are relative to the directory holding the `.xcworkspace`, and may be nested
- * inside `<Group>` elements — hence the recursive walk.
+ * inside `<Group>` elements: hence the recursive walk.
  */
 export function projectPathsFromWorkspaceData(contents: string, workspaceDir: string): string[] {
   const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
@@ -367,7 +367,7 @@ export function projectPathsFromWorkspaceData(contents: string, workspaceDir: st
     const separator = location.indexOf(':');
     const scheme = separator < 0 ? '' : location.slice(0, separator);
     const value = separator < 0 ? location : location.slice(separator + 1);
-    if (value.length === 0) continue; // `self:` — the workspace itself.
+    if (value.length === 0) continue; // `self:`: the workspace itself.
     if (scheme === 'developer') continue;
     const resolved = scheme === 'absolute' ? value : path.resolve(workspaceDir, value);
     if (resolved.endsWith('.xcodeproj')) projects.add(resolved);
@@ -511,7 +511,7 @@ async function collectFromXcodeProject(
     return;
   }
   collector.notes.push(
-    `${path.basename(projectPath)} declares no CODE_SIGN_ENTITLEMENTS; falling back to ${scanned.length} *.entitlements file(s) found by scanning ${srcRoot}. These may belong to targets you never build — confidence is capped at low.`,
+    `${path.basename(projectPath)} declares no CODE_SIGN_ENTITLEMENTS; falling back to ${scanned.length} *.entitlements file(s) found by scanning ${srcRoot}. These may belong to targets you never build: confidence is capped at low.`,
   );
   for (const file of scanned) {
     await addEntitlementsFile(collector, file, 'scanned', `found by scanning ${srcRoot}`);
@@ -589,7 +589,7 @@ async function collectFromAppBundle(
       continue;
     }
     collector.notes.push(
-      `${path.basename(appPath)} embeds a provisioning profile. Its Entitlements dictionary is the App ID's allowlist, which can be broader than what the binary actually requests — but a product that ships one was built against a real Team ID.`,
+      `${path.basename(appPath)} embeds a provisioning profile. Its Entitlements dictionary is the App ID's allowlist, which can be broader than what the binary actually requests, but a product that ships one was built against a real Team ID.`,
     );
     collector.sources.push({
       path: profilePath,
@@ -640,7 +640,7 @@ async function readCodesignEntitlements(
 
 /**
  * Attach a `.dmg` read-only, run `body` against the mount point, and **always**
- * detach — including when `body` throws.
+ * detach: including when `body` throws.
  *
  * A leaked mount is not a cosmetic problem: it pins the image file, shows up in
  * Finder, and survives the process that created it. Hence `-nobrowse`,
@@ -842,7 +842,7 @@ export async function resolveProbeTarget(target: string): Promise<ResolvedTarget
     }
 
     // SwiftPM and Xcode leave the bundle one level down, so a repository root
-    // has no `.app` in it at all — which is the shape `offstage probe .` meets
+    // has no `.app` in it at all, which is the shape `offstage probe .` meets
     // in practice. Look in the conventional output directories only: an
     // unbounded search would be slow and would happily find someone else's app.
     const nested: string[] = [];
@@ -870,7 +870,7 @@ export async function resolveProbeTarget(target: string): Promise<ResolvedTarget
 /**
  * Merge entitlement dictionaries, recording which sources declared each key.
  *
- * Later sources win on conflict — collection order runs weakest evidence first,
+ * Later sources win on conflict: collection order runs weakest evidence first,
  * so the strongest reading of a key is the one that survives. Provenance keeps
  * every source that mentioned the key, so nothing is hidden.
  */
@@ -895,7 +895,7 @@ export function mergeEntitlements(sources: readonly EntitlementsSource[]): {
  * Probe a target and return the verdict that decides whether macOS app testing
  * is a weekend (`adhoc-ok`) or a month (`needs-signing-lane`).
  *
- * Never throws for anything it merely could not inspect — a missing `codesign`,
+ * Never throws for anything it merely could not inspect: a missing `codesign`,
  * an unmountable image and an unparseable plist all become notes. It throws
  * {@link ProbeError} only when the target does not exist or is a kind offstage
  * cannot probe at all.
@@ -967,7 +967,7 @@ export async function probeEntitlements(
   if (collector.sources.length === 0) {
     confidence = 'low';
     notes.push(
-      'No entitlements were found at all. This reads as adhoc-ok because there is no evidence of a blocker — not because one was ruled out. Point the probe at the target\'s .entitlements file or a built .app to raise confidence.',
+      'No entitlements were found at all. This reads as adhoc-ok because there is no evidence of a blocker, not because one was ruled out. Point the probe at the target\'s .entitlements file or a built .app to raise confidence.',
     );
   } else if (collector.sources.every((source) => source.discovery === 'scanned')) {
     confidence = 'low';

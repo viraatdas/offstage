@@ -3,14 +3,14 @@
  *
  * The hard requirement: **this file passes on a machine with no container
  * runtime at all.** That is not a convenience, it is the thing most worth
- * testing — the lane's job on such a machine is to refuse to run, say exactly
+ * testing: the lane's job on such a machine is to refuse to run, say exactly
  * why, and hand back a contract-valid result rather than an exception. The
  * machine this lane was written on is precisely that machine (docker CLI
  * present but pointed at a dead OrbStack socket, Colima installed but stopped,
  * no podman), so the degraded path is asserted here in that exact shape.
  *
  * Everything that would otherwise need a daemon is driven through the lane's
- * two injection points — `detect` and `exec` — so the full happy path, the
+ * two injection points, `detect` and `exec`, so the full happy path, the
  * build path, the timeout path and the failure-parsing path are all covered
  * without one.
  *
@@ -412,7 +412,7 @@ describe('detectContainerRuntime', () => {
           stderr: 'dial unix /Users/x/.orbstack/run/docker.sock: connect: no such file',
         },
         'docker context show': { found: true, exitCode: 0, stdout: 'orbstack' },
-        // Colima is installed and stopped too — the heavier option must lose.
+        // Colima is installed and stopped too: the heavier option must lose.
         'colima list --json': {
           found: true,
           exitCode: 0,
@@ -526,7 +526,7 @@ describe('colima helpers', () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/* The degraded path — the point of the whole exercise                        */
+/* The degraded path: the point of the whole exercise                        */
 /* -------------------------------------------------------------------------- */
 
 describe('container lane without a runtime', () => {
@@ -558,7 +558,7 @@ describe('container lane without a runtime', () => {
     expect(result.artifacts).toEqual([]);
     expect(result.failures).toEqual([]);
 
-    // Nothing was run anywhere — not in a container, and emphatically not on
+    // Nothing was run anywhere, not in a container, and emphatically not on
     // the real display.
     expect(spy.calls).toEqual([]);
 
@@ -760,7 +760,7 @@ describe('container lane run wiring', () => {
     expect(build?.args[2]).toBe(path.join(DOCKER_DIR, 'offstage-web.Dockerfile'));
     expect(build?.args[3]).toBe('-t');
     expect(build?.args[4]).toMatch(/^offstage-web:[0-9a-f]{12}$/);
-    // The build context is `docker/`, not the repo — a full repo upload here
+    // The build context is `docker/`, not the repo: a full repo upload here
     // would be slow and would invalidate the cache on every source edit.
     expect(build?.args[5]).toBe(DOCKER_DIR);
 
@@ -974,7 +974,7 @@ describe('imageTagFor', () => {
     expect(imageTagFor('offstage-web', context)).toBe(imageTagFor('offstage-web', context));
     expect(imageTagFor('offstage-web', context)).toMatch(/^offstage-web:[0-9a-f]{12}$/);
 
-    // Every file in the build context counts — including the window-manager
+    // Every file in the build context counts: including the window-manager
     // config, which an earlier version of this hash ignored.
     for (const index of [0, 1, 2]) {
       const edited = context.map((file, position) =>
@@ -1212,7 +1212,7 @@ describe('docker/ image sources', () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/* The real thing — only when this machine can actually run a container        */
+/* The real thing: only when this machine can actually run a container        */
 /* -------------------------------------------------------------------------- */
 
 const hostProbe = await detectContainerRuntime();

@@ -25,15 +25,21 @@ catch the ones that would open a window or steal focus.
   XCUITests, `open -a`, `osascript`). The README's session section is the
   design summary; `native/sessiond/README.md` has the daemon's wire protocol.
 
-There is no fourth lane for work that could change the machine itself. A command
-naming an installer, a `.dmg`/`.pkg`, or `hdiutil` is refused on every lane with
-no override, and the router's `reason` says why. The refusal reads the command,
-not the program behind it: `argv[0]` is resolved on disk (through `PATH`, a
-symlink, a rename, or a copy) and inline `-c`/`-e` code is inspected, but a
-script file, a Makefile, an npm script or a compiled binary is opaque to it. Do
-not describe it as a sandbox, and do not add a lane or a flag that weakens it. There used to be a `vm` lane for
-this; it was removed because it never drove a real macOS guest (git history
-keeps that record).
+Three lanes, and no fourth. Work that could change the machine itself is
+refused rather than routed: a command naming an installer, a `.dmg`/`.pkg`, or
+`hdiutil` is refused on every lane with no override, and the router's `reason`
+says why.
+
+The refusal reads the command, not the program behind it. `argv[0]` is resolved
+on disk (through `PATH`, a symlink, a rename, or a copy) and inline `-c`/`-e`
+code is inspected, but a script file, a Makefile, an npm script or a compiled
+binary is opaque to it. Do not describe it as a sandbox, and do not add a lane
+or a flag that weakens it.
+
+offstage does not run virtual machines, and nothing in it should imply that it
+does. A `vm` lane existed once and was deleted in 0.3.0 because it never drove
+a real macOS guest; do not reintroduce one, and do not describe a lane, a
+verdict, or a doc in terms of a VM.
 
 ## Build, test, smoke test
 
@@ -89,6 +95,16 @@ session section, and `native/sessiond/README.md` for the wire protocol.
   implements `LaneRunner`; `isAvailable()` never throws or mutates anything,
   `run()` never throws, and `run()` never falls back to the user's real
   screen when its substrate is unavailable.
+- No source file goes over 1,000 lines. `src/router/` and `src/cli/` are each
+  split into modules that form a directed graph with no cycles: leaf modules
+  (`signal.ts`, `flags.ts`, `bins.ts`) know nothing about their callers, and
+  the collectors above them import downward only. When a file is getting long,
+  find the seam that already exists in it rather than adding a barrel that
+  re-exports everything.
+- The session lane's own verbs are not in `src/cli/api.ts`. `api.ts` is
+  doctor/route/run/probe; `src/cli/session.ts` brings the session lane up and
+  `src/cli/session-control.ts` drives one that is already up. What they share
+  is `ApiDeps`, read through `withDefaults`.
 
 ## Hard rules
 

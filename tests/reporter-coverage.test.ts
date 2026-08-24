@@ -1,5 +1,5 @@
 /**
- * Reporter coverage is Playwright / Vitest / Jest only — by design.
+ * Reporter coverage is Playwright / Vitest / Jest only: by design.
  *
  * `LaneResult.failures[]` is machine-readable, and an agent handed
  * `{ file, line }` will go and edit that line. So the headless lane recognizes
@@ -10,7 +10,7 @@
  *    than the implementation);
  * 2. sixteen transcripts from tools we do *not* support yield exactly `[]` (the
  *    implementation is not larger than the claim, which is the dangerous
- *    direction — a recognizer that also matches the tool next door fabricates
+ *    direction: a recognizer that also matches the tool next door fabricates
  *    failures);
  * 3. the boundary is written down in the README where a user can find it;
  * 4. a run whose output nothing recognized still says so out loud, and still
@@ -41,7 +41,7 @@ const LANE_BARREL = path.join(REPO_ROOT, 'src', 'lanes', 'headless', 'index.ts')
 /**
  * The design decision, as a value. Every other assertion in this file is
  * downstream of this list; changing it means changing the product, the document
- * and the diagnostic the lane prints — in that order.
+ * and the diagnostic the lane prints, in that order.
  */
 const RECOGNIZED = ['Playwright', 'Vitest', 'Jest'] as const;
 
@@ -63,7 +63,7 @@ interface HeadlessModule {
 /**
  * The headless lane is another node's module and may not be present in every
  * workspace yet. The specifier is held in a variable so TypeScript treats the
- * import as dynamic rather than resolving it at typecheck time — the shape we
+ * import as dynamic rather than resolving it at typecheck time: the shape we
  * rely on is declared above instead, which doubles as an assertion about the
  * lane's public surface.
  */
@@ -157,7 +157,7 @@ describe.skipIf(!LANE_PRESENT)('the three recognized reporters', () => {
 
     /* No `line`: Jest prints its banner relative and its stack frames absolute,
        and a line number is only trusted when it came from the same *printed*
-       path as the file. Losing a line number is the correct trade — the
+       path as the file. Losing a line number is the correct trade: the
        alternative is attaching one from a helper or a matcher. */
     expect(parseFailures(withAbsoluteFrame)).toEqual([
       {
@@ -196,7 +196,7 @@ describe.skipIf(!LANE_PRESENT)('every other reporter abstains rather than guesse
     /* With a cwd, because that is how the lane calls it... */
     expect(lane!.parseFailures(transcript, { cwd: REPO_ROOT })).toEqual([]);
     /* ...and without, because an abstention must not depend on path resolution
-       succeeding — a match that only fails to produce `file` would still put a
+       succeeding: a match that only fails to produce `file` would still put a
        fabricated test name and message in front of an agent. */
     expect(lane!.parseFailures(transcript)).toEqual([]);
   });
@@ -213,7 +213,7 @@ describe.skipIf(!LANE_PRESENT)('every other reporter abstains rather than guesse
 });
 
 /* -------------------------------------------------------------------------- */
-/* 3. Known leaks — the places "abstain" is not true yet                      */
+/* 3. Known leaks: the places "abstain" is not true yet                      */
 /* -------------------------------------------------------------------------- */
 
 describe.skipIf(!LANE_PRESENT)('known leaks', () => {
@@ -222,7 +222,7 @@ describe.skipIf(!LANE_PRESENT)('known leaks', () => {
    * that prints a `●` bullet gets a fabricated failure. These two transcripts
    * are real (`next build`'s route legend, `systemctl status`) and are marked
    * `it.fails`: they assert the behaviour we want, and pass only while it is
-   * still wrong. Fixing `parse.ts` turns them red — at which point delete the
+   * still wrong. Fixing `parse.ts` turns them red, at which point delete the
    * `.fails` marker and the "Known leaks" list below.
    */
   it('has exactly the leaks the document describes', () => {
@@ -263,7 +263,7 @@ describe('the decision is documented', () => {
     );
 
     /* If this trips, parse.ts stopped naming its recognizers `<TOOL>_FAILURE`
-       and this guard needs rewriting rather than deleting — without it, a
+       and this guard needs rewriting rather than deleting, without it, a
        fourth reporter can be added with nobody updating the document. */
     expect(recognizers.length).toBeGreaterThan(0);
 

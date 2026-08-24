@@ -4,7 +4,7 @@
 // reporting on the disk rather than on the code under test.
 //
 // 1MB is far more than the 64KB a pipe will hold, so a sink that stops reading
-// leaves the rest stranded — which is the situation under test.
+// leaves the rest stranded, which is the situation under test.
 //
 // Exits by running off the end rather than calling process.exit(), which would
 // discard whatever stdout had not yet flushed to the pipe.

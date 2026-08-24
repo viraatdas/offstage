@@ -2,7 +2,7 @@
  * Session lane tests.
  *
  * The hard requirement, same as the other lanes: **this file passes on a
- * machine with no `offstage-sessiond` installed** — which is the machine it was
+ * machine with no `offstage-sessiond` installed**, which is the machine it was
  * written on. Every rung of the availability ladder and every failure mode of
  * `run()` is driven through the lane's three seams (`discover`, `createClient`,
  * `exec`), so nothing here logs anyone in, binds a socket, runs `chmod`, or
@@ -460,7 +460,7 @@ describe('SessionLane.run', () => {
   });
 
   it('collects what the command left in the artifacts directory, .xcresult bundles included', async () => {
-    /* xcodebuild writes its result bundle — a directory — into
+    /* xcodebuild writes its result bundle, a directory, into
        $OFFSTAGE_ARTIFACTS; a lane that only registered its own log and
        screenshot would drop exactly the artifact a real macOS run exists to
        produce. */
@@ -651,7 +651,7 @@ describe('SessionLane.run', () => {
 describe('the exported lane instance', () => {
   it('is a session lane that reports honestly on this machine', async () => {
     expect(sessionLane.lane).toBe('session');
-    /* No daemon is installed here, so this must be false with a fix — and it
+    /* No daemon is installed here, so this must be false with a fix, and it
        must not throw, whatever this machine looks like. */
     const availability = await sessionLane.isAvailable();
     expect(typeof availability.available).toBe('boolean');

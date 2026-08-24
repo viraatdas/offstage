@@ -1,5 +1,5 @@
 /**
- * The CLI's programmatic API — the single dispatch path the terminal and the
+ * The CLI's programmatic API: the single dispatch path the terminal and the
  * MCP server share.
  *
  * The tests that matter most here are the refusal tests: offstage's whole
@@ -128,7 +128,7 @@ describe('doctor', () => {
 
     // Two installs both reporting the same version are only the same code if
     // they came from the same place. Version alone cannot answer "is this the
-    // published package or my checkout?" — which is the question that cost a
+    // published package or my checkout?", which is the question that cost a
     // debugging session when a stale MCP process outlived its build.
     expect(report.install.version).toBe(report.offstageVersion);
     expect(report.install.root).not.toBe('');
@@ -166,7 +166,7 @@ describe('a command passed as one quoted string', () => {
   it('splits it, instead of classifying a program whose name contains spaces', async () => {
     // `offstage route -- "npx playwright test --headed"` arrives as one argv
     // entry. Read literally it names no browser, so it classified as headless
-    // — a wrong answer that reads as a confident one.
+    //: a wrong answer that reads as a confident one.
     const cwd = await tempRepo();
     const decision = await route({ cwd, command: ['npx playwright test --headed'] }, deps({}));
 
@@ -469,7 +469,7 @@ describe('offstageInstall', () => {
   it('is stable across calls, because the MCP server reads it while constructing itself', () => {
     // Sync and cached on purpose: the server must name its version before
     // anything can be awaited. Two different answers would mean the CLI and
-    // the server could disagree about what is running — they did once.
+    // the server could disagree about what is running: they did once.
     expect(offstageInstall()).toBe(offstageInstall());
   });
 

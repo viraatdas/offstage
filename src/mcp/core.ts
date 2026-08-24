@@ -1,5 +1,5 @@
 /**
- * offstage — what the MCP server calls.
+ * offstage: what the MCP server calls.
  *
  * This is a seam, not an implementation. Every tool is `src/cli/api.ts`, which
  * is the same code path `offstage run` takes: one router, one dispatch, one
@@ -12,46 +12,30 @@
  */
 
 import type { RouteDecision } from '../contract/index.js';
+import type { DoctorReport, ProbeInput, RouteInput, RunInput, RunOutcome } from '../cli/api.js';
+import type { SessionStatus } from '../cli/session.js';
 import type {
-  DoctorReport,
-  ProbeInput,
-  RouteInput,
-  RunInput,
-  RunOutcome,
   SessionInputResult,
   SessionLaunchInput,
   SessionLaunchResult,
   SessionScreenshotInput,
   SessionScreenshotResult,
-  SessionStatus,
-} from '../cli/api.js';
-import {
-  doctor,
-  probe,
-  route,
-  run,
-  sessionApps,
-  sessionInput,
-  sessionLaunch,
-  sessionScreenshot,
-  sessionStatus,
-} from '../cli/api.js';
+} from '../cli/session-control.js';
+import { doctor, probe, route, run } from '../cli/api.js';
+import { sessionStatus } from '../cli/session.js';
+import { sessionApps, sessionInput, sessionLaunch, sessionScreenshot } from '../cli/session-control.js';
 import type { EntitlementsProbeReport } from '../probe/index.js';
 import type { SessionApp } from '../session/index.js';
 
+export type { DoctorReport, ProbeInput, RouteInput, RunInput, RunOutcome } from '../cli/api.js';
+export type { SessionStatus } from '../cli/session.js';
 export type {
-  DoctorReport,
-  ProbeInput,
-  RouteInput,
-  RunInput,
-  RunOutcome,
   SessionInputResult,
   SessionLaunchInput,
   SessionLaunchResult,
   SessionScreenshotInput,
   SessionScreenshotResult,
-  SessionStatus,
-} from '../cli/api.js';
+} from '../cli/session-control.js';
 
 /**
  * `offstage session setup` is deliberately absent.

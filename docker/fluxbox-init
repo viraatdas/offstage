@@ -7,8 +7,8 @@
 !   The stock Debian setup points fluxbox at the "Squared_for_Debian" style,
 !   whose background is a JPEG wallpaper. Inside a container, fbsetbg cannot
 !   apply it, so fluxbox pops up an `xmessage` error dialog. That dialog lands in
-!   the middle of every end-of-run screenshot, and — much worse for a lane whose
-!   whole purpose is faithful headed behaviour — it takes focus away from the
+!   the middle of every end-of-run screenshot, and, much worse for a lane whose
+!   whole purpose is faithful headed behaviour, it takes focus away from the
 !   browser under test.
 !
 !   Neither `fluxbox -rc <file>` nor `~/.fluxbox/init` overrides it: the system

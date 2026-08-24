@@ -13,7 +13,7 @@
  * .xcodeproj), and building them four times is worse than building them once in
  * `tests/router.fixtures.ts`. n1 flagged that file as a literal deviation from
  * its "create only tests/router.*.test.ts" brief. This suite is the
- * ratification — and the part that keeps the ratification honest.
+ * ratification, and the part that keeps the ratification honest.
  *
  * All of it rests on `vitest.config.ts` including exactly `tests/**\/*.test.ts`,
  * which is load-bearing in both directions:
@@ -24,10 +24,10 @@
  *
  *   Narrow it, or add a `tests/*` entry to `exclude`, and a real suite stops
  *   being collected. `vitest run` stays green while its coverage quietly leaves
- *   the build — the worse of the two failures, because nothing complains.
+ *   the build: the worse of the two failures, because nothing complains.
  *
  * So the collection check below is a set equality, not a subset check, and it
- * asks vitest itself rather than reimplementing its glob semantics — the same
+ * asks vitest itself rather than reimplementing its glob semantics: the same
  * reason tests/tsconfig-include.test.ts asks the TypeScript compiler.
  */
 import fs from 'node:fs';
@@ -67,7 +67,7 @@ function classifyTestsFile(filePath: string): Kind {
 
 /**
  * Every TypeScript file under `tests/`, minus `tests/fixtures/**`. That tree is
- * sample code for the lanes to execute — Playwright specs, Xcode projects — and
+ * sample code for the lanes to execute (Playwright specs, Xcode projects) and
  * is deliberately outside both vitest collection and the tsconfig program.
  */
 function walkTestsDir(dir: string): string[] {
@@ -184,7 +184,7 @@ describe('the tests/ directory obeys it', () => {
   it('imports every helper from a suite', () => {
     const reachable = reachableFromSuites();
     const orphans = helpers.filter((helper) => !reachable.has(helper));
-    // An unimported helper is dead code that still typechecks — and should it
+    // An unimported helper is dead code that still typechecks, and should it
     // ever grow a describe() block, those tests would run nowhere at all.
     expect(orphans).toEqual([]);
   });

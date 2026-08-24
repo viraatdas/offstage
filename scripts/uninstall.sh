@@ -1,5 +1,5 @@
 #!/bin/sh
-# offstage uninstaller — reverses what install.sh and `offstage session setup`
+# offstage uninstaller: reverses what install.sh and `offstage session setup`
 # did.
 #
 #   sh scripts/uninstall.sh              # dry run: prints every command, runs nothing
@@ -7,7 +7,7 @@
 #   sh scripts/uninstall.sh --yes --remove-npm-package   # also removes the npm package, no prompt
 #
 # What this never does: delete the helper macOS account. It only prints the
-# `sysadminctl -deleteUser` command — see the README for why the account
+# `sysadminctl -deleteUser` command: see the README for why the account
 # is left for you to remove by hand.
 #
 # POSIX sh, safe to re-run.
@@ -79,7 +79,7 @@ esac
 # ------------------------------------------------------- session daemon --
 step "1. Session lane daemon"
 if [ "$platform" != macos ]; then
-  info "not macOS — nothing session-lane related was installed here."
+  info "not macOS, nothing session-lane related was installed here."
 else
   # `offstage session setup` installs the LaunchAgent into the HELPER account's
   # own ~/Library/LaunchAgents and bootstraps it into that account's GUI
@@ -88,7 +88,7 @@ else
   helper_uid="$(id -u "$helper_user" 2>/dev/null || true)"
   helper_home="$(dscl . -read "/Users/$helper_user" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
   if [ -z "$helper_uid" ]; then
-    warn "helper account '$helper_user' does not exist — nothing to boot out."
+    warn "helper account '$helper_user' does not exist, nothing to boot out."
     helper_uid="<uid>"
     helper_home="/Users/$helper_user"
   fi
@@ -110,7 +110,7 @@ else
     if eval "$boot_cmd"; then
       ok "daemon booted out of ${gui_target}"
     else
-      warn "launchctl bootout failed or nothing was loaded there — check with:"
+      warn "launchctl bootout failed or nothing was loaded there: check with:"
       printf '    launchctl print %s\n' "$gui_target"
     fi
     if eval "$rm_plist_cmd"; then
@@ -124,7 +124,7 @@ else
       warn "could not remove ${libexec_dir} (already gone, or permission denied)."
     fi
   else
-    info "dry run — nothing above was executed. Re-run with --yes to run it for real."
+    info "dry run, nothing above was executed. Re-run with --yes to run it for real."
   fi
 fi
 
@@ -160,7 +160,7 @@ fi
 
 # ------------------------------------------------------------ helper user --
 step "3. Helper macOS account"
-warn "this script never deletes the helper account — do that yourself, deliberately, once"
+warn "this script never deletes the helper account: do that yourself, deliberately, once"
 warn "you have confirmed nothing else still uses it:"
 printf '    sudo sysadminctl -deleteUser %s\n' "$HELPER_USER"
 printf '  (add -keepHome if you want to keep its home directory around first)\n'
@@ -169,5 +169,5 @@ step "Done"
 if [ "$YES" = 1 ]; then
   ok "uninstall steps ran. Confirm with: launchctl print gui/$(id -u)/dev.offstage.sessiond ; offstage doctor"
 else
-  ok "dry run complete — nothing was changed. Re-run with --yes to apply it."
+  ok "dry run complete, nothing was changed. Re-run with --yes to apply it."
 fi

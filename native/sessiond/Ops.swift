@@ -158,7 +158,7 @@ func opAccess(_ req: [String: Any]) throws -> [String: Any] {
 ///
 /// This replaced `NSWorkspace.runningApplications` after that API proved to
 /// serve frozen snapshots from a launchd-daemon context: Calculator and
-/// Safari were visibly running — one of them frontmost, menu bar and all —
+/// Safari were visibly running (one of them frontmost, menu bar and all)
 /// while the list denied either existed. Without a full NSApplication context
 /// the workspace only learns about changes sporadically, and a 0.1-second
 /// runloop pump per request did not fix it. `lsappinfo` asks LaunchServices
@@ -187,7 +187,7 @@ struct LSAppEntry {
     let policy: String
 }
 
-/// The header of one entry: `<digits>) "<name>" ASN:<0x0-0x…>:` — deliberately
+/// The header of one entry, `<digits>) "<name>" ASN:<0x0-0x…>:`. Deliberately
 /// strict, because continuation lines like `parentASN="loginwindow" ASN:…`
 /// also carry ` ASN:` plus quotes and would otherwise split apps in half.
 func lsAppHeader(_ line: Substring) -> (name: String, asn: String)? {
@@ -282,8 +282,8 @@ func quotedValue(in line: Substring, key: String) -> String? {
 }
 
 func opApps(_ req: [String: Any]) throws -> [String: Any] {
-    // Accessory apps are listed on purpose: LSUIElement/menu-bar tools — which
-    // is what a lot of utility apps an agent wants to test actually are — never
+    // Accessory apps are listed on purpose: LSUIElement/menu-bar tools, which
+    // is what a lot of utility apps an agent wants to test actually are, never
     // get the regular policy, and filtering them out made every launch of such
     // an app look like a failure ("open" succeeded but apps denied it existed,
     // measured with GestureEngine, dev.viraat.GestureEngine).
@@ -327,7 +327,7 @@ func opRequestPermissions(_ req: [String: Any]) throws -> [String: Any] {
 // MARK: - restart
 
 func opRestart(_ req: [String: Any]) throws -> [String: Any] {
-    // Both TCC answers — Screen Recording and Accessibility — are cached for
+    // Both TCC answers, Screen Recording and Accessibility, are cached for
     // the lifetime of a process, so a grant given after we launched is
     // invisible to us until we start again. Restarting used to mean
     // `launchctl kickstart` in another user's gui domain, which needs root and

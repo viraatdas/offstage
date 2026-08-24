@@ -1,5 +1,5 @@
 /**
- * offstage — read-only inspection of the repository the command runs against.
+ * offstage: read-only inspection of the repository the command runs against.
  *
  * The router is allowed to *read* a few small, well-known files to sharpen its
  * answer: `package.json` (to resolve `npm test` into the command it actually
@@ -90,8 +90,8 @@ const PUPPETEER_CONFIG_NAMES = [
 ];
 
 /**
- * WebdriverIO configs. WebDriver has no useful default — whether a window opens
- * is written in the capabilities — so this file is the only place that can
+ * WebdriverIO configs. WebDriver has no useful default, whether a window opens
+ * is written in the capabilities, so this file is the only place that can
  * answer the question, and the router reads it rather than guessing from the
  * tool name. The command usually names the config itself (`wdio run <path>`);
  * these are the fallbacks for when it does not.
@@ -190,8 +190,8 @@ export interface Inspector {
   /**
    * Resolve argv[0] to its real filesystem target when it names a path, so a
    * symlinked or renamed binary cannot hide from a signal keyed on its name
-   * (`installer`, `hdiutil`, …). A bare name — no `/` or `\`, e.g. `installer`
-   * on its own — is left alone: resolving that would mean a PATH lookup, which
+   * (`installer`, `hdiutil`, …). A bare name (no `/` or `\`, e.g. `installer`
+   * on its own) is left alone: resolving that would mean a PATH lookup, which
    * is both slow and a purity risk this router does not take. Unlike the other
    * methods here, the target is not required to sit inside `cwd`: the whole
    * point is to see through a wrapper that points *outside* the repository, at
@@ -202,9 +202,9 @@ export interface Inspector {
   resolveBinary(reference: string): Promise<string | undefined>;
   /**
    * SHA-256 of what argv[0] resolves to, when it names a path. A *copied*
-   * binary has no filesystem link back to its origin — `cp /usr/sbin/installer
+   * binary has no filesystem link back to its origin, `cp /usr/sbin/installer
    * ./nice-name` leaves realpath pointing at the copy itself and the basename
-   * is whatever the copier chose — but the bytes are identical, and identical
+   * is whatever the copier chose, but the bytes are identical, and identical
    * bytes do identical things. Same rules as {@link resolveBinary}: path-shaped
    * references only, outside-cwd allowed, never throws, `undefined` for
    * anything unreadable, oversized, or not a regular file.
@@ -392,7 +392,7 @@ export function createInspector(cwd: string): Inspector {
           return await absolutePathFor(reference);
         } catch {
           // A binary that does not exist yet, a broken symlink, a permissions
-          // error, a symlink loop — all of these are "no information", exactly
+          // error, a symlink loop: all of these are "no information", exactly
           // like every other probe in this file. classify() must never throw
           // over a command naming something that is not there.
           return undefined;

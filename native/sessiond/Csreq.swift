@@ -4,7 +4,7 @@ import Security
 // The designated requirement, exported.
 //
 // A TCC grant (Screen Recording, Accessibility) is stored in the system
-// database as a row keyed to a path, and that row carries a `csreq` BLOB — the
+// database as a row keyed to a path, and that row carries a `csreq` BLOB: the
 // binary's Designated Requirement in Security.framework's external
 // representation. When something at that path later asks for the permission,
 // tccd re-derives the running code's requirement and checks it against the
@@ -33,7 +33,7 @@ func printCsreq(path: String) -> Never {
     var requirement: SecRequirement?
     status = SecCodeCopyDesignatedRequirement(code, SecCSFlags(), &requirement)
     guard status == errSecSuccess, let req = requirement else {
-        die("no designated requirement for \(path): OSStatus \(status) — is it signed?", code: 70)
+        die("no designated requirement for \(path): OSStatus \(status). Is it signed?", code: 70)
     }
 
     var data: CFData?

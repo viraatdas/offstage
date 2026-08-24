@@ -159,7 +159,7 @@ const TABLE: Row[] = [
   {
     /* Recording is not a head. Playwright takes the frames from the browser it
        already drives and encodes them itself, so this writes a real .webm with
-       nothing on screen — see `tests/router.video.test.ts`, which proves it by
+       nothing on screen: see `tests/router.video.test.ts`, which proves it by
        running Chromium rather than by asserting it. */
     what: 'video recording, which a headless browser does perfectly well',
     repo: 'plain',
@@ -768,7 +768,7 @@ describe('package scripts are followed, never run', () => {
   it('sees through cross-env and shell redirection inside a script', async () => {
     const decision = await route('scripts', ['npm', 'run', 'record']);
     /* The flag is found inside `cross-env CI=1 playwright test --video=on >
-       out.log 2>&1`, quoted back with its origin — and recording a video is not
+       out.log 2>&1`, quoted back with its origin, and recording a video is not
        a reason to isolate anything, so the lane stays headless. */
     expect(signalText(decision)).toContain('package.json scripts.record: --video=on');
     expect(decision.lane).toBe('headless');

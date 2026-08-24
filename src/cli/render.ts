@@ -1,5 +1,5 @@
 /**
- * offstage — human rendering.
+ * offstage: human rendering.
  *
  * Every function here is pure: it takes a value from `./api.js` and returns
  * lines. Nothing writes, nothing exits, nothing reads the clock. That is what
@@ -16,17 +16,15 @@ import path from 'node:path';
 
 import type { LaneResult, RouteDecision } from '../contract/index.js';
 import type { EntitlementsProbeReport } from '../probe/index.js';
+import type { DoctorReport, RunOutcome } from './api.js';
+import type { SessionSetupResult, SessionStatus } from './session.js';
 import type {
-  DoctorReport,
-  RunOutcome,
   SessionInputResult,
   SessionLaunchResult,
   SessionScreenshotResult,
-  SessionSetupResult,
   SessionShareResult,
-  SessionStatus,
   SessionUnshareResult,
-} from './api.js';
+} from './session-control.js';
 import type { SessionApp } from '../session/index.js';
 
 const CHECK = '✓';
@@ -73,7 +71,7 @@ export function displayPath(cwd: string, target: string): string {
   return rel.split(path.sep).join('/');
 }
 
-/** `4.2s`, `860ms`, `1m 04s` — durations a human reads at a glance. */
+/** `4.2s`, `860ms`, `1m 04s`: durations a human reads at a glance. */
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
@@ -91,12 +89,12 @@ export function renderDoctor(report: DoctorReport): string[] {
   // same version are only the same code if they came from the same place.
   const where = report.install.root ? ` (${report.install.root})` : '';
   const lines: string[] = [
-    `offstage ${report.offstageVersion}${where} — node ${report.node}, ${report.platform}/${report.arch}`,
+    `offstage ${report.offstageVersion}${where}: node ${report.node}, ${report.platform}/${report.arch}`,
     '',
   ];
 
   // An install that is lying about itself outranks any lane report, so it goes
-  // first — a stale build makes everything below it untrustworthy.
+  // first: a stale build makes everything below it untrustworthy.
   for (const warning of report.warnings) {
     lines.push(`  ${CROSS} stale build`);
     lines.push(...block(warning, '      ', '      '));
@@ -200,7 +198,7 @@ export function renderRunHeader(event: {
       ? ` (forced; the router chose ${event.decision.lane})`
       : '';
   return [
-    `→ ${event.lane} lane${suffix} — ${event.decision.reason}`,
+    `→ ${event.lane} lane${suffix}: ${event.decision.reason}`,
   ];
 }
 
@@ -211,7 +209,7 @@ export function renderRunHeader(event: {
 const STATUS_MEANING: Record<LaneResult['status'], string> = {
   passed: 'the command ran and reported success',
   failed: 'the command ran and something was red',
-  errored: 'the run could not be trusted — nothing can be concluded about your code',
+  errored: 'the run could not be trusted, nothing can be concluded about your code',
   skipped: 'the substrate was unavailable, so nothing ran anywhere',
 };
 
@@ -243,7 +241,7 @@ export function renderRun(outcome: RunOutcome, cwd: string): string[] {
       const where = failure.file
         ? `${failure.file}${failure.line === undefined ? '' : `:${failure.line}`}`
         : '';
-      const head = [where, failure.test].filter(Boolean).join(' — ');
+      const head = [where, failure.test].filter(Boolean).join(': ');
       lines.push(`  - ${head || 'failure'}`);
       lines.push(...block(failure.message, '      ', '      '));
     }
@@ -276,7 +274,7 @@ export function renderProbe(report: EntitlementsProbeReport): string[] {
     lines.push('');
     lines.push(
       ...wrap(
-        'Low confidence on an adhoc-ok verdict means offstage found no blocker — not that it ' +
+        'Low confidence on an adhoc-ok verdict means offstage found no blocker, not that it ' +
           'proved there is none. Read the notes below before budgeting on it.',
       ),
     );
@@ -286,7 +284,7 @@ export function renderProbe(report: EntitlementsProbeReport): string[] {
     lines.push('');
     lines.push('triggers (these force a signing lane):');
     for (const trigger of report.triggers) {
-      lines.push(`  - ${trigger.key} — ${trigger.capability} [${trigger.certainty}]`);
+      lines.push(`  - ${trigger.key}: ${trigger.capability} [${trigger.certainty}]`);
       lines.push(...block(trigger.explanation, '      ', '      '));
     }
     if (report.triggers.some((trigger) => trigger.certainty === 'namespace-heuristic')) {
@@ -336,7 +334,7 @@ export function renderProbe(report: EntitlementsProbeReport): string[] {
  * `offstage session status`, for a human.
  *
  * The order is the session lane's availability ladder:
- * so the first ✗ from the top is the thing to fix — and everything below it is
+ * so the first ✗ from the top is the thing to fix, and everything below it is
  * shown anyway, because "the socket is absent" reads very differently when the
  * line above it says the account has never been logged in.
  */
@@ -347,7 +345,7 @@ export function renderSessionStatus(status: SessionStatus): string[] {
     `  ${ok ? CHECK : CROSS} ${label.padEnd(17)}${text}`;
   const gui = status.guiSession;
   const lines: string[] = [
-    `${status.available ? CHECK : CROSS} session lane ${status.available ? 'available' : 'unavailable'} — account "${status.user}"${
+    `${status.available ? CHECK : CROSS} session lane ${status.available ? 'available' : 'unavailable'}: account "${status.user}"${
       status.uid === null ? '' : ` (uid ${status.uid})`
     }`,
     '',
@@ -360,7 +358,7 @@ export function renderSessionStatus(status: SessionStatus): string[] {
       gui.exists && gui.loginDone,
       'gui session',
       !gui.exists
-        ? 'none — nothing is logged in under that account'
+        ? 'none, nothing is logged in under that account'
         : !gui.loginDone
           ? 'at the login window, which is not a session'
           : `logged in${gui.sessionId === null ? '' : ` (session ${gui.sessionId})`}`,
@@ -369,9 +367,9 @@ export function renderSessionStatus(status: SessionStatus): string[] {
       gui.loginDone && !gui.onConsole,
       'off your screen',
       gui.onConsole
-        ? 'no — that session is the one on your display right now'
+        ? 'no: that session is the one on your display right now'
         : gui.loginDone
-          ? 'yes — it is running in the background'
+          ? 'yes: it is running in the background'
           : 'unknown until it is logged in',
     ),
     row(
@@ -398,14 +396,14 @@ export function renderSessionStatus(status: SessionStatus): string[] {
       row(
         status.permissions.screenCapture,
         'Screen Recording',
-        status.permissions.screenCapture ? 'granted' : 'not granted — screenshots will fail',
+        status.permissions.screenCapture ? 'granted' : 'not granted: screenshots will fail',
       ),
     );
     lines.push(
       row(
         status.permissions.accessibility,
         'Accessibility',
-        status.permissions.accessibility ? 'granted' : 'not granted — input injection will fail',
+        status.permissions.accessibility ? 'granted' : 'not granted: input injection will fail',
       ),
     );
   }
@@ -424,7 +422,7 @@ export function renderSessionStatus(status: SessionStatus): string[] {
   return lines;
 }
 
-/** `offstage session setup` — what it did, and what the human still has to do. */
+/** `offstage session setup`: what it did, and what the human still has to do. */
 export function renderSessionSetup(result: SessionSetupResult): string[] {
   const lines: string[] = ['', `${result.ok ? CHECK : CROSS} session setup for "${result.user}"${
     result.uid === null ? '' : ` (uid ${result.uid})`
@@ -444,14 +442,14 @@ export function renderSessionSetup(result: SessionSetupResult): string[] {
   return lines;
 }
 
-/** `offstage session share` — the ACLs that were applied, verbatim. */
+/** `offstage session share`: the ACLs that were applied, verbatim. */
 export function renderSessionShare(result: SessionShareResult): string[] {
   const lines: string[] = [
     `${result.ok ? CHECK : CROSS} ${result.ok ? 'shared' : 'could not share'} ${result.target} with "${result.user}" (read-only)`,
   ];
   for (const command of result.commands) lines.push(`  ${command}`);
   for (const failure of result.failures) {
-    lines.push(...block(`failed: ${failure.command} — ${failure.stderr}`, '  ', '    '));
+    lines.push(...block(`failed: ${failure.command}: ${failure.stderr}`, '  ', '    '));
   }
   if (result.ok) {
     lines.push('');
@@ -465,14 +463,14 @@ export function renderSessionShare(result: SessionShareResult): string[] {
   return lines;
 }
 
-/** `offstage session unshare` — the ACLs that were removed, verbatim. */
+/** `offstage session unshare`: the ACLs that were removed, verbatim. */
 export function renderSessionUnshare(result: SessionUnshareResult): string[] {
   const lines: string[] = [
     `${result.ok ? CHECK : CROSS} ${result.ok ? 'revoked' : 'could not fully revoke'} "${result.user}" access to ${result.target}`,
   ];
   for (const command of result.commands) lines.push(`  ${command}`);
   for (const failure of result.failures) {
-    lines.push(...block(`failed: ${failure.command} — ${failure.stderr}`, '  ', '    '));
+    lines.push(...block(`failed: ${failure.command}: ${failure.stderr}`, '  ', '    '));
   }
   if (result.ok) {
     lines.push('');
@@ -485,7 +483,7 @@ export function renderSessionUnshare(result: SessionUnshareResult): string[] {
   return lines;
 }
 
-/** `offstage session launch` — did the app really come up in the helper session? */
+/** `offstage session launch`: did the app really come up in the helper session? */
 export function renderSessionLaunch(result: SessionLaunchResult): string[] {
   if (!result.ok) {
     const lines = [`${CROSS} could not confirm "${result.target}" running in the helper session after ${(result.waitedMs / 1000).toFixed(1)}s`];
@@ -494,7 +492,7 @@ export function renderSessionLaunch(result: SessionLaunchResult): string[] {
   }
   const app = result.app;
   const lines = [
-    `${CHECK} launched "${result.target}" in the helper session — registered after ${(result.waitedMs / 1000).toFixed(1)}s`,
+    `${CHECK} launched "${result.target}" in the helper session: registered after ${(result.waitedMs / 1000).toFixed(1)}s`,
     `  ${app?.name ?? '(unnamed)'} pid ${app?.pid ?? '?'}${app?.active ? ', frontmost' : ''}${
       app?.bundleId ? ` [${app.bundleId}]` : ''
     }`,
@@ -507,14 +505,14 @@ export function renderSessionLaunch(result: SessionLaunchResult): string[] {
   return lines;
 }
 
-/** `offstage session screenshot` — where it landed and what it is a picture of. */
+/** `offstage session screenshot`: where it landed and what it is a picture of. */
 export function renderSessionScreenshot(result: SessionScreenshotResult): string[] {
   const lines = [
     `${CHECK} captured the helper session's display: ${result.width}×${result.height} px @${result.scale}x`,
   ];
   if (result.path !== null) lines.push(`  ${result.path}`);
   lines.push(
-    `  ${Math.round(result.width / result.scale)}×${Math.round(result.height / result.scale)} points — divide pixel coordinates by ${result.scale} before passing them to \`offstage session click\`.`,
+    `  ${Math.round(result.width / result.scale)}×${Math.round(result.height / result.scale)} points: divide pixel coordinates by ${result.scale} before passing them to \`offstage session click\`.`,
   );
   return lines;
 }

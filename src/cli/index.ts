@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * offstage — the CLI.
+ * offstage: the CLI.
  *
  * Five commands, one job each:
  *
@@ -8,7 +8,7 @@
  * offstage doctor                          # which lanes can run right now, and the fix for the rest
  * offstage route  -- npx playwright test    # where would this go? (nothing is executed)
  * offstage run    -- npx playwright test    # send it there, and hand back the normalized result
- * offstage probe  MyApp.xcodeproj           # is ad-hoc VM testing enough, or is a signing lane needed?
+ * offstage probe  MyApp.xcodeproj           # is ad-hoc signing enough for this app?
  * offstage session status                   # the macOS session lane: is the helper account ready?
  * ```
  *
@@ -25,8 +25,8 @@
  *
  * ## Exit codes
  *
- * `run` exits with the contract's mapping — 0 passed, the command's own code
- * failed, 70 errored, 69 skipped — so CI can tell "your tests are red" from
+ * `run` exits with the contract's mapping (0 passed, the command's own code
+ * failed, 70 errored, 69 skipped) so CI can tell "your tests are red" from
  * "offstage could not run them". `doctor` and `route` are reports and exit 0.
  * `probe` exits 0 for any verdict it reached; the verdict is the output, not
  * the status. A malformed invocation exits 64, a missing path 66.
@@ -40,24 +40,17 @@ import { Command, InvalidArgumentError } from 'commander';
 import { LANES } from '../contract/index.js';
 import type { Lane } from '../contract/index.js';
 import { ProbeError } from '../probe/index.js';
+import { OffstageUsageError, doctor, probe, route, run } from './api.js';
+import { OffstageSessionError, sessionSetup, sessionStatus, sessionUpdate } from './session.js';
 import {
-  OffstageSessionError,
-  OffstageUsageError,
-  doctor,
-  probe,
-  route,
-  run,
   sessionApps,
-  sessionLaunch,
-  sessionUpdate,
   sessionInput,
+  sessionLaunch,
   sessionOpen,
   sessionScreenshot,
-  sessionSetup,
   sessionShare,
-  sessionStatus,
   sessionUnshare,
-} from './api.js';
+} from './session-control.js';
 import type { ApiDeps } from './api.js';
 import {
   renderDoctor,
@@ -107,7 +100,7 @@ function parsePositiveInt(value: string): number {
   return parsed;
 }
 
-/** A coordinate in points. Negative is legal — a display can sit left of the main one. */
+/** A coordinate in points. Negative is legal: a display can sit left of the main one. */
 function parseCoordinate(value: string): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
@@ -212,7 +205,7 @@ export function createProgram(io: CliIo): { program: Command; exitCode: () => nu
           ...(options.timeout === undefined ? {} : { timeoutMs: options.timeout as number }),
           ...(options.headed ? { headed: true } : {}),
           // Printed before dispatch: a ten-minute run should not be silent
-          // about where it went. Always stderr — it is progress, not output.
+          // about where it went. Always stderr: it is progress, not output.
           onDecision: (event) => {
             for (const line of renderRunHeader(event)) io.stderr(line);
           },
@@ -417,7 +410,7 @@ export function createProgram(io: CliIo): { program: Command; exitCode: () => nu
   session
     .command('key')
     .description('Send one key combination, e.g. cmd+shift+t.')
-    .argument('<combo>', '[modifier+]*name — cmd, ctrl, alt/opt, shift, fn')
+    .argument('<combo>', '[modifier+]*name: cmd, ctrl, alt/opt, shift, fn')
     .option('--user <name>', 'helper account (default: the configured one)')
     .option('--json', 'emit the result as JSON', false)
     .action(async function keyAction(this: Command, combo: string) {
@@ -462,7 +455,7 @@ export function createProgram(io: CliIo): { program: Command; exitCode: () => nu
 
   session
     .command('open')
-    .description('Open an app or a file in the helper session — sugar for `offstage run --lane session -- open …`.')
+    .description('Open an app or a file in the helper session: sugar for `offstage run --lane session -- open …`.')
     .argument('<target>', 'an app name or a path, as `open` takes it')
     .argument('[args...]', 'further arguments for `open`')
     .option('--cwd <dir>', 'directory to run against (default: current directory)')
@@ -505,7 +498,7 @@ export function createProgram(io: CliIo): { program: Command; exitCode: () => nu
     });
 
   // exitOverride() and the output configuration are per-command and are copied
-  // at construction time, so they have to be applied after the tree is built —
+  // at construction time, so they have to be applied after the tree is built,
   // otherwise a bad flag on a subcommand calls process.exit() directly and
   // writes past the injected streams.
   const configure = (command: Command): void => {
@@ -568,7 +561,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
   }
 }
 
-/* c8 ignore start — the process entry point itself is exercised end to end, not by unit tests. */
+/* c8 ignore start: the process entry point itself is exercised end to end, not by unit tests. */
 /**
  * Whether this module was invoked as the program, rather than imported.
  *
@@ -576,7 +569,7 @@ export async function main(argv: string[], io: CliIo = processIo): Promise<numbe
  * npm installs a bin as a **symlink** at `node_modules/.bin/offstage`, so argv
  * carries the symlink path while `import.meta.url` carries the real file. A
  * naive comparison of the two is false for every installed copy of offstage,
- * and the CLI then exits 0 having printed nothing at all — working perfectly
+ * and the CLI then exits 0 having printed nothing at all: working perfectly
  * from a clone and silently doing nothing everywhere else.
  */
 const isEntryPoint = ((): boolean => {

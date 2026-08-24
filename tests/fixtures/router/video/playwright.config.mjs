@@ -3,7 +3,7 @@
 // either produces a real .webm without any display, or the rule that sends
 // `--video=on` to the headless lane is wrong.
 //
-// Nothing here touches the network — the spec builds its DOM with setContent —
+// Nothing here touches the network, the spec builds its DOM with setContent,
 // and nothing downloads a browser. `outputDir` is pinned under `.offstage/`
 // (gitignored at any depth) for hand-runs; the router test overrides it with
 // `--output` into a temp directory.

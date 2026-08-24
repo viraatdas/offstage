@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/viraatdas/offstage/main/scripts/install.sh | sh
 #
 # POSIX sh, safe to re-run: it upgrades the npm package in place and skips
-# anything already done. No step silently swallows a failure — every branch
+# anything already done. No step silently swallows a failure: every branch
 # that can fail prints what happened and the exact next command to run.
 #
 # Env vars:
@@ -47,16 +47,16 @@ os="$(uname -s)"
 case "$os" in
   Darwin)
     platform=macos
-    ok "macOS detected — all three lanes (headless, container, session) apply."
+    ok "macOS detected: all three lanes (headless, container, session) apply."
     ;;
   Linux)
     platform=linux
-    warn "Linux detected — only the headless and container lanes apply here."
+    warn "Linux detected: only the headless and container lanes apply here."
     warn "The session lane ('offstage session ...') is macOS-only; it is skipped below."
     ;;
   *)
     platform=other
-    warn "Unrecognized OS '$os' — proceeding best-effort; macOS-only steps are skipped."
+    warn "Unrecognized OS '$os': proceeding best-effort; macOS-only steps are skipped."
     ;;
 esac
 
@@ -112,7 +112,7 @@ info "npm install -g @viraatdas/offstage@${OFFSTAGE_VERSION}"
 if npm install -g "@viraatdas/offstage@${OFFSTAGE_VERSION}"; then
   ok "installed/upgraded @viraatdas/offstage@${OFFSTAGE_VERSION}"
 else
-  fail "npm install -g failed — see the npm output above."
+  fail "npm install -g failed: see the npm output above."
   printf '  a common cause is a global npm dir you cannot write to; fix by pointing\n'
   printf '  npm at a directory you own instead of using sudo:\n'
   printf '    mkdir -p ~/.npm-global\n'
@@ -147,7 +147,7 @@ fi
 # ---------------------------------------------------------------- doctor --
 step "5. offstage doctor"
 if ! "$OFFSTAGE_BIN" doctor; then
-  warn "doctor exited non-zero — that is unexpected (it is a report, not a gate)."
+  warn "doctor exited non-zero: that is unexpected (it is a report, not a gate)."
   printf '  fix: re-run \"%s doctor\" and read the fix line under each unavailable lane.\n' "$OFFSTAGE_BIN"
 fi
 
@@ -166,10 +166,10 @@ if [ "$platform" = macos ]; then
   # ------------------------------------------------------- session lane --
   step "7. Session lane (helper macOS account)"
   if [ "${OFFSTAGE_SKIP_SESSION:-0}" = "1" ]; then
-    info "OFFSTAGE_SKIP_SESSION=1 — skipping the setup prompt."
+    info "OFFSTAGE_SKIP_SESSION=1: skipping the setup prompt."
     printf '  run it later with: %s session setup --create\n' "$OFFSTAGE_BIN"
   elif [ ! -t 0 ]; then
-    info "stdin is not a terminal (non-interactive shell) — skipping the setup prompt."
+    info "stdin is not a terminal (non-interactive shell): skipping the setup prompt."
     printf '  run it later with: %s session setup --create\n' "$OFFSTAGE_BIN"
   else
     cat <<'SESSION_PITCH'
@@ -196,7 +196,7 @@ SESSION_PITCH
        offstage session status
 STEPS
         else
-          fail "session setup failed — see its own output above for the exact next command."
+          fail "session setup failed: see its own output above for the exact next command."
         fi
         ;;
       *)
@@ -206,7 +206,7 @@ STEPS
   fi
 else
   step "6. Session lane"
-  info "macOS-only — skipping (this is $os)."
+  info "macOS-only: skipping (this is $os)."
 fi
 
 # --------------------------------------------------------------- agents --

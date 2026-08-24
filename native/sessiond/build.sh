@@ -44,11 +44,11 @@ swiftc \
 # gives survives the next build. (The path half bites separately: moving the
 # binary leaves the grant behind and costs a fresh approval.)
 #
-#   Developer ID  — the grant is keyed to the Designated Requirement, which is
+#   Developer ID: the grant is keyed to the Designated Requirement, which is
 #                   the signing identifier plus the team. Rebuilding changes the
 #                   cdhash but NOT the DR, so the grant SURVIVES. This is the
 #                   only way the lane stays working across development.
-#   ad-hoc ("-")  — the DR degenerates to the bare cdhash, so every rebuild
+#   ad-hoc ("-"): the DR degenerates to the bare cdhash, so every rebuild
 #                   silently drops Screen Recording and Accessibility and the
 #                   lane goes dead until the user re-grants by hand.
 #
@@ -63,7 +63,7 @@ if [ -z "$identity" ]; then
 fi
 if [ -z "$identity" ]; then
   identity="-"
-  echo "codesign: no Developer ID found — signing ad-hoc." >&2
+  echo "codesign: no Developer ID found, signing ad-hoc." >&2
   echo "          TCC grants will reset on the next rebuild." >&2
 fi
 

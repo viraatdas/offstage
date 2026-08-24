@@ -61,7 +61,7 @@ describe('.mcp.json', () => {
   });
 
   it('runs the published package, which is the only form that survives a plugin install', () => {
-    // A plugin install *clones* — it runs no npm install and no build — so a
+    // A plugin install *clones*, it runs no npm install and no build, so a
     // server pointing at `dist/` is dead on arrival, and a path under
     // `${CLAUDE_PLUGIN_ROOT}` only names a file that was never built.
     // `npx <published package>` needs neither, and works at project scope too.
@@ -74,7 +74,7 @@ describe('.mcp.json', () => {
   it('names the package with --package=, which npx requires to pick a second bin', () => {
     // npx resolves a binary by PACKAGE name. `npx -y @viraatdas/offstage
     // offstage-mcp` therefore runs the `offstage` CLI with `offstage-mcp` as an
-    // argument — it prints help and never speaks MCP, which looks like a broken
+    // argument: it prints help and never speaks MCP, which looks like a broken
     // server rather than a wrong command. Verified against the published
     // package: the bare form returns no tools, the --package= form returns 4.
     const args = mcp.mcpServers.offstage?.args ?? [];
@@ -158,7 +158,7 @@ describe('what npm ships', () => {
   it('ships native/, because the session daemon is compiled from source on the user machine', () => {
     // `offstage session setup` builds offstage-sessiond with swiftc from the
     // sources in native/sessiond. A package without them installs a session
-    // lane that can never be set up — and the failure surfaces only when a user
+    // lane that can never be set up, and the failure surfaces only when a user
     // runs setup, long after publish.
     expect(pkg.files, 'package.json files must include native').toContain('native');
     expect(existsSync(path.join(ROOT, 'native/sessiond/build.sh'))).toBe(true);

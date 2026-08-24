@@ -3,8 +3,8 @@
  *
  * Nothing here compiles Swift, writes to `/usr/local`, runs `launchctl`, or
  * changes one ACL on this machine. Everything setup does is either pure
- * rendering — the LaunchAgent plist, the root install script, the `chmod +a`
- * command list — or a call through the injected exec seam, so all of it is
+ * rendering (the LaunchAgent plist, the root install script, the `chmod +a`
+ * command list) or a call through the injected exec seam, so all of it is
  * asserted as strings and recorded calls.
  *
  * The install script is the piece most worth pinning: a user is asked to read
@@ -105,7 +105,7 @@ describe('renderLaunchAgentPlist', () => {
 
   it('logs somewhere persistent and helper-owned, never /tmp', () => {
     /* launchd opens this path before exec and creates no parent directory, and
-       /tmp is wiped on reboot — so a log there is missing on exactly the launch
+       /tmp is wiped on reboot, so a log there is missing on exactly the launch
        worth reading about, the first one after a restart. */
     const parsed = plist.parse(rendered) as Record<string, unknown>;
     expect(parsed['StandardErrorPath']).toBe(
@@ -176,7 +176,7 @@ describe('renderInstallScript', () => {
   it('does the three root things and nothing else', () => {
     expect(script).toMatchInlineSnapshot(`
       "#!/bin/sh
-      # offstage session setup — installs offstage-sessiond into the
+      # offstage session setup: installs offstage-sessiond into the
       # computeruse account's GUI session. This is the only step that needs root.
       set -eu
 
@@ -517,7 +517,7 @@ describe('unshareAclCommands', () => {
 describe('unshareAcl', () => {
   it('succeeds when every entry was already absent', async () => {
     /* macOS chmod exits 1 with "No ACL present '<path>'" when there is nothing
-       to remove — measured, not assumed. That is the goal state of an
+       to remove: measured, not assumed. That is the goal state of an
        unshare, so it is success. */
     const exec = recordingExec({
       '/bin/chmod': fail("chmod: No ACL present '/Users/viraat'", 1),
@@ -594,8 +594,8 @@ describe('generateSessionPassword', () => {
 
   it('rejects bytes that would bias the alphabet rather than wrapping them', () => {
     /* With a 58-character alphabet, bytes >= 232 have no home. A source that
-       only produces them must still yield a password — via rejection and
-       re-asking — rather than a biased or short one. This stub alternates
+       only produces them must still yield a password, via rejection and
+       re-asking, rather than a biased or short one. This stub alternates
        rejected and accepted bytes so the loop is exercised without spinning. */
     let call = 0;
     const password = generateSessionPassword((count) => {

@@ -2,11 +2,11 @@
  * The headless lane: run the command exactly where you are, and say so.
  *
  * This lane is the load-bearing half of offstage's thesis. `npx playwright
- * test` opens no window, steals no focus and touches no display — wrapping it
+ * test` opens no window, steals no focus and touches no display: wrapping it
  * in a container would buy nothing and cost container startup on every run. So
  * the headless lane applies **no isolation at all**: it spawns the command as a
  * direct child of the offstage process, in the caller's `cwd`, and normalizes
- * the result into the same envelope the container and VM lanes return.
+ * the result into the same envelope the container and session lanes return.
  *
  * "No isolation" is a claim, not a shrug, so this lane states it explicitly in
  * every result's `diagnostics` rather than leaving the reader to infer it.
@@ -16,7 +16,7 @@
  * - **`isAvailable()` can never report unavailable.** Its substrate is the
  *   machine offstage is already running on. See {@link HeadlessLane.isAvailable}.
  * - **`stdin` is ignored, never inherited.** A command that reads stdin would
- *   otherwise hang forever waiting on a terminal nobody is watching — or worse,
+ *   otherwise hang forever waiting on a terminal nobody is watching, or worse,
  *   consume the keystrokes the user is typing somewhere else.
  * - **An obviously-headed command is refused, not run.** Running
  *   `playwright test --headed` in place would put a window on the user's screen,
@@ -68,8 +68,8 @@ export const MAX_CAPTURED_CHARS = 4_000_000;
 
 /**
  * How many bytes may sit queued for the log file before this lane stops feeding
- * it. See {@link LogSink} for why the alternative — letting the queue grow, or
- * waiting for it to drain — is worse.
+ * it. See {@link LogSink} for why the alternative (letting the queue grow, or
+ * waiting for it to drain) is worse.
  */
 export const MAX_BUFFERED_LOG_BYTES = 8_000_000;
 
@@ -132,7 +132,7 @@ function shorten(text: string, limit = 120): string {
  *
  * This lane's whole premise is that the command is already headless. When the
  * request says otherwise in so many words, running it anyway would defeat the
- * point of the product — so `run()` returns `errored` and points at the
+ * point of the product, so `run()` returns `errored` and points at the
  * container lane instead. The router should never produce such a request; this
  * is the backstop for when something else does.
  *
@@ -148,7 +148,7 @@ export function detectHeadedRequest(req: Pick<LaneRequest, 'command' | 'env'>): 
     // inside *that*: `sh -c 'npx playwright test `echo --headed`'`,
     // `H=--headed; npx playwright test $H`, `${HEADED:+--headed}`. Whatever
     // the shell will do with the surrounding syntax, the flag itself is right
-    // there in the text, and this lane runs in place — so the text is enough
+    // there in the text, and this lane runs in place, so the text is enough
     // to refuse on. This is the last line before a window opens on a real
     // screen, so it reads the token rather than trying to parse the shell.
     const hidden = HEADED_FLAG_IN_TEXT.exec(arg);
@@ -192,7 +192,7 @@ export class HeadlessLane implements LaneRunner {
   readonly lane = 'headless' as const;
 
   /**
-   * Always available — and that is a fact about this lane, not an optimism.
+   * Always available, and that is a fact about this lane, not an optimism.
    *
    * The other two lanes probe something that can genuinely be missing: Docker
    * may not be running, the session daemon may not be set up. This lane's
@@ -210,8 +210,8 @@ export class HeadlessLane implements LaneRunner {
   /**
    * Run the command in place and normalize the outcome.
    *
-   * Never throws: every failure mode — an invalid request, an unwritable
-   * artifacts directory, a command that does not exist, a timeout — comes back
+   * Never throws: every failure mode (an invalid request, an unwritable
+   * artifacts directory, a command that does not exist, a timeout) comes back
    * as a contract-valid {@link LaneResult}.
    */
   async run(req: LaneRequest): Promise<LaneResult> {
@@ -245,7 +245,7 @@ export class HeadlessLane implements LaneRunner {
     if (headed !== null) {
       return errored([
         `Refused to run: ${headed}, so running it here would open a window on your screen.`,
-        'The headless lane applies no isolation — it runs commands in place — so it only accepts commands that are already headless.',
+        'The headless lane applies no isolation, it runs commands in place, so it only accepts commands that are already headless.',
         'Route headed browser work to the container lane, which renders to an Xvfb virtual framebuffer that never touches your display.',
         `Command: ${request.command.join(' ')}`,
       ]);
@@ -301,7 +301,7 @@ export class HeadlessLane implements LaneRunner {
 
     /* This loop is on the command's critical path: every iteration that does
        not return promptly is time the child spends blocked on a full pipe. So
-       it awaits nothing but the next chunk — `log.write()` is non-blocking by
+       it awaits nothing but the next chunk: `log.write()` is non-blocking by
        construction. */
     const pump = (async () => {
       const all = subprocess.all;
@@ -333,7 +333,7 @@ export class HeadlessLane implements LaneRunner {
     const status: LaneStatus = statusFromExitCode(exitCode);
 
     const diagnostics = [
-      `No isolation was applied. This command is already headless, so the headless lane ran it in place in ${request.cwd}, as a direct child of the offstage process — no container was started and no virtual machine was booted.`,
+      `No isolation was applied. This command is already headless, so the headless lane ran it in place in ${request.cwd}, as a direct child of the offstage process: no container was started and no second macOS session was used.`,
       'Nothing appeared on your screen: no window was opened, no display was attached, and your keyboard focus was never taken.',
       `Command: ${request.command.join(' ')}`,
     ];
@@ -393,7 +393,7 @@ export class HeadlessLane implements LaneRunner {
     if (logProblem !== undefined) diagnostics.push(logProblem);
 
     /* The log file exists whenever the stream opened, even for a command that
-       never started — in which case it is empty, which is itself informative. */
+       never started, in which case it is empty, which is itself informative. */
     const wroteLog = logStream !== undefined;
 
     return createLaneResult({
@@ -420,7 +420,7 @@ export const headlessLane = new HeadlessLane();
 
 /**
  * A bounded FIFO of text. Keeps at most `limit` characters, discarding from the
- * front — reporters print their failure summary last, so the end is the half
+ * front: reporters print their failure summary last, so the end is the half
  * worth keeping.
  */
 export class CappedText {
@@ -493,20 +493,20 @@ export class CappedText {
  * - **Await the write** (honour backpressure). The pump stops reading the
  *   child's pipe, the pipe fills, and the child blocks in `write(2)`. A command
  *   that passes in 68ms on a fast disk was killed by its own 20s timeout and
- *   reported `errored` — "the command never finished, so nothing can be
+ *   reported `errored`: "the command never finished, so nothing can be
  *   concluded about the code under test". That sentence was false: the code was
  *   fine and the *disk* was slow. For a tool whose whole product is an honest
  *   verdict, this is the worst available failure.
  * - **Fire and forget** (`write()` and ignore the `false`). The child never
  *   blocks, but the unwritten bytes pile up in the stream's internal queue with
- *   no bound — reintroducing exactly the runaway-memory failure that
- *   {@link MAX_CAPTURED_CHARS} exists to prevent — and `run()` then sat in
+ *   no bound, reintroducing exactly the runaway-memory failure that
+ *   {@link MAX_CAPTURED_CHARS} exists to prevent, and `run()` then sat in
  *   `end()` flushing them, returning after 24.6s against a 20s deadline.
  *
  * So this sink does neither. It **absorbs** backpressure instead of propagating
  * it: writes are always non-blocking, the queue is capped at
  * {@link MAX_BUFFERED_LOG_BYTES}, and output that arrives while the queue is
- * over that cap is dropped **from the log only** — never from the in-memory
+ * over that cap is dropped **from the log only**, never from the in-memory
  * capture the verdict is computed from. When the sink catches up, a marker is
  * written at the point of the hole so the gap is visible in the file itself
  * rather than inferred. The result: the log degrades, the verdict does not.
@@ -568,7 +568,7 @@ export class LogSink {
   /**
    * Flush what is queued and close, within bounds.
    *
-   * Waiting is allowed while the sink is demonstrably making progress — a slow
+   * Waiting is allowed while the sink is demonstrably making progress: a slow
    * disk that is still draining should be permitted to finish, and truncating
    * a log that is actively being written would be gratuitous. Waiting stops at
    * the caller's `deadline`, or once the queue has not shrunk for `stallMs`,
@@ -579,8 +579,8 @@ export class LogSink {
     if (stream === undefined) return;
 
     /* Output was still being dropped when the command exited, so no resume ever
-       wrote the marker. Record the hole now, at the end of the queue — which is
-       exactly where it falls — so the file testifies to its own gap instead of
+       wrote the marker. Record the hole now, at the end of the queue, which is
+       exactly where it falls, so the file testifies to its own gap instead of
        ending mid-stream with nothing to explain it. */
     if (this.#pendingDropBytes > 0) {
       this.#droppedBytes += this.#pendingDropBytes;
@@ -645,8 +645,8 @@ export class LogSink {
     }
     if (parts.length === 0) return undefined;
     /* Only claim a marker when one was actually written *and* had room to
-       reach disk. Bytes abandoned at close leave no trace — the queue they sat
-       in never reached the disk — and saying otherwise would send a reader
+       reach disk. Bytes abandoned at close leave no trace, the queue they sat
+       in never reached the disk, and saying otherwise would send a reader
        looking for something that is not there. */
     const marked =
       this.#markersWritten > 0 && this.#abandonedBytes === 0
@@ -664,7 +664,7 @@ const FLUSH_POLL_MS = 50;
  *
  * Deliberately **not** `unref`'d: this timer is what keeps the event loop alive
  * while {@link LogSink.close} waits for the disk, and an unref'd one would let
- * a process whose only remaining work is this flush exit out from under it —
+ * a process whose only remaining work is this flush exit out from under it,
  * losing the log silently and never resolving `run()`. The wait is bounded by
  * the caller's deadline and by {@link LOG_FLUSH_STALL_MS}, so a live timer here
  * cannot hold anything open for long.
@@ -678,7 +678,7 @@ function delay(ms: number): Promise<void> {
 /**
  * Append to a stream, waiting for it to drain when it says it is full.
  *
- * `Writable.write()` returning `false` does not mean the write failed — it
+ * `Writable.write()` returning `false` does not mean the write failed: it
  * means the bytes are now sitting in the stream's internal queue, which has no
  * upper bound. Writing on regardless turns a slow sink into unbounded heap
  * growth proportional to the *whole* output, which is precisely the failure

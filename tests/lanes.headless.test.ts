@@ -5,7 +5,7 @@
  *
  * - **Parser tests** run against verbatim transcripts of real reporters. Every
  *   transcript in `transcripts` below was captured by actually running Vitest
- *   4.1, Jest 30 and Playwright 1.57 and pasting what they printed — not
+ *   4.1, Jest 30 and Playwright 1.57 and pasting what they printed, not
  *   written from memory of what those reporters look like.
  * - **Lane tests** genuinely spawn processes and assert on the envelope that
  *   comes back. Nothing is mocked: a passing run really runs Vitest, a timeout
@@ -14,7 +14,7 @@
  * The Playwright block is **gated**. It runs only when `@playwright/test`
  * resolves from the fixture directory *and* a Chromium build is already in the
  * Playwright browser cache; otherwise it skips. Nothing here ever downloads a
- * browser — a test suite that pulls 150MB on a cold CI runner is a worse
+ * browser: a test suite that pulls 150MB on a cold CI runner is a worse
  * outcome than a skipped test.
  */
 
@@ -773,7 +773,7 @@ describe('HeadlessLane', () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/* Real Playwright — gated on an already-installed browser                    */
+/* Real Playwright: gated on an already-installed browser                    */
 /* -------------------------------------------------------------------------- */
 
 const PLAYWRIGHT_FIXTURE = path.join(FIXTURES, 'playwright');

@@ -24,7 +24,7 @@ import type {
 import { createDefaultCore } from '../src/mcp/core.js';
 import { createOffstageMcpServer } from '../src/mcp/server.js';
 import type { EntitlementsProbeReport } from '../src/probe/index.js';
-import type { SessionLaunchResult } from '../src/cli/api.js';
+import type { SessionLaunchResult } from '../src/cli/session-control.js';
 import type { InputAction, SessionApp } from '../src/session/index.js';
 
 const routeDecision: RouteDecision = {
@@ -234,7 +234,7 @@ describe('offstage MCP server', () => {
     const describe = (name: string): string =>
       tools.find((tool) => tool.name === name)?.description ?? '';
 
-    // Coordinates are points, not pixels — the daemon's own space.
+    // Coordinates are points, not pixels: the daemon's own space.
     expect(describe('offstage_session_input')).toContain('POINTS');
     // Screenshot before and after, because nothing else reports what input hit.
     expect(describe('offstage_session_input')).toMatch(/screenshot, then input, then screenshot/i);
@@ -416,7 +416,7 @@ describe('offstage MCP server', () => {
 /**
  * The default core must be the CLI's api and nothing else. If lane dispatch
  * ever grows a second implementation here, an agent and a human get different
- * answers for the same command — including, eventually, different answers about
+ * answers for the same command: including, eventually, different answers about
  * what is safe to run in place.
  */
 describe('the default core is the CLI api', () => {

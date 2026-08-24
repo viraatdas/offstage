@@ -6,7 +6,7 @@
 
 **Give your coding agent its own invisible Mac desktop.**
 
-Agents can do real GUI work now — `xcodebuild test` against a real scheme,
+Agents can do real GUI work now: `xcodebuild test` against a real scheme,
 booting an iOS simulator, launching your built `.app` and clicking through it,
 watching a headed Chromium reproduce a layout bug. Left alone, every one of
 those seizes your display and your keyboard. offstage inspects each command
@@ -22,13 +22,13 @@ offstage run   -- npx playwright test  # send it there, get one normalized resul
 
 | Your agent wants to… | Where it runs | Your screen |
 | --- | --- | --- |
-| `npm test`, `vitest`, most commands | in place — already headless | never touched |
+| `npm test`, `vitest`, most commands | in place, already headless | never touched |
 | `npx playwright test --headed`, watch a browser | a Linux container with Xvfb | never touched |
-| `xcodebuild`, `xcrun simctl`, XCUITests, `open -a`, `osascript`, launch a built `.app` | **a second, logged-in macOS account** — its own window server, framebuffer, keyboard/mouse stream | never touched |
-| mount a `.dmg`, run an installer, anything that changes the machine | **refused** — no isolation can honestly contain that | nothing runs at all |
+| `xcodebuild`, `xcrun simctl`, XCUITests, `open -a`, `osascript`, launch a built `.app` | **a second, logged-in macOS account**: its own window server, framebuffer, keyboard/mouse stream | never touched |
+| mount a `.dmg`, run an installer, anything that changes the machine | **refused**, no isolation can honestly contain that | nothing runs at all |
 
-That third row is the point: a full macOS GUI session your agent drives —
-screenshot what it sees, click, type, drag, read apps — while you keep
+That third row is the point: a full macOS GUI session your agent drives
+(screenshot what it sees, click, type, drag, read apps) while you keep
 working. Works standalone (above) and as an agent tool for **Claude Code**,
 **Codex**, and **opencode** (setup below).
 
@@ -57,8 +57,8 @@ a sandbox.
 
 macOS has no Xvfb and cannot have one; what it does have is multiple
 simultaneous GUI sessions via fast user switching, which is what the session
-lane uses instead of a VM. Asking for *more* isolation than the router picked
-always works (`--lane container`); asking for less is refused with no override.
+lane uses. Asking for *more* isolation than the router picked always works
+(`--lane container`); asking for less is refused with no override.
 If a lane's substrate isn't available, the run stops and tells you the fix.
 offstage never falls back to running the command on your real screen.
 
@@ -206,7 +206,7 @@ offstage is first a tool *for* agents: the same operations are MCP tools over
 stdio, so Claude Code, Codex and opencode can all call them.
 
 - **Claude Code plugin**: `/plugin marketplace add viraatdas/offstage` then
-  `/plugin install offstage@offstage` — ships the skill and the MCP server,
+  `/plugin install offstage@offstage`: ships the skill and the MCP server,
   no build step.
 - **Claude Code CLI**: `claude mcp add offstage -- npx -y --package=@viraatdas/offstage@latest offstage-mcp`
 - **Codex** (`~/.codex/config.toml`):
@@ -234,7 +234,7 @@ stdio, so Claude Code, Codex and opencode can all call them.
 Tools: `offstage_doctor`, `offstage_route`, `offstage_run`, `offstage_probe`,
 plus `offstage_session_status`, `offstage_session_launch`,
 `offstage_session_screenshot`, `offstage_session_input`,
-`offstage_session_apps`. There is deliberately no setup tool over MCP — setup
+`offstage_session_apps`. There is deliberately no setup tool over MCP: setup
 runs `sudo` and needs a human at a terminal. An agent's loop for GUI work:
 **launch** (waits until the app registers) → screenshot → decide → input →
 screenshot, points not pixels, never drive the console session.
@@ -242,24 +242,29 @@ screenshot, points not pixels, never drive the console session.
 And the rule that keeps it honest, worth pasting into any project's AGENTS.md:
 
 ```markdown
-Before running anything that could open a window or steal focus — Playwright/
+Before running anything that could open a window or steal focus: Playwright/
 Puppeteer/Cypress/WebDriver, --headed, screen/video capture, xcodebuild,
-xcrun simctl, open/-a, osascript, launching a built .app — use the offstage
+xcrun simctl, open/-a, osascript, launching a built .app: use the offstage
 MCP tools. status:'skipped' means the substrate is missing: report the fix,
 never re-run the command directly to get past it, and never launch apps or run
-GUI commands outside offstage — that puts them on the user's screen.
+GUI commands outside offstage: that puts them on the user's screen.
 ```
 
 ## Probe
 
 `offstage probe MyApp.xcodeproj` answers one question before you promise
 anyone a macOS test setup: `adhoc-ok`, every requested entitlement is
-satisfied by ad-hoc signing, so a disposable VM works today, no Developer ID
-needed, or `needs-signing-lane`, the app declares restricted entitlements
-(protected resources, virtualization, hypervisor) that only a
-provisioning-profile-backed identity carries, which is a much larger project.
-Read `confidence` before repeating a verdict: `low` means "found no blocker",
-not "proved there is none".
+satisfied by ad-hoc signing, so `codesign -s -` is enough and no Apple
+credentials are needed anywhere; or `needs-signing-lane`, the app declares
+restricted entitlements (protected resources, virtualization, hypervisor) that
+only a provisioning-profile-backed Developer ID carries, and getting that
+identity to the signing step is a much larger project.
+
+This is a fact about the app's entitlements, so the answer holds however you
+run the tests. offstage does not sign anything and has no signing lane; the
+probe is here so nobody commits to a date before knowing which of the two jobs
+they signed up for. Read `confidence` before repeating a verdict: `low` means
+"found no blocker", not "proved there is none".
 
 ## Result shape
 
@@ -274,7 +279,7 @@ Each run persists a validated `result.json` under `.offstage/runs/<id>/`.
 
 ## Case study: GestureEngine, driven end to end
 
-GestureEngine is a real macOS utility — a trackpad-gesture engine whose app is
+GestureEngine is a real macOS utility: a trackpad-gesture engine whose app is
 an `LSUIElement` menu-bar tool. It is exactly the kind of thing an agent wants
 to test, and exactly the kind of thing that used to seize your screen. With
 offstage, the whole loop runs from one terminal while you keep working:
@@ -283,7 +288,7 @@ offstage, the whole loop runs from one terminal while you keep working:
 $ offstage run -- swift test -c release            # passed | headless | in place
 $ offstage run -- ./Scripts/build-app.sh           # passed | headless | in place
 $ offstage session launch --fresh build/GestureEngine.app
-  ✓ launched "build/GestureEngine.app" in the helper session — registered after 1.2s
+  ✓ launched "build/GestureEngine.app" in the helper session: registered after 1.2s
     GestureEngine pid 13836 [dev.viraat.GestureEngine]
 $ offstage session screenshot --max 1000           # its window, on the hidden desktop
 $ offstage session input '[{"type":"click","x":1178,"y":157}]'
@@ -295,7 +300,7 @@ the *other* account's desktop.
 
 ### Installing your own app into the guest account
 
-The refusal row above is about *distributable artifacts* — `.dmg` mounts,
+The refusal row above is about *distributable artifacts*: `.dmg` mounts,
 `.pkg` installers, anything whose job is rewriting the machine both accounts
 share. Your own app under development is different: it's just another GUI
 process, and it runs happily on the second account straight from your build
@@ -303,7 +308,7 @@ directory (`session launch build/App.app`), exactly as GestureEngine does
 above.
 
 If you want it "installed" into the guest anyway, skip the installer and copy
-the bundle into the helper account's own Applications folder — no sudo, no
+the bundle into the helper account's own Applications folder, no sudo, no
 refusal:
 
 ```bash
@@ -321,7 +326,7 @@ Three practical notes from doing this for real:
   pkill -x MyApp`): LaunchServices gets confused by several copies of one
   bundle id registering at once.
 - A freshly copied bundle can take tens of seconds to register while macOS
-  verifies the new file — pass `--wait-ms 60000` instead of retrying.
+  verifies the new file: pass `--wait-ms 60000` instead of retrying.
 
 Two lessons from driving it shaped this release:
 
@@ -333,7 +338,7 @@ Two lessons from driving it shaped this release:
   accessory apps too (each entry carries its `policy`), and `session launch`
   waits until the app actually registers instead of trusting `open`'s exit
   code.
-- **`NSWorkspace` lies from a daemon.** The first fix polled `NSWorkspace` —
+- **`NSWorkspace` lies from a daemon.** The first fix polled `NSWorkspace`,
   which served frozen snapshots in this context: Calculator frontmost, menu
   bar reading "Calculator", list saying nothing existed. The daemon now reads
   Launch Services directly (`lsappinfo`), which is always current.
@@ -378,11 +383,22 @@ excluded from collection and the TS program.
 ```
 src/contract/     lane + result contract, run-directory helpers
 src/router/       classify(command) -> lane + reason
+  signal.ts         what one observation is
+  views.ts          expand a command into everything worth inspecting
+  flags.ts          read one argv token, whole tokens only
+  bins.ts           the binaries the router recognizes, by name
+  signals.ts        collect the evidence, and read the argv itself
+  macos.ts          macOS GUI work, and the refusals
+  tools.ts          Playwright / Vitest / Cypress / Puppeteer defaults
+  webdriver.ts      WebDriver, which has to be read rather than guessed
+  configs.ts        what a file on disk says about `headless`
+  inspect.ts        the read-only filesystem seam
 src/lanes/        headless | session | container implementations
 src/session/      host side of the session lane: discovery, RPC client, setup
-src/probe/        entitlements probe
-src/screen/       RFB client used by the container lane
-src/cli/, src/mcp/  the CLI, and the MCP server over the same API
+src/probe/        entitlements probe: is ad-hoc signing enough for this app?
+src/cli/          api.ts (doctor/route/run/probe), session.ts (bring the lane
+                  up), session-control.ts (drive it), index.ts, render.ts
+src/mcp/          the MCP server, over the same API
 native/sessiond/  the Swift daemon (its own README has the wire protocol)
 docker/           the Xvfb image for the container lane
 skills/           Claude Code skill

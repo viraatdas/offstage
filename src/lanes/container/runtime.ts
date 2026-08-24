@@ -4,31 +4,31 @@
  * On a developer laptop "is Docker available?" has more wrong answers than
  * right ones. The `docker` binary being on PATH means nothing: it is a client,
  * and it happily points at a daemon that is not there. The machine this lane
- * was written on is the canonical example — `docker` 29.4 installed, the active
+ * was written on is the canonical example: `docker` 29.4 installed, the active
  * context is OrbStack, and `unix:///Users/…/.orbstack/run/docker.sock` does not
  * exist because OrbStack is not running. Colima is installed too, with a
  * perfectly good stopped VM, which makes "what should the user type?" a real
  * question rather than a lookup: see {@link unavailableFrom} for why the answer
  * is `orb start` and not `colima start`.
  *
- * So detection here answers the only question that matters — "can I run a
- * container **right now**, and if not, what exactly should the human type?" —
+ * So detection here answers the only question that matters ("can I run a
+ * container **right now**, and if not, what exactly should the human type?")
  * by probing daemons rather than binaries, in this order:
  *
- *   1. **docker** — whatever the active context points at. If `docker info`
+ *   1. **docker**: whatever the active context points at. If `docker info`
  *      answers, we are done; that covers Docker Desktop, OrbStack, Rancher,
  *      a remote DOCKER_HOST, and a Colima whose context is already active.
- *   2. **colima** — a running Colima VM whose socket the active docker context
+ *   2. **colima**: a running Colima VM whose socket the active docker context
  *      is *not* pointing at. We probe it directly with `DOCKER_HOST` set to the
  *      profile's socket, so a stale or hijacked docker context cannot hide a
  *      working runtime, and the lane keeps using that explicit `DOCKER_HOST`
  *      for every later call.
- *   3. **podman** — the drop-in alternative, same CLI surface for our purposes.
+ *   3. **podman**: the drop-in alternative, same CLI surface for our purposes.
  *
  * Two rules this module exists to enforce, both from the lane contract:
  *
- * - **It never throws.** Every probe failure — binary missing, daemon dead,
- *   malformed JSON, hung socket — becomes a structured step in the result.
+ * - **It never throws.** Every probe failure (binary missing, daemon dead,
+ *   malformed JSON, hung socket) becomes a structured step in the result.
  * - **It never starts anything.** No `colima start`, no `open -a Docker`, no
  *   image pull. It reports the command; the human (or `offstage doctor`) runs
  *   it. Silently booting a 16 GB VM because someone typed `offstage run` would
@@ -56,7 +56,7 @@ export type ContainerRuntimeKind = (typeof CONTAINER_RUNTIME_KINDS)[number];
  * A runtime that answered a probe and can be used right now.
  *
  * `bin` + `env` is everything a caller needs to invoke it: `colima` is not a
- * container CLI, it is a VM manager, so its `bin` is still `docker` — with
+ * container CLI, it is a VM manager, so its `bin` is still `docker`, with
  * `DOCKER_HOST` pinned to the profile's socket in `env`.
  */
 export interface ContainerRuntime {
@@ -78,11 +78,11 @@ export interface RuntimeProbeStep {
   installed: boolean;
   /** Did it answer with a working daemon? */
   usable: boolean;
-  /** Human-readable evidence — the actual reason, not a category. */
+  /** Human-readable evidence: the actual reason, not a category. */
   detail: string;
   /**
    * A remediation this step is *sure* about, because the thing it names was
-   * found on disk — `orb start` only appears here when OrbStack is actually
+   * found on disk: `orb start` only appears here when OrbStack is actually
    * installed. Its absence is meaningful: it means any fix for this step would
    * be a guess, and {@link unavailableFrom} ranks guesses below certainties.
    */
@@ -201,7 +201,7 @@ export const defaultFileExists = async (target: string): Promise<boolean> => {
  * OrbStack (already the active docker context) and a stopped Colima profile, it
  * told the user to boot a 16 GB Lima VM instead of the two-second daemon they
  * had already chosen. Starting the runtime the user configured is both lighter
- * and less surprising — but only when we can see that it is really installed,
+ * and less surprising, but only when we can see that it is really installed,
  * which is what `app` is checked for.
  */
 const DESKTOP_RUNTIMES: Array<{
@@ -254,7 +254,7 @@ async function identifyDesktopRuntime(
 /* Small helpers                                                              */
 /* -------------------------------------------------------------------------- */
 
-/** First non-empty line of a stream, clipped — daemon errors can be paragraphs. */
+/** First non-empty line of a stream, clipped: daemon errors can be paragraphs. */
 function firstLine(text: string, max = 240): string {
   const line = text
     .split('\n')
@@ -399,11 +399,11 @@ export async function detectContainerRuntime(
   } else {
     // The CLI exists and the daemon does not answer. The endpoint it tried is
     // the single most useful thing to show the user, and it is already in the
-    // error text — no extra probe needed.
+    // error text, no extra probe needed.
     const contextProbe = await exec('docker', ['context', 'show'], { timeoutMs });
     const contextName = contextProbe.exitCode === 0 ? firstLine(contextProbe.stdout) : '';
     const why = dockerInfo.timedOut
-      ? `docker info timed out after ${timeoutMs}ms — the daemon is not answering`
+      ? `docker info timed out after ${timeoutMs}ms: the daemon is not answering`
       : firstLine(dockerInfo.stderr) || `docker info exited ${String(dockerInfo.exitCode)}`;
     // The endpoint it failed to reach is in the error text, and the context
     // name is the other half of the fingerprint. Together they identify which
@@ -415,7 +415,7 @@ export async function detectContainerRuntime(
       usable: false,
       detail: `the docker CLI is installed but its daemon is unreachable${
         contextName ? ` (context "${contextName}")` : ''
-      }: ${why}${desktop ? ` — ${desktop.name} is installed but not running` : ''}`,
+      }: ${why}${desktop ? `: ${desktop.name} is installed but not running` : ''}`,
       ...(desktop ? { fix: desktop.fix } : {}),
     });
   }
@@ -540,7 +540,7 @@ export async function detectContainerRuntime(
  *
  * Ranking, and why:
  *
- * 1. **A desktop runtime we found on disk wins** — OrbStack, Docker Desktop,
+ * 1. **A desktop runtime we found on disk wins**: OrbStack, Docker Desktop,
  *    Rancher. It is already the user's active docker context, so it is the
  *    runtime they chose; it is typically seconds to start; and we have *seen*
  *    the application, so the command is not a guess. This outranks Colima
@@ -552,7 +552,7 @@ export async function detectContainerRuntime(
  *    starts. It also repairs a stale docker context for free, because the lane
  *    talks to Colima's socket directly rather than through the active context.
  * 3. **Otherwise a docker CLI with a dead daemon**, where we can only guess at
- *    which daemon it was — hence the rank below the two certainties.
+ *    which daemon it was: hence the rank below the two certainties.
  * 4. **Otherwise podman**, if it is installed but its machine is down.
  * 5. **Otherwise, install something.**
  */

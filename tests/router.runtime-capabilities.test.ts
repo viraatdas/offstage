@@ -1,5 +1,5 @@
 /**
- * Capabilities computed at runtime are invisible to the router — by design.
+ * Capabilities computed at runtime are invisible to the router: by design.
  *
  * The router never executes a line of the repository it classifies. That rule
  * is not a shortcut, it is the safety argument: a router that evaluated your
@@ -12,14 +12,14 @@
  * cannot know. A boundary like that is only defensible if the router *says* so.
  * Reporting "Playwright runs headless by default: no window opens" about a
  * repository whose config was read but not understood is not a limitation, it
- * is a false statement with `confidence: 'high'` attached — and it is what the
+ * is a false statement with `confidence: 'high'` attached, and it is what the
  * router did before this file existed, in five distinct shapes.
  *
  * So the boundary is now a stated contract, and these are its terms:
  *
  *   1. A value the router can read is answered confidently. (unchanged)
  *   2. A value it cannot read produces a signal that says which expression it
- *      could not evaluate, `confidence: 'low'`, and the remedy — never silence,
+ *      could not evaluate, `confidence: 'low'`, and the remedy, never silence,
  *      and never the tool's default dressed up as this repository's answer.
  *   3. It stays in the default lane anyway. "I can't tell" is not a reason to
  *      bill every ambiguous repository for container startup; it is a reason to
@@ -40,7 +40,7 @@ import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { classify } from '../src/router/index.js';
-import { readHeadlessEvidence } from '../src/router/signals.js';
+import { readHeadlessEvidence } from '../src/router/configs.js';
 
 const roots: string[] = [];
 
@@ -325,7 +325,7 @@ describe('an explicit flag settles what the router could not read', () => {
 
     expect(decision.lane).toBe('headless');
     expect(decision.confidence).toBe('high');
-    // The observation is kept and marked settled, not deleted — the config
+    // The observation is kept and marked settled, not deleted: the config
     // still says what it says.
     expect(decision.signals.some((line) => line.includes('settled by'))).toBe(true);
   });

@@ -12,10 +12,10 @@
  *
  * This file is in two halves, and the second is the one that matters:
  *
- * - **The rules** — `--video` and `--record-video` stay headless, the five
+ * - **The rules**: `--video` and `--record-video` stay headless, the five
  *   desktop/tab capture switches still go to the container, and neither one
  *   outranks an actual `--headed`.
- * - **The proof** — a real Chromium, headless, with `DISPLAY` and
+ * - **The proof**: a real Chromium, headless, with `DISPLAY` and
  *   `WAYLAND_DISPLAY` stripped out of its environment, writing a real `.webm`.
  *   Gated on a browser already being on disk, exactly like the headless lane's
  *   Playwright block: nothing here ever downloads one.
@@ -189,7 +189,7 @@ describe('recording never overrides the signals that do decide', () => {
 
     expect(decision.lane).toBe('container');
     expect(decision.reason).toMatch(/headed browser/i);
-    /* Still reported — it is just not the reason. */
+    /* Still reported: it is just not the reason. */
     expect(signalText(decision)).toContain('argv: --video=on');
     expect(decision.reason).not.toMatch(/captures frames from the browser/i);
   });
@@ -225,7 +225,7 @@ describe('recording never overrides the signals that do decide', () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/* The proof — gated on a browser that is already on disk                     */
+/* The proof: gated on a browser that is already on disk                     */
 /* -------------------------------------------------------------------------- */
 
 const VIDEO_FIXTURE = path.join(REPO_ROOT, 'tests', 'fixtures', 'router', 'video');

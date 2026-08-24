@@ -52,7 +52,7 @@ const SessionScreenshotArgsSchema = z
   })
   .strict();
 /* The action schema is the daemon client's own, so an agent cannot send this
-   server a shape the daemon would reject — the validation error arrives before
+   server a shape the daemon would reject: the validation error arrives before
    the socket is opened, naming the offending action. */
 const SessionInputArgsSchema = z
   .object({
@@ -173,7 +173,7 @@ export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()
     {
       title: 'offstage run',
       description:
-        'Run a command off the user screen through the selected offstage lane, and return the normalized result plus where it was written. Headed browser work uses a Linux container with a virtual display; macOS-native work (xcodebuild, xcrun, open -a, osascript) uses lane "session" — a second, logged-in macOS account with its own display and its own input stream, so the window never reaches the user screen. This never falls back to the user real display: forcing lane "headless" on work that needs isolation is refused, not honoured, and anything that could change the machine itself (installers, .dmg/.pkg, hdiutil) is refused outright on every lane, because offstage has no substrate that isolates a change to the machine. The session lane needs the helper account to be able to READ the working directory: a spawn failure there is fixed by the user running `offstage session share <dir>`, not by running the command outside offstage.',
+        'Run a command off the user screen through the selected offstage lane, and return the normalized result plus where it was written. Headed browser work uses a Linux container with a virtual display; macOS-native work (xcodebuild, xcrun, open -a, osascript) uses lane "session": a second, logged-in macOS account with its own display and its own input stream, so the window never reaches the user screen. This never falls back to the user real display: forcing lane "headless" on work that needs isolation is refused, not honoured, and anything that could change the machine itself (installers, .dmg/.pkg, hdiutil) is refused outright on every lane, because offstage has no substrate that isolates a change to the machine. The session lane needs the helper account to be able to READ the working directory: a spawn failure there is fixed by the user running `offstage session share <dir>`, not by running the command outside offstage.',
       inputSchema: RunArgsSchema,
     },
     async (args) =>
@@ -190,7 +190,7 @@ export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()
     {
       title: 'offstage probe',
       description:
-        'Inspect a project, app, dmg, or entitlements file and report whether ad-hoc VM testing is enough or a signing lane is required.',
+        'Inspect a project, app, dmg, or entitlements file and report whether ad-hoc signing is enough to build and test it, or whether it declares entitlements that only a real Developer ID and provisioning profile can authorize.',
       inputSchema: ProbeArgsSchema,
     },
     async (args) =>
@@ -204,7 +204,7 @@ export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()
     {
       title: 'offstage session launch',
       description:
-        "Launch an app INSIDE the helper macOS session and wait until it has actually registered — the reply names the app's pid, so a success here means the app is really running in that hidden session, not merely that `open` handed off the request. This is the right way to start any .app for GUI testing: pass the bundle name or a path to the .app bundle. NEVER exec the binary inside Contents/MacOS/ directly (it does not register with LaunchServices and becomes invisible to offstage_session_apps), and NEVER launch apps outside offstage — anything launched outside lands on the USER's screen, which defeats the entire product. `fresh: true` opens a new instance (`open -n`) when one may already be running. If it reports failure after `open` succeeded, take a screenshot before retrying: first launches can be slow while Gatekeeper verifies the bundle.",
+        "Launch an app INSIDE the helper macOS session and wait until it has actually registered (the reply names the app's pid, so a success here means the app is really running in that hidden session, not merely that `open` handed off the request. This is the right way to start any .app for GUI testing: pass the bundle name or a path to the .app bundle. NEVER exec the binary inside Contents/MacOS/ directly (it does not register with LaunchServices and becomes invisible to offstage_session_apps), and NEVER launch apps outside offstage) anything launched outside lands on the USER's screen, which defeats the entire product. `fresh: true` opens a new instance (`open -n`) when one may already be running. If it reports failure after `open` succeeded, take a screenshot before retrying: first launches can be slow while Gatekeeper verifies the bundle.",
       inputSchema: SessionLaunchArgsSchema,
     },
     async (args) =>
@@ -218,7 +218,7 @@ export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()
     {
       title: 'offstage session status',
       description:
-        'Report whether the macOS session lane can run right now: the helper account, whether it has a background GUI session, whether the offstage-sessiond daemon answers, the display size in points, and whether Screen Recording and Accessibility are granted to the daemon inside that session. Call this before offstage_session_screenshot or offstage_session_input. When it reports unavailable, relay its `fix` to the user — setup runs `sudo` and needs a terminal, so `offstage session setup` is something the human types, not something you can call.',
+        'Report whether the macOS session lane can run right now: the helper account, whether it has a background GUI session, whether the offstage-sessiond daemon answers, the display size in points, and whether Screen Recording and Accessibility are granted to the daemon inside that session. Call this before offstage_session_screenshot or offstage_session_input. When it reports unavailable, relay its `fix` to the user: setup runs `sudo` and needs a terminal, so `offstage session setup` is something the human types, not something you can call.',
       inputSchema: SessionStatusArgsSchema,
     },
     async (args) =>
@@ -232,7 +232,7 @@ export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()
     {
       title: 'offstage session screenshot',
       description:
-        "Capture the helper session's screen and return it as an image plus its pixel size and backing scale. This is the OTHER account's display, never the user's own — it is safe to call while the user is working, and it is the only way to see what a session-lane run did. Take one BEFORE deciding on any input and one AFTER performing it: input is fire-and-forget and nothing else reports what it hit. Divide pixel coordinates from this image by `scale` to get the points that offstage_session_input takes.",
+        "Capture the helper session's screen and return it as an image plus its pixel size and backing scale. This is the OTHER account's display, never the user's own: it is safe to call while the user is working, and it is the only way to see what a session-lane run did. Take one BEFORE deciding on any input and one AFTER performing it: input is fire-and-forget and nothing else reports what it hit. Divide pixel coordinates from this image by `scale` to get the points that offstage_session_input takes.",
       inputSchema: SessionScreenshotArgsSchema,
     },
     async (args) =>
@@ -258,7 +258,7 @@ export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()
     {
       title: 'offstage session input',
       description:
-        'Inject keyboard and mouse events into the helper macOS session — move, click, drag, scroll, type, key, wait. Coordinates are POINTS in that session\'s global display space, origin at the top-left of its main display (a screenshot\'s pixels divided by its `scale`), never pixels and never coordinates from the user\'s own screen. These events are posted to that session\'s own event tap, so the window server routes them inside the helper session only; they never reach the user\'s keyboard, mouse or focus, and there is no mode in which they could. `drag` and `scroll` are implemented but not yet verified in the session lane; `click`, `key` and `type` are. Always screenshot, then input, then screenshot again. Requires Accessibility to be granted to offstage-sessiond inside that session — offstage_session_status says whether it is.',
+        'Inject keyboard and mouse events into the helper macOS session (move, click, drag, scroll, type, key, wait. Coordinates are POINTS in that session\'s global display space, origin at the top-left of its main display (a screenshot\'s pixels divided by its `scale`), never pixels and never coordinates from the user\'s own screen. These events are posted to that session\'s own event tap, so the window server routes them inside the helper session only; they never reach the user\'s keyboard, mouse or focus, and there is no mode in which they could. `drag` and `scroll` are implemented but not yet verified in the session lane; `click`, `key` and `type` are. Always screenshot, then input, then screenshot again. Requires Accessibility to be granted to offstage-sessiond inside that session) offstage_session_status says whether it is.',
       inputSchema: SessionInputArgsSchema,
     },
     async (args) =>

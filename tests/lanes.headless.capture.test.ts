@@ -135,7 +135,7 @@ describe('CappedText: the in-memory bound is exact', () => {
   it('evicts in amortized constant time, so millions of small writes stay linear', () => {
     const capture = new CappedText(MAX_CAPTURED_CHARS);
     const chunk = 'y'.repeat(31);
-    /* 64 MB of output arriving one short line at a time — a plausible shape for
+    /* 64 MB of output arriving one short line at a time: a plausible shape for
        a verbose test run, and the shape a shift()-per-write buffer turns
        quadratic: the same workload took ~33 s that way, versus ~30 ms here. */
     const writes = Math.floor((64 * 1024 * 1024) / chunk.length);
@@ -229,7 +229,7 @@ describe('appendWithBackpressure: the log cannot become the buffer', () => {
     /* Never more than one block beyond the stream's own watermark. */
     expect(peak).toBeLessThanOrEqual(64 + block.length);
 
-    /* The same writes with the return value ignored — how the queue grows when
+    /* The same writes with the return value ignored: how the queue grows when
        backpressure is dropped on the floor. */
     const ignored = slowSink();
     for (let i = 0; i < writes; i++) ignored.write(block);
@@ -357,7 +357,7 @@ describe('a run that prints more than the budget', () => {
 
       /* And on this disk it is whole: a sink that dropped or abandoned bytes
          discloses that itself, so the absence of that disclosure is the claim
-         'command.log on disk is complete' — now made by the component that
+         'command.log on disk is complete': now made by the component that
          actually knows, instead of asserted unconditionally here. */
       const shortfall = result.diagnostics.find(
         (line) => line.includes('bytes were dropped') || line.includes('still unwritten'),

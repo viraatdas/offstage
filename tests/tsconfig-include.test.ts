@@ -6,8 +6,8 @@
  *
  *  1. An `include` pattern that matches nothing. TypeScript only raises
  *     TS18003 ("No inputs were found") when the *whole* include list is empty,
- *     so a single dead glob — `scripts/**\/*.ts` for a `scripts/` directory
- *     that was never created — sits in the config forever, advertising
+ *     so a single dead glob, `scripts/**\/*.ts` for a `scripts/` directory
+ *     that was never created, sits in the config forever, advertising
  *     coverage the program does not have.
  *
  *  2. A `.ts` file that no pattern matches. `npm run typecheck` stays green

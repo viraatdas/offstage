@@ -10,8 +10,8 @@
  * calls through the codebase.
  *
  * The same principle applies to the ACLs: `share` and the per-run artifacts
- * grant are computed as `chmod +a` commands first — pure data, snapshot-tested
- * — and only then handed to the injected {@link Exec}. Nothing in this file
+ * grant are computed as `chmod +a` commands first (pure data, snapshot-tested)
+ * and only then handed to the injected {@link Exec}. Nothing in this file
  * shells out on its own.
  */
 
@@ -80,7 +80,7 @@ export const DAEMON_LOG_NAME = 'offstage-sessiond.log';
  * Where launchd sends the daemon's stdout and stderr.
  *
  * Deliberately **not** in the socket directory. launchd opens this path before
- * `exec` and creates no parent directories, and `/tmp` is wiped on reboot — so
+ * `exec` and creates no parent directories, and `/tmp` is wiped on reboot, so
  * a log under `/tmp/offstage-session` is guaranteed to be missing on exactly
  * the launch you most want to read about, the first one after a restart. The
  * helper account's own `~/Library/Logs` is persistent, is where a macOS user
@@ -94,7 +94,7 @@ export function daemonLogPath(home: string): string {
  * Read-only ACL granted on a shared tree.
  *
  * `file_inherit`/`directory_inherit` so new files under it are readable too;
- * no `write`, no `add_file`, no `delete` — `share` never grants write, and the
+ * no `write`, no `add_file`, no `delete`: `share` never grants write, and the
  * repository stays as read-only to the helper account as a container's
  * read-only mount.
  */
@@ -140,7 +140,7 @@ export interface LaunchAgentOptions {
  * `KeepAlive` is on for failures: the daemon is the lane's only door into that
  * session, and a crashed daemon that stays dead would silently turn every later
  * run into "unavailable". Its stderr goes to the helper account's own
- * `~/Library/Logs`, which survives a reboot — see {@link daemonLogPath}.
+ * `~/Library/Logs`, which survives a reboot: see {@link daemonLogPath}.
  */
 export function renderLaunchAgentPlist(options: LaunchAgentOptions): string {
   const label = options.label ?? DEFAULT_LABEL;
@@ -180,7 +180,7 @@ export function launchAgentPath(home: string, label: string = DEFAULT_LABEL): st
 
 /**
  * Alphabet for generated helper-account passwords. Unambiguous characters
- * only — this string is read aloud from a terminal, typed by hand into a login
+ * only: this string is read aloud from a terminal, typed by hand into a login
  * pane on occasion, and quoted through `/bin/sh`.
  */
 export const PASSWORD_ALPHABET = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -228,7 +228,7 @@ export interface CsreqResult {
  * Ask the freshly compiled daemon for its own Designated Requirement.
  *
  * `offstage-sessiond --print-csreq <path>` prints the exact BLOB TCC stores in
- * its `csreq` column when a grant is made — verified byte-for-byte against a
+ * its `csreq` column when a grant is made: verified byte-for-byte against a
  * row System Settings itself wrote. With it, setup can pre-seed both grants
  * (see {@link tccGrantCommands}) instead of asking a human to toggle them
  * inside the helper session.
@@ -282,7 +282,7 @@ export const TCC_SERVICES = ['kTCCServiceAccessibility', 'kTCCServiceScreenCaptu
  * even root cannot open this database for writing under SIP.
  */
 export function tccGrantCommands(options: {
-  /** Absolute installed path of the daemon — the record's key. */
+  /** Absolute installed path of the daemon: the record's key. */
   clientPath: string;
   /** Hex of the daemon's Designated Requirement, from {@link exportCsreq}. */
   csreqHex: string;
@@ -304,7 +304,7 @@ export function tccGrantCommands(options: {
 
 /**
  * Acquires the database's write lock and gives it straight back. Mutates
- * nothing — but under SIP only a process with Full Disk Access can acquire it,
+ * nothing, but under SIP only a process with Full Disk Access can acquire it,
  * which makes this the honest probe of whether the pre-seed will work before
  * the first INSERT fails mid-script.
  */
@@ -324,9 +324,9 @@ export interface InstallScriptOptions {
   binarySource: string;
   /** Rendered plist on the caller's side, to be installed. */
   plistSource: string;
-  /** Helper account short name — the plist must be owned by it. */
+  /** Helper account short name: the plist must be owned by it. */
   user: string;
-  /** Helper account uid — the launchd domain is `gui/<uid>`. */
+  /** Helper account uid: the launchd domain is `gui/<uid>`. */
   uid: number;
   /** Helper account home, where `Library/LaunchAgents` lives. */
   home: string;
@@ -347,7 +347,7 @@ export interface InstallScriptOptions {
    * Create the helper account as part of this script, with this password.
    * Non-interactive on purpose: an interactive prompt here would break every
    * scripted install, and the password is machine-local random data. It is
-   * visible in `ps` for the moment `sysadminctl` runs — accepted, because it
+   * visible in `ps` for the moment `sysadminctl` runs: accepted, because it
    * guards only the throwaway helper account.
    */
   createAccount?: { password: string };
@@ -401,7 +401,7 @@ export const SETUP_ASSISTANT_SEEN_KEYS = [
  * written into the helper account's own preferences before its first login.
  *
  * Root writes the plists directly because there is no cfprefsd instance for an
- * account that has never logged in — nothing can race or clobber them — and
+ * account that has never logged in, nothing can race or clobber them, and
  * then hands ownership back so the account's first launch trusts its own
  * preferences.
  */
@@ -476,7 +476,7 @@ export async function persistSessionConfig(
  * It is printed before it runs, on purpose: the user is about to type a
  * password, and "trust me" is not an acceptable thing for a tool to say at that
  * moment. Every line is `install(1)`, `launchctl`, `sqlite3`, `defaults`,
- * `sysadminctl` or `chown` — no compilation, no network, no package manager.
+ * `sysadminctl` or `chown`, no compilation, no network, no package manager.
  *
  * `bootout` is allowed to fail: on a first install there is nothing to unload,
  * and `launchctl` exits non-zero for that. The TCC pre-seed probe is allowed
@@ -505,7 +505,7 @@ export function renderInstallScript(options: InstallScriptOptions): string {
 
   const lines: string[] = [
     '#!/bin/sh',
-    '# offstage session setup — installs offstage-sessiond into the',
+    '# offstage session setup: installs offstage-sessiond into the',
     `# ${options.user} account's GUI session. This is the only step that needs root.`,
     'set -eu',
   ];
@@ -705,7 +705,7 @@ const defaultListSources = async (dir: string): Promise<string[]> => {
 /**
  * Build `offstage-sessiond`.
  *
- * Prefers `native/sessiond/build.sh` — the daemon owns the flags it needs, and
+ * Prefers `native/sessiond/build.sh`: the daemon owns the flags it needs, and
  * a build script that ships beside the source cannot drift from it. When the
  * script is absent, this falls back to invoking `swiftc` over the sources
  * directly, so a partially-published package still yields a working daemon
@@ -806,7 +806,7 @@ export function describeAclCommand(command: AclCommand): string {
 /**
  * The ancestors that have to become traversable for `target` to be reachable.
  *
- * Starts at the owner's home directory when `target` is inside it — `/Users`
+ * Starts at the owner's home directory when `target` is inside it: `/Users`
  * and `/` are already world-traversable, and granting anything on them would be
  * both useless and alarming. For a target outside any home, the walk starts at
  * the first component under `/` for the same reason.
@@ -833,7 +833,7 @@ export interface ShareAclOptions {
   target: string;
   /** Helper account short name. */
   user: string;
-  /** Home directory of the tree's owner — the caller. Defaults to `os.homedir()`. */
+  /** Home directory of the tree's owner: the caller. Defaults to `os.homedir()`. */
   home?: string;
   exec?: Exec;
 }
@@ -843,7 +843,7 @@ export interface ShareAclOptions {
  * nothing else: traverse-only on each ancestor, read on the tree itself.
  *
  * Pure. Rendering the plan separately from running it is what makes `share`
- * explainable — the CLI can print what it is about to do to a user's home
+ * explainable: the CLI can print what it is about to do to a user's home
  * directory before it does it.
  */
 export function shareAclCommands(options: Omit<ShareAclOptions, 'exec'>): AclCommand[] {
@@ -911,7 +911,7 @@ export interface UnshareAclOptions {
   target: string;
   /** Helper account short name. */
   user: string;
-  /** Home directory of the tree's owner — the caller. Defaults to `os.homedir()`. */
+  /** Home directory of the tree's owner: the caller. Defaults to `os.homedir()`. */
   home?: string;
   exec?: Exec;
 }
@@ -949,7 +949,7 @@ const NO_ACL_PRESENT = /No ACL present/;
  * Revoke what {@link shareAcl} granted.
  *
  * Removing an ACL entry that is already absent makes `chmod` exit 1 with
- * "No ACL present" — measured, not assumed. That is success for an unshare:
+ * "No ACL present": measured, not assumed. That is success for an unshare:
  * the goal state is "the grant is gone", however it got there. Any other
  * failure (ENOENT on a deleted tree, a permissions error) is reported as such
  * in `failures`. Never throws.
@@ -983,7 +983,7 @@ export function grantArtifactsWriteCommands(
 }
 
 /**
- * Let the helper account write into this run's artifacts directory — and only
+ * Let the helper account write into this run's artifacts directory, and only
  * this one. Called by the lane on every run, because the directory is created
  * per run and is owned by the caller, not by the helper account.
  */

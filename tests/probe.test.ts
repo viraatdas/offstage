@@ -4,7 +4,7 @@
  * Everything here runs with **no Xcode, no signed binary and no macOS tooling**:
  * the plist fixtures under `tests/fixtures/probe/` are checked in, and the two
  * paths that genuinely need `codesign` / `hdiutil` are driven through an
- * injected {@link CommandRunner}. That is deliberate — a probe whose own tests
+ * injected {@link CommandRunner}. That is deliberate: a probe whose own tests
  * need the thing it is probing for would be useless in CI.
  */
 
@@ -100,10 +100,10 @@ function hdiutilAttachPlist(mountPoint: string): string {
 }
 
 /* ========================================================================== */
-/* Verdicts from fixture plists — the headline requirement                    */
+/* Verdicts from fixture plists: the headline requirement                    */
 /* ========================================================================== */
 
-describe('probeEntitlements — fixture plists', () => {
+describe('probeEntitlements: fixture plists', () => {
   it('returns adhoc-ok for a sandbox + hardened-runtime-only app', async () => {
     const report = await probeEntitlements(ent('sandbox-only.entitlements'), OFFLINE);
 
@@ -217,7 +217,7 @@ describe('probeEntitlements — fixture plists', () => {
 /* Xcode projects and workspaces                                             */
 /* ========================================================================== */
 
-describe('probeEntitlements — Xcode targets', () => {
+describe('probeEntitlements: Xcode targets', () => {
   it('follows CODE_SIGN_ENTITLEMENTS out of project.pbxproj', async () => {
     const report = await probeEntitlements(fixture('DeclaredProject', 'SampleApp.xcodeproj'), OFFLINE);
 
@@ -286,7 +286,7 @@ describe('probeEntitlements — Xcode targets', () => {
 /* Built products: .app and .dmg                                             */
 /* ========================================================================== */
 
-describe('probeEntitlements — built products', () => {
+describe('probeEntitlements: built products', () => {
   it('reads an embedded provisioning profile when codesign is unavailable', async () => {
     const app = fixture('bundles', 'ProfiledApp.app');
     const report = await probeEntitlements(app, OFFLINE);
@@ -301,7 +301,7 @@ describe('probeEntitlements — built products', () => {
     expect(report.notes.join('\n')).toMatch(/authoritative evidence is the code signature/);
   });
 
-  it('reports no evidence — not a false all-clear — for an unsigned bundle', async () => {
+  it('reports no evidence, not a false all-clear, for an unsigned bundle', async () => {
     const report = await probeEntitlements(fixture('bundles', 'AdhocApp.app'), OFFLINE);
 
     expect(report.verdict).toBe('adhoc-ok');
@@ -458,7 +458,7 @@ describe('classifyEntitlements', () => {
   it('treats the debugger hardened-runtime exception as restricted but the rest as ad-hoc-ok', () => {
     const restricted = classifyEntitlements({ 'com.apple.security.cs.debugger': true });
     expect(restricted.verdict).toBe('needs-signing-lane');
-    expect(restricted.triggers[0]?.capability).toBe('Hardened Runtime — Debugging Tool');
+    expect(restricted.triggers[0]?.capability).toBe('Hardened Runtime: Debugging Tool');
 
     const fine = classifyEntitlements({
       'com.apple.security.cs.allow-jit': true,
@@ -663,8 +663,8 @@ describe('resolveProbeTarget', () => {
    * The error for an unsupported target has always offered "or a directory
    * containing one of those", while the directory branch only ever looked for
    * `.xcworkspace` and `.xcodeproj`. Pointing at the folder holding a built
-   * app — or at a SwiftPM repository root, where the app lands under `build/`
-   * and there is no project file at all — failed with that same message.
+   * app (or at a SwiftPM repository root, where the app lands under `build/`
+   * and there is no project file at all) failed with that same message.
    */
   async function tree(layout: Record<string, string>): Promise<string> {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-probe-'));
@@ -722,7 +722,7 @@ describe('resolveProbeTarget', () => {
   });
 });
 
-describe('probeEntitlements — provisioning profile as the target', () => {
+describe('probeEntitlements: provisioning profile as the target', () => {
   it('classifies the profile Entitlements dictionary directly', async () => {
     const report = await probeEntitlements(
       fixture('bundles', 'ProfiledApp.app', 'Contents', 'embedded.provisionprofile'),

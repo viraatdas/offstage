@@ -1,17 +1,18 @@
 /**
- * offstage — the lane contract.
+ * offstage: the lane contract.
  *
  * Everything in offstage is a routing decision followed by a lane execution.
  * This module is the single place where "what a lane is" and "what a lane
- * returns" are defined. The router (`src/router/`), all four lanes
+ * returns" are defined. The router (`src/router/`), all three lanes
  * (`src/lanes/*`), the CLI (`src/cli/`) and the MCP server (`src/mcp/`) all
- * speak exactly these types — nothing else crosses a module boundary.
+ * speak exactly these types. Nothing else crosses a module boundary.
  *
- * ## Path conventions (normative — the schema enforces these)
+ * ## Path conventions (normative: the schema enforces these)
  *
- * offstage runs a command on the host, inside a container, or inside a VM, and
- * the same envelope has to make sense in all three cases. So paths are split
- * into two kinds, and the kind is fixed per field:
+ * offstage runs a command in this process's own session, inside a Linux
+ * container, or inside a second macOS account, and the same envelope has to
+ * make sense in all three cases. So paths are split into two kinds, and the
+ * kind is fixed per field:
  *
  * | Field                     | Kind                | Rule                                       |
  * | ------------------------- | ------------------- | ------------------------------------------ |
@@ -25,15 +26,15 @@
  * The reasoning, so lane authors do not have to guess:
  *
  * - **Artifacts are absolute host paths.** They are things the run *produced*.
- *   The container lane generates them inside a guest and copies them back out,
- *   so a guest-relative path would be a lie by the time anyone reads it.
- *   Absolute host paths are the only representation that stays true after the
- *   substrate is gone. Containment under `artifactsDir` is enforced so that a
- *   run directory is self-contained and safe to archive or delete.
+ *   The container lane generates them inside the container and copies them back
+ *   out, so a container-relative path would be a lie by the time anyone reads
+ *   it. Absolute host paths are the only representation that stays true after
+ *   the substrate is gone. Containment under `artifactsDir` is enforced so that
+ *   a run directory is self-contained and safe to archive or delete.
  * - **Failure file paths are repository-relative.** They point at the user's
- *   *source*, which exists identically on the host and in the guest at
+ *   *source*, which exists identically on the host and inside the substrate at
  *   different absolute prefixes. Repo-relative is the only form that a human,
- *   an editor, and an agent can all resolve, on any of the four lanes.
+ *   an editor, and an agent can all resolve, on any of the three lanes.
  *
  * Use the helpers in `./artifacts.js` (`artifactPath`, `toRepoRelative`) rather
  * than hand-rolling these; they produce values the schema accepts.
@@ -58,16 +59,16 @@ import { z } from 'zod';
 /**
  * The three isolation substrates offstage routes to.
  *
- * - `headless` — no isolation at all. The command already opens no window, so
+ * - `headless`: no isolation at all. The command already opens no window, so
  *   it runs in place. This is the cheapest lane and the default for web test
  *   commands; isolating an already-headless command buys nothing.
- * - `session` — a second, logged-in macOS user account running in the
+ * - `session`: a second, logged-in macOS user account running in the
  *   background. It has its own framebuffer, its own input stream and its own
  *   apps, so macOS-native GUI work (`open -a`, `xcodebuild test`, a headed
  *   browser on real Metal) runs there without touching the console user's
  *   screen. Session isolation, not machine isolation: same OS, same disk.
  *   See `native/sessiond/README.md`.
- * - `container` — a Linux container with an Xvfb virtual framebuffer, for web
+ * - `container`: a Linux container with an Xvfb virtual framebuffer, for web
  *   work that genuinely needs a headed browser and a real compositor.
  *
  * There is no lane for work that could change the machine itself (an
@@ -88,13 +89,13 @@ export const LaneSchema = z.enum(LANES);
 /**
  * The outcome of a lane execution.
  *
- * - `passed`  — the command ran to completion and reported success (exit 0).
- * - `failed`  — the command ran to completion and reported failure. This is a
+ * - `passed`: the command ran to completion and reported success (exit 0).
+ * - `failed`: the command ran to completion and reported failure. This is a
  *   *result*, not an error: the tests ran and something was red.
- * - `errored` — the command could not be run or could not be trusted: spawn
+ * - `errored`: the command could not be run or could not be trusted: spawn
  *   failure, timeout, substrate died mid-run, unparseable output. Nothing can
  *   be concluded about the user's code from an `errored` run.
- * - `skipped` — the lane deliberately did not run the command, typically
+ * - `skipped`: the lane deliberately did not run the command, typically
  *   because its substrate is unavailable. A `skipped` result must always carry
  *   the reason (and ideally the fix) in `diagnostics`.
  *
@@ -121,7 +122,7 @@ export const ArtifactKindSchema = z.enum(ARTIFACT_KINDS);
 /**
  * A file produced by the run.
  *
- * `path` is an **absolute host path inside `LaneResult.artifactsDir`** — see
+ * `path` is an **absolute host path inside `LaneResult.artifactsDir`**: see
  * the path conventions table at the top of this file.
  */
 export interface LaneArtifact {
@@ -136,7 +137,7 @@ export interface LaneArtifact {
 /**
  * One failing test, extracted best-effort from the command's output.
  *
- * Lanes are not required to populate this — parsing every reporter format is a
+ * Lanes are not required to populate this: parsing every reporter format is a
  * losing game. An empty `failures` array alongside `status: 'failed'` is
  * legitimate; put the tail of the log in `diagnostics` when that happens.
  *
@@ -164,8 +165,8 @@ export interface LaneFailure {
  * `env` is *additional* environment on top of the ambient one; a lane may drop
  * or override entries it needs to control (`DISPLAY`, for instance).
  *
- * `artifactsDir` is allocated by the caller — normally
- * `allocateRunDir()` from `./artifacts.js` — and is owned exclusively by this
+ * `artifactsDir` is allocated by the caller, normally
+ * `allocateRunDir()` from `./artifacts.js`, and is owned exclusively by this
  * run. The lane may create anything it likes underneath it and nothing outside.
  */
 export interface LaneRequest {
@@ -204,7 +205,7 @@ export const LaneRequestSchema: z.ZodType<LaneRequest> = z.object({
 /**
  * The one normalized envelope every lane returns.
  *
- * Nothing downstream of a lane — the CLI, the MCP server, the plugin, a human —
+ * Nothing downstream of a lane (the CLI, the MCP server, the plugin, a human)
  * should ever have to know which substrate produced a result. If a lane needs
  * to say something substrate-specific, it says it in `diagnostics`.
  *
@@ -216,7 +217,7 @@ export interface LaneResult {
   lane: Lane;
   status: LaneStatus;
   /**
-   * Process exit code, or `null` when there was no exit code to observe —
+   * Process exit code, or `null` when there was no exit code to observe,
    * killed by signal, timed out, or never started (`skipped`).
    */
   exitCode: number | null;
@@ -235,7 +236,7 @@ export interface LaneResult {
   /**
    * Human-readable notes: why a lane was skipped, what the fix is, which
    * isolation was (or was not) applied, the tail of an unparseable log.
-   * This is the only free-form channel in the envelope — use it generously.
+   * This is the only free-form channel in the envelope: use it generously.
    */
   diagnostics: string[];
 }
@@ -328,7 +329,7 @@ export const LaneResultSchema: z.ZodType<LaneResult> = laneResultShape.superRefi
 });
 
 /* The schema and the hand-written interface must never drift apart. These two
-   assignments fail to compile if they do — in either direction. */
+   assignments fail to compile if they do, in either direction. */
 type _SchemaMatchesInterface = z.infer<typeof laneResultShape> extends LaneResult ? true : never;
 type _InterfaceMatchesSchema = LaneResult extends z.infer<typeof laneResultShape> ? true : never;
 const _schemaMatchesInterface: _SchemaMatchesInterface = true;
@@ -341,8 +342,8 @@ void _interfaceMatchesSchema;
 /* -------------------------------------------------------------------------- */
 
 /**
- * Validate an unknown value — typically freshly-read `result.json` or a lane's
- * return value — as a {@link LaneResult}.
+ * Validate an unknown value, typically freshly-read `result.json` or a lane's
+ * return value, as a {@link LaneResult}.
  *
  * @throws {z.ZodError} with every violated rule, when the value is not valid.
  */
@@ -416,8 +417,8 @@ export const LaneAvailabilitySchema: z.ZodType<LaneAvailability> = z.object({
  * 1. **`isAvailable()` never throws and never mutates the world.** It probes;
  *    it does not start Colima or pull an image. An unusable substrate is
  *    `{ available: false, reason, fix }`, not an exception.
- * 2. **`run()` never throws.** Every failure mode — spawn error, timeout, dead
- *    substrate — comes back as a valid {@link LaneResult} with
+ * 2. **`run()` never throws.** Every failure mode (spawn error, timeout, dead
+ *    substrate) comes back as a valid {@link LaneResult} with
  *    `status: 'errored'` and an explanation in `diagnostics`.
  * 3. **`run()` never falls back to the user's screen.** If the isolation this
  *    lane promises is not available, the lane returns `skipped` or `errored`
@@ -506,7 +507,7 @@ export function createLaneResult(
 
 /**
  * The canonical `skipped` result: this lane's substrate is not usable, here is
- * why, here is the fix, and — importantly — nothing was run anywhere.
+ * why, here is the fix, and, importantly, nothing was run anywhere.
  */
 export function skippedResult(
   lane: Lane,

@@ -8,7 +8,7 @@
     {
       "name": "offstage",
       "source": "./",
-      "description": "Route browser and macOS app test commands to the cheapest isolation substrate that can run them without stealing your screen — including a second, logged-in macOS session whose display and input are its own."
+      "description": "Route browser and macOS app test commands to the cheapest isolation substrate that can run them without stealing your screen, including a second, logged-in macOS session whose display and input are its own."
     }
   ]
 }

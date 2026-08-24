@@ -2,7 +2,7 @@
  * Best-effort failure extraction from a test command's captured output.
  *
  * Everything in this module is a **pure function over text**. It never touches
- * the filesystem, never spawns anything, and never reads the clock — which is
+ * the filesystem, never spawns anything, and never reads the clock, which is
  * why it can be tested exhaustively against transcripts of real reporters
  * without running any of them.
  *
@@ -22,7 +22,7 @@
  *
  * Anything else yields `[]`, and the caller puts the tail of the log in
  * `diagnostics` instead. An empty `failures` array next to `status: 'failed'`
- * is explicitly legal in the contract — see `LaneFailure` in
+ * is explicitly legal in the contract: see `LaneFailure` in
  * `src/contract/index.ts`.
  *
  * ## Path handling
@@ -30,7 +30,7 @@
  * `failures[].file` must be repository-relative POSIX (the path conventions
  * table in `src/contract/index.ts` is normative and the schema enforces it).
  * Reporters print paths relative to their own root, which for the commands this
- * lane runs is the directory the command was launched in — so paths are
+ * lane runs is the directory the command was launched in, so paths are
  * resolved against `cwd` with `toRepoRelative()`. A path that lands outside the
  * repository cannot be expressed in the required form, so `file` is omitted
  * rather than invented.
@@ -59,7 +59,7 @@ export function stripAnsi(text: string): string {
 /**
  * Split captured output into lines, handling the two things that break naive
  * splitting: CRLF, and the bare `\r` a spinner uses to redraw a line in place.
- * Each redraw becomes its own line, which is what we want — the final state of
+ * Each redraw becomes its own line, which is what we want: the final state of
  * a progress line is then just the last one.
  */
 export function toLines(text: string): string[] {
@@ -87,13 +87,13 @@ interface Header {
   test?: string;
   file?: string;
   line?: number;
-  /** Set when the line names a file but no test — a per-file banner. */
+  /** Set when the line names a file but no test: a per-file banner. */
   bannerOnly?: boolean;
 }
 
 /**
  * Lines longer than this are never header candidates. This bounds the work a
- * pathological log can cause — a minified bundle dumped to stdout arrives as
+ * pathological log can cause: a minified bundle dumped to stdout arrives as
  * one enormous line, and there is no reporter header hiding in it.
  */
 const MAX_HEADER_LINE = 2_000;
@@ -126,7 +126,7 @@ const JEST_NON_FAILURE = /^(?:Console\b|Deprecation\b|Validation Warning\b)/;
 const TRAILING_RULE = /\s*[─-╿⎯]+\s*$/;
 
 /** A line that is nothing but separator characters. */
-const DECORATIVE = /^[\s─-╿⎯—–\-_=~*#·•]+$/;
+const DECORATIVE = /^[\s─-╿⎯: –\-_=~*#·•]+$/;
 
 function cleanTitle(raw: string): string {
   return raw.replace(TRAILING_RULE, '').trim();
@@ -217,7 +217,7 @@ function scanBody(lines: string[], start: number): Body {
 
     const trimmed = line.trim();
     if (trimmed === '' || DECORATIVE.test(trimmed) || NOT_A_MESSAGE.test(line)) {
-      /* A blank or decorative line ends the message — but only once it began,
+      /* A blank or decorative line ends the message, but only once it began,
          so the blank line reporters put between header and message is skipped. */
       if (messageLines.length > 0) messageDone = true;
       continue;
@@ -246,7 +246,7 @@ export interface ParseFailuresOptions {
    * Omit it and `file` is omitted too, rather than guessed.
    */
   cwd?: string;
-  /** Cap on returned failures. Default 50 — enough to act on, not a whole log. */
+  /** Cap on returned failures. Default 50: enough to act on, not a whole log. */
   limit?: number;
 }
 

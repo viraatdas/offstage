@@ -1,10 +1,10 @@
 /**
- * `offstage session …` — the API functions and the command tree over them.
+ * `offstage session …`: the API functions and the command tree over them.
  *
  * Nothing here touches a real daemon, a real account, or `sudo`. Every seam is
  * injected: discovery answers from a literal, the client is a fake, the root
  * script is captured rather than run. That is deliberate and not only for
- * speed — the one thing these tests must never do is inject input into a live
+ * speed: the one thing these tests must never do is inject input into a live
  * macOS session, which on a developer's machine is *their* session.
  */
 
@@ -16,21 +16,19 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { Lane, LaneRequest, LaneRunner } from '../src/contract/index.js';
 import { createLaneResult } from '../src/contract/index.js';
-import type { ApiDeps, SessionSeams } from '../src/cli/api.js';
+import type { ApiDeps } from '../src/cli/api.js';
+import type { SessionSeams } from '../src/cli/session.js';
+import { OffstageUsageError, doctor } from '../src/cli/api.js';
+import { OffstageSessionError, sessionSetup, sessionStatus } from '../src/cli/session.js';
 import {
-  OffstageSessionError,
-  OffstageUsageError,
-  doctor,
   sessionApps,
   sessionInput,
+  sessionLaunch,
   sessionOpen,
   sessionScreenshot,
-  sessionLaunch,
-  sessionSetup,
   sessionShare,
-  sessionStatus,
   sessionUnshare,
-} from '../src/cli/api.js';
+} from '../src/cli/session-control.js';
 import { main } from '../src/cli/index.js';
 import type { CliIo } from '../src/cli/index.js';
 import type {
@@ -483,7 +481,7 @@ describe('sessionUnshare', () => {
     const ran: Array<{ file: string; args: string[] }> = [];
     const exec = async (file: string, args: string[]): Promise<ExecOutcome> => {
       ran.push({ file, args });
-      // Every entry is already gone — the state an unshare wants.
+      // Every entry is already gone: the state an unshare wants.
       return { stdout: '', stderr: `chmod: No ACL present '${target}'`, exitCode: 1 };
     };
     const { session } = seams({ exec, home });
@@ -541,7 +539,7 @@ describe('sessionLaunch', () => {
   };
 
   it('appMatchesTarget: name, bundle basename, case-insensitive', async () => {
-    const api = await import('../src/cli/api.js');
+    const api = await import('../src/cli/session-control.js');
     const app = { name: 'GestureEngine', bundleId: 'dev.viraat.GestureEngine' };
     expect(api.appMatchesTarget('GestureEngine', app)).toBe(true);
     expect(api.appMatchesTarget('build/GestureEngine.app', app)).toBe(true);
@@ -583,7 +581,7 @@ describe('sessionLaunch', () => {
 
   it('routes bare app names through `open -a`, because bare paths mean files', async () => {
     // Measured on a live helper session: `open Calculator` exits 1 with
-    // "The file /Users/computeruse/Calculator does not exist." — open only
+    // "The file /Users/computeruse/Calculator does not exist.": open only
     // resolves application names when given -a.
     const base = fakeClient();
     const CALCULATOR = { pid: 5120, name: 'Calculator', bundleId: 'com.apple.calculator', active: true, hidden: false };
@@ -673,7 +671,7 @@ describe('sessionSetup', () => {
 
     expect(result.ok).toBe(true);
     expect(scripts).toHaveLength(1);
-    // Printed before it ran, in full — the user is about to type a password.
+    // Printed before it ran, in full: the user is about to type a password.
     const output = printed.join('\n');
     expect(output).toContain('This is the only step that needs root');
     expect(output).toContain('launchctl bootstrap');
@@ -702,7 +700,7 @@ describe('sessionSetup', () => {
 
   it('adds sysadminctl to the same root script when --create is given, with a generated password', async () => {
     let call = 0;
-    // After creation the account still has no GUI session — that is the state
+    // After creation the account still has no GUI session: that is the state
     // every fresh account is in, and why one human switch remains.
     const created = discovery({
       guiSession: { exists: false, loginDone: false, onConsole: false, sessionId: null },
@@ -779,7 +777,7 @@ describe('sessionSetup', () => {
 
   it('arms auto-login on request and warns when FileVault blocks it', async () => {
     let call = 0;
-    // Even after the script ran, no session exists yet — under FileVault the
+    // Even after the script ran, no session exists yet: under FileVault the
     // helper cannot be auto-logged-in, so a human switch is still required.
     const created = discovery({
       guiSession: { exists: false, loginDone: false, onConsole: false, sessionId: null },
@@ -1092,7 +1090,7 @@ describe('offstage session screenshot and apps', () => {
 
 describe('defaultSleep', () => {
   it('keeps the event loop alive while waiting (regression: setup exited mid-await on the first live run)', async () => {
-    const { defaultSleep } = await import('../src/cli/api.js');
+    const { defaultSleep } = await import('../src/cli/session.js');
     const { execFile } = await import('node:child_process');
     const { promisify } = await import('node:util');
     // A child process that sleeps via the same mechanism and then prints: if the

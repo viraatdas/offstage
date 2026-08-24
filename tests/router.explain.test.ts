@@ -19,7 +19,7 @@ const decision = (overrides: Partial<RouteDecision> = {}): RouteDecision => ({
 describe('explain', () => {
   it('renders lane, confidence, reason and signals on one line', () => {
     expect(explain(decision(), { maxLength: 500 })).toBe(
-      'container (high) — The command asks for a headed browser, so it runs against an Xvfb display. — signals: argv: --headed',
+      'container (high) | The command asks for a headed browser, so it runs against an Xvfb display. | signals: argv: --headed',
     );
   });
 

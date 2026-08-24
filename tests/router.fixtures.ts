@@ -2,7 +2,7 @@
  * Throwaway repositories for the router tests.
  *
  * The router reads a handful of real files, so its tests need real files. They
- * are built in a fresh temp directory per run — never inside this repository,
+ * are built in a fresh temp directory per run, never inside this repository,
  * which would leak fixtures into `tests/` and into whatever offstage is asked
  * to classify next.
  *

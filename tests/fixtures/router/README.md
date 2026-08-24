@@ -19,7 +19,7 @@ renderer produces the video whether or not anything is presenting it.
 
 `tests/router.video.test.ts` runs this project with `DISPLAY` and
 `WAYLAND_DISPLAY` stripped from the environment and asserts a real WebM comes
-out — EBML magic bytes, more than 2 KB of encoded frames. If that ever stops
+out: EBML magic bytes, more than 2 KB of encoded frames. If that ever stops
 being true, the rule that keeps `--video=on` in the headless lane is wrong and
 this fixture is how you find out.
 
@@ -27,7 +27,7 @@ this fixture is how you find out.
 
 The block is skipped unless **both** hold, matching the headless lane's gate:
 
-1. `@playwright/test` resolves from `video/` — the spec imports it; and
+1. `@playwright/test` resolves from `video/`: the spec imports it; and
 2. a Chromium build is already in the Playwright browser cache
    (`PLAYWRIGHT_BROWSERS_PATH`, or the per-platform default), marked complete by
    an `INSTALLATION_COMPLETE` file.

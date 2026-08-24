@@ -2,7 +2,7 @@
  * Session discovery tests.
  *
  * Every assertion here runs green on a machine with **no helper account, no
- * daemon and no second session** — and equally on the machine this was written
+ * daemon and no second session**, and equally on the machine this was written
  * on, which has all three. That is possible because discovery is a pure parser
  * over two pieces of text plus one injected exec seam: the fixtures in
  * `tests/fixtures/session/` are the *real* output of `ioreg -n Root -d1 -a` and

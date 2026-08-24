@@ -3,8 +3,8 @@
  *
  * `npx playwright test` is headless because Playwright says so; `npx wdio run`
  * is headless or headed because a capabilities object somewhere says so. The
- * router used to answer that with a shrug — container, low confidence, for
- * every WebDriver-shaped tool — which is a guess dressed as a decision. These
+ * router used to answer that with a shrug (container, low confidence, for
+ * every WebDriver-shaped tool) which is a guess dressed as a decision. These
  * tests pin the replacement: read the capabilities, answer with evidence, and
  * fall back to the guess only when there is genuinely nothing to read.
  *
@@ -132,7 +132,7 @@ const REPOS = {
     ].join('\n'),
   },
 
-  /** Headless, but loading an extension — which only a headed browser does. */
+  /** Headless, but loading an extension, which only a headed browser does. */
   extension: {
     'wdio.conf.ts': [
       'export const config = {',
@@ -426,7 +426,7 @@ describe('when nothing settles it, the guess says it is a guess', () => {
  * evaluate it", and the honest fallback is whatever the tool does on its own.
  * For Playwright that is headless, so those shapes keep the default lane. For
  * wdio there is no default at all, and inheriting Playwright's answer routed a
- * config that might well open a window straight into the headless lane — a real
+ * config that might well open a window straight into the headless lane: a real
  * window on a real desktop, which is the one outcome offstage promises never to
  * cause. Worse, it was *less* safe the more the config said: a wdio.conf.ts with
  * no headless key routed to the container, and adding a computed one moved it

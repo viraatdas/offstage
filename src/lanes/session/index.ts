@@ -86,7 +86,7 @@ export const SCREENSHOT_FILENAME = 'screen.png';
 export const ISOLATION_NOTE =
   'This is session isolation, not machine isolation: the same machine, the same OS and the same disk, with a different display and a different input stream. offstage refuses anything that could change the machine (installers, .dmg/.pkg, hdiutil) rather than run it here or anywhere else.';
 
-/** `offstage session setup` — the fix for every "the daemon is not there" rung. */
+/** `offstage session setup`: the fix for every "the daemon is not there" rung. */
 export const SETUP_FIX = 'offstage session setup';
 
 /** Upper bound on entries collected from one run's artifacts directory. */
@@ -110,7 +110,7 @@ export function classifyExtraArtifact(name: string): LaneArtifact['kind'] {
  * the screenshot the lane itself wrote.
  *
  * Bounded (`MAX_COLLECTED_ARTIFACTS`), sorted by name so results are stable,
- * and never throws — an unreadable artifacts directory simply contributes no
+ * and never throws: an unreadable artifacts directory simply contributes no
  * extra artifacts.
  */
 async function collectRunArtifacts(
@@ -155,7 +155,7 @@ export interface SessionLaneOptions {
  * Everything `isAvailable()` learned, not just its verdict.
  *
  * `LaneAvailability` is three fields wide by contract, and there is genuinely
- * more worth saying here — which session id answered, what the display is,
+ * more worth saying here, which session id answered, what the display is,
  * which TCC grants are missing. Rather than smuggle that into `reason`, the
  * probe returns it separately and `run()` puts it in `diagnostics`.
  */
@@ -258,7 +258,7 @@ export class SessionLane implements LaneRunner {
       );
     }
 
-    /* 3. It has to be logged in — a login window is not a session. */
+    /* 3. It has to be logged in: a login window is not a session. */
     if (!discovery.guiSession.exists || !discovery.guiSession.loginDone) {
       const shown = sessionUserFullName(discovery);
       return unavailable(
@@ -321,7 +321,7 @@ export class SessionLane implements LaneRunner {
    * Run the command inside the helper session.
    *
    * Never throws. Unreadable `cwd`, an ACL that will not apply, a daemon that
-   * dies mid-run, a timeout — each comes back as a contract-valid
+   * dies mid-run, a timeout: each comes back as a contract-valid
    * {@link LaneResult} with `status: 'errored'` and the fix in `diagnostics`.
    */
   async run(req: LaneRequest): Promise<LaneResult> {
@@ -330,7 +330,7 @@ export class SessionLane implements LaneRunner {
     const startedAt = new Date(startedAtMs).toISOString();
     /* The log's flush deadline is about the disk, not about the run's reported
        timeline, so it is measured on the real clock even when `now` is
-       injected — otherwise a test clock pinned to a fixed instant would make
+       injected: otherwise a test clock pinned to a fixed instant would make
        every flush look overdue and truncate the log. */
     const wallStartedAtMs = Date.now();
     const artifactsDir = path.resolve(req?.artifactsDir ?? process.cwd());
@@ -366,7 +366,7 @@ export class SessionLane implements LaneRunner {
     const shareFix = `offstage session share ${request.cwd}`;
 
     /* 2. Can the helper account read the repository? It is a different uid and
-          your home is 0750, so this is the common first failure — and a spawn
+          your home is 0750, so this is the common first failure, and a spawn
           error two steps later would be a much worse way to learn it. */
     try {
       const access = await client.access(request.cwd);
@@ -392,7 +392,7 @@ export class SessionLane implements LaneRunner {
       ]);
     }
 
-    /* 3. Open this run's artifacts directory — and only it — to the helper
+    /* 3. Open this run's artifacts directory, and only it, to the helper
           account, so the command has somewhere to write. */
     const grant = await grantArtifactsWrite({
       dir: request.artifactsDir,
@@ -459,7 +459,7 @@ export class SessionLane implements LaneRunner {
     const artifacts: LaneArtifact[] = logStream === undefined ? [] : [{ kind: 'log', path: logPath }];
     const sessionLine = `Ran as "${discovery.user}" (uid ${discovery.uid ?? 'unknown'}) in that account's own background GUI session${
       discovery.guiSession.sessionId === null ? '' : ` (session id ${discovery.guiSession.sessionId})`
-    } — its window server, its framebuffer, its input stream. Nothing was drawn on your screen and your keyboard focus was never taken.`;
+    }: its window server, its framebuffer, its input stream. Nothing was drawn on your screen and your keyboard focus was never taken.`;
 
     if (outcome === null) {
       /* The daemon went away mid-run, or refused the request outright. Either
@@ -484,8 +484,9 @@ export class SessionLane implements LaneRunner {
     }
 
     /* 5. A screenshot of what the session looked like when it finished. Best
-          effort by design: a missing TCC grant is a diagnostic, never an error
-          — the command already ran, and its verdict does not depend on this. */
+          effort by design: a missing TCC grant is a diagnostic, never an error,
+          because the command already ran and its verdict does not depend on
+          this. */
     const screenshotNotes: string[] = [];
     try {
       const shot = await client.screenshot();
@@ -500,8 +501,8 @@ export class SessionLane implements LaneRunner {
     }
 
     /* 5b. Whatever else the command left in its artifacts directory belongs in
-           artifacts[] too. An .xcresult bundle — where xcodebuild's result
-           lands — is a *directory*, and it is exactly the thing a real
+           artifacts[] too. An .xcresult bundle, where xcodebuild's result
+           lands, is a *directory*, and it is exactly the thing a real
            xcodebuild run produces; a lane that only registered files it
            created itself would silently drop it. */
     const collected = await collectRunArtifacts(request.artifactsDir);
@@ -511,7 +512,7 @@ export class SessionLane implements LaneRunner {
         ? null
         : `The command left ${collected.length} entr${collected.length === 1 ? 'y' : 'ies'} in $OFFSTAGE_ARTIFACTS, collected as artifacts: ${collected
             .map((entry) => path.basename(entry.path))
-            .join(', ')}. They are owned by "${discovery.user}" — the uid that ran the command — and were written through the write grant on this directory and no other.`;
+            .join(', ')}. They are owned by "${discovery.user}", the uid that ran the command, and were written through the write grant on this directory and no other.`;
 
     const output = capture.text();
     const timedOut = outcome.timedOut;
@@ -598,11 +599,11 @@ export function describeSessionProbe(probe: SessionProbe): string[] {
   lines.push(
     `  - gui session: ${
       !gui.exists
-        ? 'none — the account has never been logged in, or was logged out'
+        ? 'none: the account has never been logged in, or was logged out'
         : !gui.loginDone
           ? 'at the login window, not a full Aqua session'
           : gui.onConsole
-            ? `on the console — it is the session on your screen${session}`
+            ? `on the console: it is the session on your screen${session}`
             : `logged in, in the background${session}`
     }`,
   );
@@ -626,7 +627,7 @@ export function describeSessionProbe(probe: SessionProbe): string[] {
   return lines;
 }
 
-/** Build a lane with seams injected — the shape every test uses. */
+/** Build a lane with seams injected: the shape every test uses. */
 export function createSessionLane(options: SessionLaneOptions = {}): SessionLane {
   return new SessionLane(options);
 }

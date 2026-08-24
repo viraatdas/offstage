@@ -18,7 +18,7 @@ they may import packages this repo does not install.
 `tests/lanes.headless.test.ts` skips the Playwright tests unless **both** are
 true:
 
-1. `@playwright/test` resolves from `playwright/` — the specs import it, so the
+1. `@playwright/test` resolves from `playwright/`: the specs import it, so the
    lane cannot run them otherwise; and
 2. a Chromium build is already present in the Playwright browser cache
    (`PLAYWRIGHT_BROWSERS_PATH`, or the per-platform default), marked complete by

@@ -145,7 +145,7 @@ describe('LaneResult schema rejection', () => {
     rejects({ startedAt: '2026-13-99T99:99:99.999Z' }, 'startedAt');
   });
 
-  it('rejects a relative artifactsDir — it must be an absolute host path', () => {
+  it('rejects a relative artifactsDir: it must be an absolute host path', () => {
     rejects({ artifactsDir: '.offstage/runs/abc' }, 'artifactsDir');
   });
 
@@ -153,7 +153,7 @@ describe('LaneResult schema rejection', () => {
     rejects({ logPath: 'command.log' }, 'logPath');
   });
 
-  it('rejects a logPath outside artifactsDir — run dirs must be self-contained', () => {
+  it('rejects a logPath outside artifactsDir: run dirs must be self-contained', () => {
     rejects({ logPath: '/var/log/system.log' }, 'logPath');
     rejects({ logPath: path.resolve(ARTIFACTS_DIR, '..', 'other-run', 'command.log') }, 'logPath');
   });
@@ -165,7 +165,7 @@ describe('LaneResult schema rejection', () => {
     );
   });
 
-  it('rejects an absolute failures[].file — those are repository-relative', () => {
+  it('rejects an absolute failures[].file: those are repository-relative', () => {
     rejects(
       { failures: [{ message: 'boom', file: '/Users/someone/repo/tests/checkout.spec.ts' }] },
       'failures.0.file',
@@ -241,7 +241,7 @@ describe('LaneRequest schema', () => {
     expect(parseLaneRequest(minimal)).toEqual(minimal);
   });
 
-  it('rejects an empty command — there is nothing to route', () => {
+  it('rejects an empty command: there is nothing to route', () => {
     expect(LaneRequestSchema.safeParse({ ...validRequest, command: [] }).success).toBe(false);
   });
 

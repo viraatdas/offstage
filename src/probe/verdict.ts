@@ -1,37 +1,39 @@
 /**
- * offstage — entitlements verdict.
+ * offstage: entitlements verdict.
  *
- * This module answers exactly one question, and it is the question that decides
- * whether macOS `.app`/`.dmg` testing is a weekend or a month:
+ * This module answers exactly one question about a macOS product:
  *
- * > Can a disposable Tart VM run this app's tests with **ad-hoc signing**, or
- * > does it first need a **host-side signing lane** backed by a real Developer
- * > ID identity and a provisioning profile?
+ * > Can this app be built, signed and tested with **ad-hoc signing**, or does
+ * > it first need a **signing identity**: a real Developer ID and a matching
+ * > provisioning profile?
  *
  * The split is not about "is the app signed". Ad-hoc signing (`codesign -s -`)
  * happily produces a runnable binary and can carry most entitlements. What
  * ad-hoc signing cannot do is *authorize* an entitlement: a handful of
  * entitlements are only honored when the code signature is backed by a
  * provisioning profile that allowlists them for a real Team ID. Request one of
- * those with an ad-hoc signature and the capability silently does not work —
- * or the app refuses to launch — no matter how the VM is configured.
+ * those with an ad-hoc signature and the capability silently does not work, or
+ * the app refuses to launch, wherever you run it.
  *
- * [`novotnyllc/tart-xcode-runner`](https://github.com/novotnyllc/tart-xcode-runner)
- * states this plainly: "The current runner does not automate host signing.
- * […] The default VM path uses ad-hoc signing and needs no Apple credentials.
- * A test that exercises a restricted entitlement such as Keychain Sharing
- * instead needs a host-side Developer ID Application identity and a matching
- * Developer ID provisioning profile." That lane is described as future work.
+ * That question is worth answering before anyone commits to a macOS testing
+ * plan, because the two answers are weeks apart in cost:
  *
- * So: `adhoc-ok` means a disposable Tart VM works today. `needs-signing-lane`
- * means the signing lane *is* your project. This
- * probe answers the question independently of how you run the VM; offstage
- * has no lane of its own for it, so pair the verdict
- * with the `tart-xcode-runner` skill or your own Tart setup.
+ * - `adhoc-ok` means `codesign -s -` is enough. No Apple credentials have to
+ *   exist on the machine that builds or runs the tests, which is why this is
+ *   the cheap answer.
+ * - `needs-signing-lane` means credentials are load-bearing. Somebody has to
+ *   build the plumbing that gets a Developer ID identity and a provisioning
+ *   profile to the signing step without leaking either. That plumbing *is* the
+ *   project, and it is the thing to scope before promising a date.
+ *
+ * The probe reads entitlements and nothing else, so the verdict holds however
+ * you choose to run the tests. offstage has no signing lane of its own and no
+ * plan for one: the session lane runs GUI work in a second account on the same
+ * machine, which does nothing about signing either way.
  *
  * The registries below are deliberately explicit rather than clever. An
  * entitlement offstage does not recognize is reported as unclassified rather
- * than quietly assumed safe — with one exception, the `com.apple.developer.*`
+ * than quietly assumed safe, with one exception, the `com.apple.developer.*`
  * namespace, which Apple reserves for per-App-ID capability entitlements and
  * which therefore triggers on the namespace alone (flagged as a heuristic, so a
  * reader can tell a guess from a fact).
@@ -44,12 +46,12 @@ import { z } from 'zod';
 /* -------------------------------------------------------------------------- */
 
 /**
- * - `adhoc-ok` — every entitlement this product requests is satisfied by
- *   ad-hoc signing. A disposable Tart VM can build, sign and test it today,
- *   with no Apple credentials anywhere near the machine.
- * - `needs-signing-lane` — at least one entitlement requires a
- *   provisioning-profile-backed identity. Nothing runs honestly until a
- *   build-on-guest / sign-on-host / return-to-guest lane exists.
+ * - `adhoc-ok`: every entitlement this product requests is satisfied by
+ *   ad-hoc signing, so it can be built, signed and tested today with no Apple
+ *   credentials anywhere near the machine.
+ * - `needs-signing-lane`: at least one entitlement requires a
+ *   provisioning-profile-backed identity. Nothing exercises that capability
+ *   honestly until a real signing step exists.
  */
 export const VERDICTS = ['adhoc-ok', 'needs-signing-lane'] as const;
 
@@ -61,8 +63,8 @@ export const VerdictSchema = z.enum(VERDICTS);
  * Why a particular entitlement forced `needs-signing-lane`.
  *
  * `certainty` separates the two very different claims this tool can make:
- * - `known` — this exact key is in offstage's restricted registry. Fact.
- * - `namespace-heuristic` — the key is unrecognized but lives under
+ * - `known`: this exact key is in offstage's restricted registry. Fact.
+ * - `namespace-heuristic`: the key is unrecognized but lives under
  *   `com.apple.developer.*`, the namespace Apple allowlists per App ID. Very
  *   likely restricted, but verify before budgeting a month of work for it.
  */
@@ -104,12 +106,12 @@ export interface EntitlementsVerdict {
   /**
    * Keys that merely record the signing team (`application-identifier`,
    * `com.apple.developer.team-identifier`). They are rewritten by whatever
-   * identity actually signs the product, so they do not force a signing lane —
+   * identity actually signs the product, so they do not force a signing lane,
    * but their presence tells you the product was last built with a real team.
    */
   teamScoped: string[];
   /**
-   * Restricted keys present with an empty or `false` value — an App Groups
+   * Restricted keys present with an empty or `false` value: an App Groups
    * array with no groups, a `keychain-access-groups` left over from a removed
    * capability. The capability is not actually requested, so it does not
    * trigger. Listed because a human should confirm that is intentional.
@@ -256,7 +258,7 @@ const RESTRICTED_RULES: Rule[] = [
   {
     key: 'com.apple.security.cs.debugger',
     match: 'exact',
-    capability: 'Hardened Runtime — Debugging Tool',
+    capability: 'Hardened Runtime: Debugging Tool',
     explanation: 'This hardened-runtime exception is only honored when the signature carries a provisioning profile that grants it; ad-hoc signing does not.',
   },
   {
@@ -299,7 +301,7 @@ const RESTRICTED_RULES: Rule[] = [
     key: 'com.apple.vm.hypervisor',
     match: 'exact',
     capability: 'Hypervisor (legacy key)',
-    explanation: 'Legacy hypervisor entitlement; same restriction — the signature must be profile-backed.',
+    explanation: 'Legacy hypervisor entitlement; same restriction: the signature must be profile-backed.',
   },
   {
     key: 'com.apple.vm.networking',
@@ -312,7 +314,7 @@ const RESTRICTED_RULES: Rule[] = [
 /**
  * Entitlements ad-hoc signing satisfies: the App Sandbox namespace and the
  * hardened-runtime exceptions that the kernel honors from any valid signature.
- * Everything here works today in a disposable Tart VM.
+ * Everything here works today with `codesign -s -` and no Apple credentials.
  */
 const ADHOC_OK_RULES: Rule[] = [
   { key: 'com.apple.security.app-sandbox', match: 'exact', capability: 'App Sandbox', explanation: 'Enforced by the kernel from any valid signature.' },
@@ -327,12 +329,12 @@ const ADHOC_OK_RULES: Rule[] = [
   { key: 'com.apple.security.assets.', match: 'prefix', capability: 'Media assets (sandbox)', explanation: 'Plain sandbox relaxation; no team required.' },
   { key: 'com.apple.security.automation.', match: 'prefix', capability: 'Apple Events automation', explanation: 'Plain sandbox relaxation; no team required.' },
   { key: 'com.apple.security.temporary-exception.', match: 'prefix', capability: 'Temporary exception (sandbox)', explanation: 'App Store review concern, not a signing concern; ad-hoc signing honors it.' },
-  { key: 'com.apple.security.cs.allow-jit', match: 'exact', capability: 'Hardened Runtime — JIT', explanation: 'Hardened-runtime exception honored from any valid signature.' },
-  { key: 'com.apple.security.cs.allow-unsigned-executable-memory', match: 'exact', capability: 'Hardened Runtime — unsigned executable memory', explanation: 'Hardened-runtime exception honored from any valid signature.' },
-  { key: 'com.apple.security.cs.allow-dyld-environment-variables', match: 'exact', capability: 'Hardened Runtime — dyld environment variables', explanation: 'Hardened-runtime exception honored from any valid signature.' },
-  { key: 'com.apple.security.cs.disable-library-validation', match: 'exact', capability: 'Hardened Runtime — disable library validation', explanation: 'Hardened-runtime exception honored from any valid signature (and often what makes ad-hoc test injection work at all).' },
-  { key: 'com.apple.security.cs.disable-executable-page-protection', match: 'exact', capability: 'Hardened Runtime — disable executable page protection', explanation: 'Hardened-runtime exception honored from any valid signature.' },
-  { key: 'com.apple.security.cs.allow-relative-library-loads', match: 'exact', capability: 'Hardened Runtime — relative library loads', explanation: 'Hardened-runtime exception honored from any valid signature.' },
+  { key: 'com.apple.security.cs.allow-jit', match: 'exact', capability: 'Hardened Runtime: JIT', explanation: 'Hardened-runtime exception honored from any valid signature.' },
+  { key: 'com.apple.security.cs.allow-unsigned-executable-memory', match: 'exact', capability: 'Hardened Runtime: unsigned executable memory', explanation: 'Hardened-runtime exception honored from any valid signature.' },
+  { key: 'com.apple.security.cs.allow-dyld-environment-variables', match: 'exact', capability: 'Hardened Runtime: dyld environment variables', explanation: 'Hardened-runtime exception honored from any valid signature.' },
+  { key: 'com.apple.security.cs.disable-library-validation', match: 'exact', capability: 'Hardened Runtime: disable library validation', explanation: 'Hardened-runtime exception honored from any valid signature (and often what makes ad-hoc test injection work at all).' },
+  { key: 'com.apple.security.cs.disable-executable-page-protection', match: 'exact', capability: 'Hardened Runtime: disable executable page protection', explanation: 'Hardened-runtime exception honored from any valid signature.' },
+  { key: 'com.apple.security.cs.allow-relative-library-loads', match: 'exact', capability: 'Hardened Runtime: relative library loads', explanation: 'Hardened-runtime exception honored from any valid signature.' },
 ];
 
 /**
@@ -345,7 +347,7 @@ const TEAM_SCOPED_KEYS = new Set([
   'com.apple.developer.team-identifier',
 ]);
 
-/** Apple's per-App-ID capability namespace — see `certainty: 'namespace-heuristic'`. */
+/** Apple's per-App-ID capability namespace: see `certainty: 'namespace-heuristic'`. */
 const DEVELOPER_NAMESPACE = 'com.apple.developer.';
 
 /* -------------------------------------------------------------------------- */
@@ -488,13 +490,13 @@ export function classifyEntitlements(
 function summarize(verdict: Verdict, triggers: EntitlementTrigger[], total: number): string {
   if (verdict === 'adhoc-ok') {
     return total === 0
-      ? 'adhoc-ok — no entitlements found. Nothing here needs a signing identity; a disposable Tart VM can run this today.'
-      : `adhoc-ok — all ${total} entitlement${total === 1 ? '' : 's'} are satisfied by ad-hoc signing. A disposable Tart VM can run this today.`;
+      ? 'adhoc-ok, no entitlements found. Nothing here needs a signing identity, so ad-hoc signing can build and run this today.'
+      : `adhoc-ok: all ${total} entitlement${total === 1 ? '' : 's'} are satisfied by ad-hoc signing, so no Apple credentials are needed to build or run this.`;
   }
   const names = triggers.map((t) => t.key).join(', ');
   const guessed = triggers.filter((t) => t.certainty === 'namespace-heuristic').length;
-  const caveat = guessed > 0 ? ` (${guessed} matched by namespace heuristic, not by an exact rule — verify ${guessed === 1 ? 'it' : 'them'})` : '';
-  return `needs-signing-lane — ${triggers.length} restricted entitlement${triggers.length === 1 ? ' requires' : 's require'} a provisioning-profile-backed identity: ${names}${caveat}. tart-xcode-runner does not automate host signing, so building that lane is the project.`;
+  const caveat = guessed > 0 ? ` (${guessed} matched by namespace heuristic, not by an exact rule: verify ${guessed === 1 ? 'it' : 'them'})` : '';
+  return `needs-signing-lane: ${triggers.length} restricted entitlement${triggers.length === 1 ? ' requires' : 's require'} a provisioning-profile-backed identity: ${names}${caveat}. Ad-hoc signing cannot authorize ${triggers.length === 1 ? 'it' : 'them'}, so getting a real identity to the signing step is the project.`;
 }
 
 /** The restricted registry, for docs and `offstage probe --explain`. */

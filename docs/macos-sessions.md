@@ -1,10 +1,11 @@
 # Driving macOS without taking the user's screen
 
-> **2026-08-21, the `vm` lane described below was later removed** (see
-> `docs/roadmap.md`); it never drove a real macOS guest. This document is left
-> as it was written, because it is the historical record of the investigation
-> that led to the session lane, and the vm lane's cost is what motivated that
-> investigation in the first place.
+> **This is a historical record, not a description of offstage today.** It was
+> written while offstage still had a `vm` lane, which was deleted in 0.3.0
+> (see `CHANGELOG.md`) because it never drove a real macOS guest. offstage runs
+> no virtual machines now; the session lane described at the end of this
+> document is what shipped instead. The measurements are kept because they are
+> the reason that lane exists, and because redoing them is expensive.
 
 offstage's vm lane answered "run this where it cannot touch my display" with a
 whole macOS guest. That is correct but expensive: the pinned Tart image was a
@@ -28,7 +29,7 @@ which one. macOS has none of those four properties.
 2. **No `$DISPLAY`.** A process finds the window server through the Mach
    bootstrap namespace of its launchd session, not an address. `launchctl
    managername` returns `Aqua` in a GUI session; a `Background` session cannot
-   obtain a window server connection at all — the familiar "not connected to a
+   obtain a window server connection at all: the familiar "not connected to a
    window server" failure. The lookup is namespace-based, so there is nothing
    to redirect.
 
@@ -42,7 +43,7 @@ which one. macOS has none of those four properties.
 Corroboration from an unexpected direction: OpenAI's Codex Computer Use ships a
 macOS agent that does *not* isolate anything. It links ScreenCaptureKit
 (`SCStream`, `SCShareableContent`) and drives the accessibility tree
-(`AXUIElement*`) in the **user's own session** — its UI string is literally
+(`AXUIElement*`) in the **user's own session**: its UI string is literally
 "Codex is Using Your Mac". The `CGSSession*` symbols it references
 (`kCGSSessionOnConsoleKey`, `CGSSessionScreenIsLocked`,
 `kCGSSessionSecureInputPID`) are queries about the session it is already in, and
@@ -59,9 +60,9 @@ different way to obtain one.
 
 | | disk | isolates input | clean state | notes |
 |---|---|---|---|---|
-| VM (Tart) | 27–69 GB | yes | yes, snapshots | what the vm lane uses today |
+| VM (Tart) | 27-69 GB | yes | yes, snapshots | what the vm lane used, before it was deleted |
 | remote Mac | 0 local | yes | depends | EC2 Mac hosts bill a **24-hour minimum** |
-| second local account | ~3 GB | yes | no | needs a display — see below |
+| second local account | ~3 GB | yes | no | what offstage ships today: see below |
 
 The third is the interesting one and the rest of this document is about it.
 
@@ -88,17 +89,21 @@ Getting further means disassembling `HandleSRPAuthenticationMessage` and
 reversing an undocumented wire format, then maintaining it across macOS
 releases, to save one user-menu click after a reboot. Not built, deliberately.
 
-The rest of this document is kept because the auth-type analysis and the
-console-takeover finding are still accurate and still the reason the lane uses
-fast user switching rather than a screen-sharing client.
+The RFB client this investigation produced was deleted along with the finding.
+It spoke type 30 correctly, and speaking type 30 correctly is exactly what makes
+it useless: the console moves to the authenticating user, which is the one thing
+the lane exists to prevent. The rest of this document is kept because the
+auth-type analysis and the console-takeover finding are still accurate, and
+still the reason the lane uses fast user switching rather than a screen-sharing
+client.
 
 ## Screen Sharing's virtual display
 
 `screensharingd` can build, per connection, three things bound together:
 
-- **a virtual framebuffer** — `VirtualFrameBuffer()`, `SSAgentInfo_VirtualFrameBuffer`
-- **a login session** — `create login window session if necessary`
-- **synthetic keyboard and mouse** — `VirtualDisplayHIDFilter.c`,
+- **a virtual framebuffer**: `VirtualFrameBuffer()`, `SSAgentInfo_VirtualFrameBuffer`
+- **a login session**: `create login window session if necessary`
+- **synthetic keyboard and mouse**: `VirtualDisplayHIDFilter.c`,
   `VirtualDisplayHIDFilterStart`
 
 The HID filter is the load-bearing part: input arriving on the connection enters
@@ -123,28 +128,28 @@ state; the wire encoding of the choice is separate and still unidentified.
 `screensharingd` on 127.0.0.1:5900 announces `RFB 003.889` and offers security
 types **30, 33, 36, 35**.
 
-### Type 30 — legacy ARD auth. Works, and takes the console.
+### Type 30: legacy ARD auth. Works, and takes the console.
 
 Diffie-Hellman (generator 2, 1024-bit modulus supplied by the server), the
 shared secret MD5'd into an AES-128 key, and a 128-byte credential block
 (username at offset 0, password at offset 64, both NUL-terminated, remainder
-random) encrypted ECB. Implemented and **verified working** against this
-machine.
+random) encrypted ECB. This was implemented and **verified working** against
+this machine, then deleted; see the note above.
 
 It is also the wrong tool. Type 30 predates the session selectors, so the server
 has nothing to read and falls back to switching the console to the
 authenticating user. Observed directly: `/dev/console` owner changed from
 `viraat` to `computeruse`, a second `loginwindow` appeared, and the session
-**persisted after disconnect**. The framebuffer reported was `3456x2234` — the
-physical display — confirming it attached to the real screen rather than making
+**persisted after disconnect**. The framebuffer reported was `3456x2234`, the
+physical display, confirming it attached to the real screen rather than making
 a new one.
 
-### Types 33 / 35 / 36 — SASL SRP. Not yet implemented.
+### Types 33 / 35 / 36: SASL SRP. Not yet implemented.
 
 The daemon's strings identify the mechanism unambiguously: `srp.m`,
 `HandleAuthTypeMessage`, `HandleSRPAuthenticationMessage`,
 `srp_server_mech_step`, `ccsrp_server_generate_public_key`,
-`ccsrp_server_compute_session`, and the SASL SRP option set — *MDA*,
+`ccsrp_server_compute_session`, and the SASL SRP option set: *MDA*,
 *Replay Detection*, *Confidentiality+Integrity*, *KDF*, *Maxbuffersize*. Buffer
 primitives appear as `SRP MPI`, `SRP os`, `SRP UTF8`, `SRP uint`,
 `SRP uint64_t`, `SRP char`.
@@ -155,7 +160,7 @@ The local account record names the parameters:
 
 so: RFC 5054 4096-bit group, SHA-512, password stretched through PBKDF2.
 
-For these types the **client speaks first** — selecting 33 or 35 yields no
+For these types the **client speaks first**: selecting 33 or 35 yields no
 server bytes until the client sends an auth-type message, whose malformed-input
 log is `bad packet: version:%d, authtype:%s` (note authtype is a *string*).
 
@@ -167,7 +172,7 @@ may change in any macOS release. Before paying that cost, the cheaper question
 should be settled:
 
 **Can a non-console session be driven at all?** If a background session retains
-a usable framebuffer, offstage needs no protocol work — `launchctl asuser <uid>`
+a usable framebuffer, offstage needs no protocol work: `launchctl asuser <uid>`
 reaches it, and the virtual display is unnecessary. If it does not, the virtual
 display is mandatory and the SRP work is the only native route.
 
@@ -176,7 +181,7 @@ That experiment needs root once, and is the correct next step.
 ## Facts worth keeping
 
 - Screen Sharing access is gated by the group `com.apple.access_screensharing`,
-  which nests the `admin` group. A standard user must be added explicitly —
+  which nests the `admin` group. A standard user must be added explicitly,
   this is what a rejected auth looks like before any password is checked.
 - Apple's own client refuses same-host connections ("You cannot control your own
   screen"), including via the LAN address. That is client policy; the daemon
@@ -191,7 +196,7 @@ This document ends at "that experiment needs root once, and is the correct next
 step". The experiment was run, and it settled the question in the cheap
 direction: **a backgrounded session can be driven**, so none of the Screen
 Sharing protocol work above is needed. What was built instead is the session
-lane — a helper account logged in and left in the background, with a small Swift
+lane: a helper account logged in and left in the background, with a small Swift
 daemon inside its session that offstage talks to over a unix socket. See
 [session-lane.md](session-lane.md) for the design and
 [`native/sessiond/README.md`](../native/sessiond/README.md) for the daemon.
@@ -200,8 +205,8 @@ daemon inside its session that offstage talks to over a unix socket. See
 
 Earlier in this file the second account's session is described as "sitting at
 the login window". It was not. `IOConsoleUsers` reports
-`kCGSessionLoginDoneKey: true` for that entry — a completed login and a full
-Aqua session — alongside `kCGSSessionOnConsoleKey: false`. What was actually on
+`kCGSessionLoginDoneKey: true` for that entry, a completed login and a full
+Aqua session, alongside `kCGSSessionOnConsoleKey: false`. What was actually on
 that session's screen was **Setup Assistant**, which the account had been parked
 in and which looks like a login window from the outside. The distinction is the
 whole lane: a login window has no window server connection to spawn apps into,

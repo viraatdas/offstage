@@ -172,8 +172,10 @@ check("run missing cwd -> spawn-failed", f.get("code") == "spawn-failed", f)
 f = final(call({"op": "apps"}))
 ok = f.get("ok") is True and isinstance(f.get("apps"), list)
 if ok and f["apps"]:
-    ok = set(f["apps"][0]) == {"pid", "name", "bundleId", "active", "hidden"}
-check("apps returns regular-policy apps", ok, f.get("apps", [])[:1])
+    # `policy` is part of the entry: menu-bar tools are `accessory`, and omitting
+    # them made every launch of such an app look like a failure.
+    ok = set(f["apps"][0]) == {"pid", "name", "bundleId", "active", "hidden", "policy"}
+check("apps lists this session's apps with their activation policy", ok, f.get("apps", [])[:1])
 print("INFO  apps count=%d" % len(f.get("apps", [])))
 
 # ---- input: validation only, never a real event ---------------------------
@@ -307,7 +309,7 @@ else
   if [ "$rst_code" -ne 0 ]; then
     say "PASS  restart exits non-zero ($rst_code) so launchd relaunches it"
   else
-    say "FAIL  restart exited 0 — launchd would not relaunch it"; fails=$((fails + 1))
+    say "FAIL  restart exited 0: launchd would not relaunch it"; fails=$((fails + 1))
   fi
 fi
 

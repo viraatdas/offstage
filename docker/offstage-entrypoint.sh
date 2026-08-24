@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# offstage-web entrypoint — bring up a virtual desktop, run the command on it,
+# offstage-web entrypoint: bring up a virtual desktop, run the command on it,
 # photograph what it drew, exit with the command's own status.
 #
 # Sequence:
@@ -10,7 +10,7 @@
 #   3. run "$@" in the background and wait on it, so a SIGTERM from
 #      `docker stop` reaches us immediately instead of after the command ends
 #   4. screenshot the root window into $OFFSTAGE_SCREENSHOT
-#   5. exit with the command's status — never with the screenshot's
+#   5. exit with the command's status: never with the screenshot's
 #
 # Environment (all optional, all set by the container lane):
 #   OFFSTAGE_DISPLAY_NUM  X display number, default 99
@@ -21,7 +21,7 @@
 #
 # Exit codes of our own (the command's own code always wins when it ran):
 #   64  no command was given
-#   70  Xvfb never came up — the lane treats this as `errored`, not `failed`
+#   70  Xvfb never came up: the lane treats this as `errored`, not `failed`
 
 set -u
 
@@ -123,7 +123,7 @@ WM_PID=$!
 # by a very fast command can catch the display mid-handover.
 sleep 0.4
 
-# Paint the root window *after* the WM has claimed it — fluxbox clears the root
+# Paint the root window *after* the WM has claimed it: fluxbox clears the root
 # on startup, so painting first would be undone. A flat, known colour makes
 # screenshots comparable between runs instead of depending on X's default.
 xsetroot -solid "${OFFSTAGE_BACKGROUND:-#1f2430}" 2>/dev/null || true

@@ -1,12 +1,12 @@
 /**
- * offstage — turning a command into something the router can reason about.
+ * offstage: turning a command into something the router can reason about.
  *
  * Everything in this file is pure string work, deliberately. The router's whole
  * promise is that it decides *before* anything runs: it must never execute a
  * command, a package script, or a config file to find out what it is. So a
  * package script like `"e2e": "cross-env CI=1 playwright test --headed"` gets
- * read the way a careful human reads it — split on the shell operators, strip
- * the wrappers, look at what is actually being invoked — and nothing more.
+ * read the way a careful human reads it (split on the shell operators, strip
+ * the wrappers, look at what is actually being invoked) and nothing more.
  *
  * The parsing here is intentionally shallow. It does not implement a shell; it
  * implements "enough of a shell to see the binary and the flags". Where that is
@@ -24,7 +24,7 @@ const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
  *
  * `a && b | c ; d` becomes four token lists. Quotes and backslash escapes are
  * honoured, redirections (`> out.log`, `2>&1`) are dropped along with their
- * targets, and everything else is treated as literal text — including `$(...)`
+ * targets, and everything else is treated as literal text: including `$(...)`
  * and backticks, which the router simply cannot resolve without running them.
  */
 export function tokenizeShellish(text: string): string[][] {
@@ -88,7 +88,7 @@ export function tokenizeShellish(text: string): string[][] {
       continue;
     }
     if (ch === '>' || ch === '<') {
-      // A redirection and its target say nothing about isolation. Drop both —
+      // A redirection and its target say nothing about isolation. Drop both,
       // including the leading file descriptor in `2>&1`, which is already
       // sitting in `current` at this point.
       if (started && /^\d+$/.test(current)) {
@@ -135,7 +135,7 @@ export interface Invocation {
   binPath: string;
   /** Everything after the executable. */
   args: string[];
-  /** `binPath` followed by `args` — the effective command after peeling. */
+  /** `binPath` followed by `args`: the effective command after peeling. */
   tokens: string[];
   /** Wrappers that were peeled off, in the order they appeared. */
   prefixes: string[];

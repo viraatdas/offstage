@@ -4,7 +4,7 @@
  * Everything else in the suite tests one module with the others faked. This
  * file fakes nothing. It runs the real router against a real repository, the
  * real headless lane against a real `vitest` process, and reads the
- * `result.json` that lands on disk — through the real `offstage` command tree.
+ * `result.json` that lands on disk: through the real `offstage` command tree.
  *
  * Three properties it exists to hold:
  *
@@ -39,7 +39,7 @@ const FIXTURES = path.join(ROOT, 'tests', 'fixtures', 'headless');
  * vitest by absolute path rather than `npx vitest`: the staged fixture is a
  * bare directory in /tmp, and `npx` would try to fetch the package rather than
  * resolve it. The router classifies this argv exactly as it classifies the
- * `npx` form — `tests/router.classify.test.ts` covers both spellings.
+ * `npx` form: `tests/router.classify.test.ts` covers both spellings.
  */
 const vitestCommand = (): string[] => [
   process.execPath,
@@ -63,7 +63,7 @@ afterEach(async () => {
  *    directories to a `node_modules`. Under `os.tmpdir()` there is nothing to
  *    walk up to, and the fixture fails to load its own config before offstage
  *    is involved at all. So the repository's `node_modules` is symlinked in.
- * 2. Staging *inside* the repository fixes (1) for free — and races with the
+ * 2. Staging *inside* the repository fixes (1) for free, and races with the
  *    outer vitest run, which owns that tree. A staged copy would occasionally
  *    be gone by the time the inner vitest read its own config file, failing
  *    this test for a reason that has nothing to do with offstage.
@@ -93,7 +93,7 @@ interface Captured {
  * Everything worth knowing about a run, as one string.
  *
  * An end-to-end test that fails with "expected 1 to be 0" is nearly useless:
- * the interesting evidence — what the command actually printed — is sitting in
+ * the interesting evidence, what the command actually printed, is sitting in
  * `command.log` in a directory this file deletes on the way out. So it is read
  * back and attached to the assertion instead.
  */
@@ -109,7 +109,7 @@ async function describeRun(result: LaneResult, captured: Captured): Promise<stri
   ].join('\n');
 }
 
-/** The real CLI, real lanes, real router — only the output streams are captured. */
+/** The real CLI, real lanes, real router: only the output streams are captured. */
 async function cli(argv: string[], cwd: string): Promise<Captured> {
   const out: string[] = [];
   const err: string[] = [];
@@ -158,7 +158,7 @@ describe('route → run → result.json, for real', () => {
     expect(result.diagnostics.join('\n')).toMatch(/Nothing appeared on your screen/);
   });
 
-  it('reports a red test suite as failed — not errored — with the failure parsed out', async () => {
+  it('reports a red test suite as failed, not errored, with the failure parsed out', async () => {
     const cwd = await stageFixture('vitest-fail');
 
     const ran = await cli(['run', '--json', '--', ...vitestCommand()], cwd);
@@ -201,7 +201,7 @@ describe('route → run → result.json, for real', () => {
     expect(result.status).toBe('errored');
     expect(ran.code).toBe(70);
     expect(result.diagnostics[0]).toContain('Nothing was executed');
-    // No xcodebuild was spawned, so there is nothing in the log — there is no log.
+    // No xcodebuild was spawned, so there is nothing in the log: there is no log.
     expect(result.logPath).toBeNull();
   });
 
@@ -209,7 +209,7 @@ describe('route → run → result.json, for real', () => {
     const cwd = await stageFixture('vitest-pass');
 
     // xcodebuild opens windows but changes nothing about the machine, so it
-    // routes to the session lane — the second logged-in account — not to a VM.
+    // routes to the session lane, the second logged-in account, not to a VM.
     const ran = await cli(['run', '--json', '--', 'xcodebuild', 'test', '-scheme', 'App'], cwd);
     const result = JSON.parse(ran.out) as LaneResult;
 
@@ -270,7 +270,7 @@ describe('the built package', () => {
     // pedantry: `node_modules/.bin/offstage` is a symlink, so `process.argv[1]`
     // is the link while `import.meta.url` is the real file. When the entry
     // point check compared them without resolving, every installed copy of
-    // offstage exited 0 having printed nothing — while running perfectly from
+    // offstage exited 0 having printed nothing, while running perfectly from
     // a clone, which is why nothing else here caught it.
     const linkDir = await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-bin-'));
     temps.push(linkDir);
@@ -282,7 +282,7 @@ describe('the built package', () => {
     expect((JSON.parse(viaLink.stdout) as { lane: string }).lane).toBe('container');
 
     // Spawned as a real process, through the real shebang path, against the
-    // real repo — the closest thing to what a user types.
+    // real repo: the closest thing to what a user types.
     const { stdout } = await execFileAsync(process.execPath, [cliPath, 'route', '--json', '--', 'npx', 'vitest', 'run'], {
       cwd: ROOT,
     });

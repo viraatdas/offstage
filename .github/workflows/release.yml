@@ -5,7 +5,7 @@ name: Release
 # credential, which is why `id-token: write` is required and why there is no
 # NODE_AUTH_TOKEN in this file.
 #
-# One-time setup on npmjs.com (needs the package to already exist — npm cannot
+# One-time setup on npmjs.com (needs the package to already exist: npm cannot
 # configure a trusted publisher for a name that has never been published):
 #   Package settings -> Trusted Publisher -> GitHub Actions
 #     repository: viraatdas/offstage

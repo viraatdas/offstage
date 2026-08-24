@@ -1,5 +1,5 @@
 /**
- * offstage — the router.
+ * offstage: the router.
  *
  * Give it a repository and a command; it answers with a lane and a sentence a
  * human can agree or disagree with. It never runs the command, never starts a
@@ -18,7 +18,7 @@
  *   `headless: false` in a detected config, WebGL/GPU switches, Chrome
  *   extension loading, desktop or tab screen capture, Playwright UI mode,
  *   `cypress open`, vitest browser mode outside CI. These cannot honestly run
- *   headless, so they get a Linux container with an Xvfb virtual display — a
+ *   headless, so they get a Linux container with an Xvfb virtual display: a
  *   real head, just not yours.
  * - **recording video is not one of them.** `--video=on` looks like it needs a
  *   screen and does not: Playwright pulls frames out of the browser over CDP
@@ -26,22 +26,22 @@
  *   `.webm`. Only capture of a *desktop or another window* needs a display.
  * - **WebDriver is read, not guessed.** `wdio` has no headless default, so the
  *   router opens the config the command names and looks for what actually
- *   settles it — a `--headless` switch in the capabilities, a `headless` key,
+ *   settles it: a `--headless` switch in the capabilities, a `headless` key,
  *   or a hosted grid that runs the browser on someone else's machine. Only
  *   when there is nothing to read does it fall back to the container lane, and
  *   it says so at low confidence.
  * - **what it cannot see, it says out loud.** A repository that computes
- *   `headless` at runtime — from an env var, a variable, a call, another module
- *   — is invisible to the router by construction, because reading files is the
- *   whole safety argument: a router that evaluated your config to find out
- *   whether it opens a window could open a window while deciding. So offstage
- *   keeps the default lane, drops to `confidence: 'low'`, and names the
+ *   `headless` at runtime, from an env var, a variable, a call, or another
+ *   module, is invisible to the router by construction, because reading files
+ *   is the whole safety argument: a router that evaluated your config to find
+ *   out whether it opens a window could open a window while deciding. So
+ *   offstage keeps the default lane, drops to `confidence: 'low'`, and names the
  *   expression it could not evaluate, instead of reporting the tool's default
  *   as though it had read yours.
  * - **session for macOS-native GUI work**: `xcodebuild`, `xcrun`, `xcrun
  *   simctl`, XCUITest schemes, a targeted `.xcodeproj`, `open -a`, the binary
  *   inside a `.app`, `safaridriver`, `osascript`, `instruments`. No Linux
- *   container can run any of these — they need a real macOS window server. But
+ *   container can run any of these: they need a real macOS window server. But
  *   they do not need a *fresh machine*, only a display that is not yours, and
  *   macOS already has one: a second local account, logged in and sitting in the
  *   background with its own framebuffer, its own keyboard and mouse stream and
@@ -49,11 +49,11 @@
  *   connection. See `native/sessiond/README.md`.
  * - **anything that could change the machine is refused, not routed**: a
  *   `.dmg`, a `.pkg`, the `installer` command, `hdiutil`. The session lane is
- *   session isolation, not machine isolation — same OS, same kernel, same disk
- *   — so an installer that damages the system would damage *your* system, and
- *   offstage has no substrate that isolates that today. Rather than pick the
- *   least-bad lane, it refuses: nothing runs anywhere, and `reason` says why.
- *   Run the command directly yourself if you accept the risk.
+ *   session isolation, not machine isolation (same OS, same kernel, same
+ *   disk), so an installer that damages the system would damage *your*
+ *   system, and offstage has no substrate that isolates that today. Rather
+ *   than pick the least-bad lane, it refuses: nothing runs anywhere, and
+ *   `reason` says why. Run the command directly yourself if you accept the risk.
  * - **everything else is headless**, because no display is involved anywhere.
  *
  * Precedence when signals disagree: `session` > `container` > `headless`, and
@@ -71,10 +71,14 @@ import { RouteDecisionSchema } from '../contract/index.js';
 
 import { createInspector } from './inspect.js';
 import type { Inspector } from './inspect.js';
-import type { ClassifyHints, Signal } from './signals.js';
-import { buildViews, collectSignals } from './signals.js';
+import type { Signal } from './signal.js';
+import type { ClassifyHints } from './signals.js';
+import { collectSignals } from './signals.js';
+import { buildViews } from './views.js';
 
-export type { ClassifyHints, CommandView, Signal, SignalKind } from './signals.js';
+export type { Signal, SignalKind } from './signal.js';
+export type { ClassifyHints } from './signals.js';
+export type { CommandView } from './views.js';
 export type { Inspector, InspectedFile, PackageFacts } from './inspect.js';
 export type { Invocation, ScriptInvocation } from './tokenize.js';
 export { createInspector } from './inspect.js';
@@ -98,7 +102,7 @@ export interface ClassifyInput {
 /**
  * Decide which lane should run `command`, and say why.
  *
- * Never throws for a repository it cannot read — a missing `package.json`,
+ * Never throws for a repository it cannot read: a missing `package.json`,
  * an unreadable config, a `cwd` that does not exist are all just less evidence.
  * It does throw for a malformed call, because an empty argv is a bug in the
  * caller and silently returning "headless" would hide it.
@@ -135,7 +139,7 @@ const FRAMING_KINDS = new Set(['browser-default', 'no-display-tool', 'no-signal'
 /**
  * Container evidence that is a default or an inference rather than something
  * the command literally says. An explicit `--headless` on the command line
- * outranks these — it is the thing that will actually be executed. It does
+ * outranks these: it is the thing that will actually be executed. It does
  * *not* outrank a literal `--headed`.
  *
  * `headed-driver` belongs here for the same reason `config-headed` does, only
@@ -293,6 +297,9 @@ export interface ExplainOptions {
 
 const DEFAULT_MAX_LENGTH = 160;
 
+/** Field separator for the one-line render. A pipe cannot be mistaken for punctuation inside a reason. */
+const SEPARATOR = ' | ';
+
 function collapse(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
@@ -301,7 +308,7 @@ function collapse(text: string): string {
  * Render a decision as one line, for a terminal or an agent transcript.
  *
  * ```
- * container (high) — npx playwright test --headed — The command asks for a headed browser… — signals: argv: --headed
+ * container (high) | npx playwright test --headed | The command asks for a headed browser… | signals: argv: --headed
  * ```
  *
  * The result never contains a newline or a tab, and never exceeds `maxLength`,
@@ -319,7 +326,7 @@ export function explain(decision: RouteDecision, options: ExplainOptions = {}): 
     if (withSignals && decision.signals.length > 0) {
       parts.push(`signals: ${decision.signals.map(collapse).join('; ')}`);
     }
-    return collapse(parts.join(' — '));
+    return collapse(parts.join(SEPARATOR));
   };
 
   const full = render(options.includeSignals !== false);

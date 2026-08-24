@@ -19,7 +19,7 @@
  *   `tcc-screen-capture` (a diagnostic, not an error) without regexing prose.
  * - **"There is no daemon" is its own error.** ENOENT/ECONNREFUSED on the
  *   socket, or a connection that closes before a final line, is
- *   {@link SessionUnreachableError} — the one condition whose fix is
+ *   {@link SessionUnreachableError}: the one condition whose fix is
  *   `offstage session setup`.
  */
 
@@ -47,7 +47,7 @@ export type SessionErrorCode = (typeof SESSION_ERROR_CODES)[number];
  * The daemon answered, and the answer was "no".
  *
  * `code` is the daemon's kebab-code (see {@link SESSION_ERROR_CODES}), or
- * `bad-response` when the daemon said something this client cannot parse —
+ * `bad-response` when the daemon said something this client cannot parse,
  * both are "the socket worked, the request did not", which is the distinction
  * callers actually branch on.
  */
@@ -175,7 +175,7 @@ const InputSchema = z.object({
 
 /**
  * One running app. `name` and `bundleId` are nullable because
- * `NSRunningApplication` genuinely returns nil for both on occasion — a
+ * `NSRunningApplication` genuinely returns nil for both on occasion: a
  * just-launched process, or one that died between the listing and the read.
  */
 export const AppSchema = z.object({
@@ -186,7 +186,7 @@ export const AppSchema = z.object({
   hidden: z.boolean(),
   /**
    * `regular` apps have windows and a Dock presence; `accessory` apps are
-   * LSUIElement/menu-bar tools — common among the utility apps agents test,
+   * LSUIElement/menu-bar tools: common among the utility apps agents test,
    * and listed on purpose since 0.3.2, because filtering them out made every
    * launch of such an app look like a failure. Absent on older daemons.
    */
@@ -263,7 +263,7 @@ export const InputActionSchema = z.discriminatedUnion('type', [
 export type InputAction = z.infer<typeof InputActionSchema>;
 
 /**
- * Validate a JSON value as an actions array — for the CLI and MCP surfaces,
+ * Validate a JSON value as an actions array: for the CLI and MCP surfaces,
  * which take one from the user and want the error before the socket opens.
  *
  * @throws {z.ZodError}
@@ -509,7 +509,7 @@ export interface SessionClientOptions {
   requestTimeoutMs?: number;
   /**
    * Extra time `run` is allowed on top of its own `timeoutMs` before the
-   * client gives up on the daemon. Only applies when the request sets one —
+   * client gives up on the daemon. Only applies when the request sets one,
    * an unbounded run stays unbounded here too. Default 30000ms.
    */
   runGraceMs?: number;
