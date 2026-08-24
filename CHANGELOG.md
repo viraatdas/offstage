@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.8
+
+Documentation only. Cut so the README on npm matches the one on GitHub, which
+had drifted two commits behind.
+
+### Changed
+
+- The README explains the router's signal model, which it never did: offstage
+  collects quotable observations and weighs them rather than matching a command
+  onto a lane, precedence runs `session` > `container` > `headless` with a
+  refusal beating all three, and config files are read but never evaluated.
+- "What the refusal actually checks" replaces one vague sentence about
+  resolving `argv[0]` with the four identification paths, the signal text each
+  one emits, and the bounds on both (`stat`-only `PATH` walk capped at 64
+  entries, size-gated SHA-256 that never reads past 8 MiB). Alongside it, the
+  three cases that escape, all measured against the real binaries: a script
+  file, a copy with one byte appended, and a copy of a GUI tool, since content
+  matching covers `installer` and `hdiutil` only.
+- Restructured so a reader meets the product before its internals: what it
+  decides, the three lanes and why each exists, a real app driven end to end,
+  install, setup, reference, then internals. Both terminal transcripts are now
+  byte-for-byte CLI output.
+
 ## 0.3.7
 
 ### Changed
