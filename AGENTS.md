@@ -30,11 +30,15 @@ refused rather than routed: a command naming an installer, a `.dmg`/`.pkg`, or
 `hdiutil` is refused on every lane with no override, and the router's `reason`
 says why.
 
-The refusal reads the command, not the program behind it. `argv[0]` is resolved
-on disk (through `PATH`, a symlink, a rename, or a copy) and inline `-c`/`-e`
-code is inspected, but a script file, a Makefile, an npm script or a compiled
-binary is opaque to it. Do not describe it as a sandbox, and do not add a lane
-or a flag that weakens it.
+The refusal reads the command, not the program behind it. Two independent
+triggers: `argv[0]` resolved to a real file, and a `.pkg`/`.dmg` named anywhere
+in argv. Resolution is a `PATH` walk plus `realpath`, so a symlink or a rename
+cannot hide, and for `installer` and `hdiutil` only, a SHA-256 of the bytes, so
+a plain `cp` cannot either. Inline `-c`/`-e` code is read as text. A script
+file, a Makefile, an npm script, a compiled binary and a *modified* copy are all
+opaque to it. The README's "What the refusal actually checks" section is the
+long form, and every claim in it was measured; keep the two in step. Do not
+describe it as a sandbox, and do not add a lane or a flag that weakens it.
 
 offstage does not run virtual machines, and nothing in it should imply that it
 does. A `vm` lane existed once and was deleted in 0.3.0 because it never drove

@@ -40,27 +40,102 @@ working. Works standalone (above) and as an agent tool for **Claude Code**,
 | `container` | a Linux container with Xvfb | `--headed`, `headless: false`, WebGL/GPU flags, extension loading. |
 | `session` | a second logged-in macOS account | `xcodebuild`, `xcrun simctl`, XCUITests, `open -a`, `osascript`. macOS-native work that opens windows but doesn't touch the machine itself. |
 
-A command that names something which would change the machine itself, an
-installer, a `.dmg`/`.pkg`, or `hdiutil`, is refused instead of routed
-anywhere. Session isolation shares your OS and disk with you, so it can't
-honestly contain that, and offstage has no lane that can. The refusal applies on
-every lane and there is no flag that overrides it.
-
-Be precise about what that covers, because the limit is real. offstage reads the
-command, not the program. It resolves `argv[0]` on disk the way your shell would,
-including through `PATH`, a symlink, a rename, or a byte-identical copy, and it
-looks inside a shell's `-c` and an interpreter's `-c`/`-e`. It cannot see inside
-a script file, a Makefile, an npm script, or a compiled binary. `sh deploy.sh`
-where `deploy.sh` runs an installer is not refused, and no static classifier
-could refuse it. Treat the refusal as a guard against naming these tools, not as
-a sandbox.
-
 macOS has no Xvfb and cannot have one; what it does have is multiple
 simultaneous GUI sessions via fast user switching, which is what the session
 lane uses. Asking for *more* isolation than the router picked always works
 (`--lane container`); asking for less is refused with no override.
 If a lane's substrate isn't available, the run stops and tells you the fix.
 offstage never falls back to running the command on your real screen.
+
+A command that names something which would change the machine itself, an
+installer, a `.dmg`/`.pkg`, or `hdiutil`, is refused instead of routed
+anywhere. Session isolation shares your OS and disk with you, so it can't
+honestly contain that, and offstage has no lane that can. The refusal applies on
+every lane and there is no flag that overrides it.
+
+### What the refusal actually checks
+
+Two things, independently. Either one on its own refuses.
+
+**The program.** offstage resolves `argv[0]` to a real file the way the lane
+would execute it, then asks what that file is. Four ways in, and the signal
+tells you which one caught it:
+
+| What you type | How it is identified | The signal you get |
+| --- | --- | --- |
+| `installer` | the literal name | `argv: installer` |
+| `deploy-tool`, a symlink sitting on `PATH` | `PATH` walk, then `realpath` | `argv: deploy-tool (resolves to installer)` |
+| `./setup-helper`, a symlink to `/usr/sbin/installer` | `realpath` | `argv: setup-helper (resolves to installer)` |
+| `./nice-name`, `cp`ed from `/usr/sbin/installer` | SHA-256 of the bytes | `argv: nice-name (identical copy of installer)` |
+
+The first three rows apply to every tool the router knows, not just the refused
+ones: a symlink named `run-thing` pointing at `/usr/bin/osascript` routes to the
+session lane and says `argv: run-thing (resolves to osascript)`.
+
+The fourth row is narrower on purpose. Hashing is scoped to `installer` and
+`hdiutil`, the two tools where being wrong is unrecoverable. It exists because a
+copy keeps no link back to its origin: `realpath` points at the copy itself and
+the basename is whatever the copier chose, so only the content is honest. Size
+is compared first, so nothing gets hashed unless it is already exactly as long
+as one of those two, and anything over 8 MiB is never read at all.
+
+The `PATH` walk is `stat` only. No `which`, no shell, no subprocess: first
+executable regular file in `PATH` order wins, bounded to 64 directories, which
+is the file `execa` would go on to run.
+
+**The arguments.** A token naming a `.pkg` or a `.dmg` refuses on its own,
+whatever the program is, because the payload is the dangerous part. `echo
+Foo.pkg` is refused, deliberately.
+
+```console
+$ ln -s /usr/sbin/installer ./setup-helper
+$ offstage route -- ./setup-helper -pkg Foo.pkg -target /
+command:    ./setup-helper -pkg Foo.pkg -target /
+lane:       REFUSED (no lane can isolate this)
+confidence: high
+reason:     setup-helper (resolves to installer): a symlink, a rename, or a
+            byte-identical copy does not change what this binary does. It
+            applies a macOS installer package to a target volume, which is a
+            deliberate change to the machine it runs on. The session lane is
+            only a second account on your own OS and disk, and offstage has no
+            lane that isolates that, so it refuses to run this rather than
+            risk your machine. Run it directly yourself if you accept the
+            risk.
+signals:
+  - argv: no browser, GPU or macOS-native signal found
+  - argv: setup-helper (resolves to installer)
+  - argv: Foo.pkg
+
+offstage will refuse to run this automatically, on any lane. See reason above.
+```
+
+A shell's `-c` and an interpreter's `-c`/`-e` are read as text, so
+`sh -c "installer -pkg Foo.pkg -target /"` is refused on what is inside the
+string.
+
+### What it does not catch
+
+All three were run against the real binaries, not assumed:
+
+- **A script file.** `sh deploy.sh`, where `deploy.sh` runs the installer, is
+  not refused. Neither is `./deploy.sh`. Deciding would mean interpreting the
+  script, and no static classifier does that reliably. Makefiles, npm scripts
+  and compiled binaries are opaque for the same reason.
+- **A modified copy.** Append one byte to a copy of `installer` and the digest
+  stops matching, so the program check misses it. `./tweaked -pkg Foo.pkg` is
+  still refused, but by the `.pkg` argument rather than by the program, and
+  `./tweaked --help` is not refused at all.
+- **A copy of a GUI tool.** Content matching covers the two refused tools only,
+  so `cp /usr/bin/osascript ./copied-osa` then `./copied-osa -e '…'` is not
+  recognized as `osascript` and routes headless, which means in place. The
+  symlink and rename cases *are* caught. Copying a system binary under a new
+  name to dodge the router is not something offstage can see, and it is not
+  something a static classifier can be made to see.
+
+So the refusal is a guard against *naming* these tools, not a sandbox, and it is
+not where the safety comes from. The lanes are, and none of them claims to
+contain a change to the machine itself. That is exactly why this is a refusal
+instead of a fourth lane.
 
 ## Install
 
