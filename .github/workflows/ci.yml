@@ -20,9 +20,9 @@ jobs:
         node: ['20', '22', 'lts/*']
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -52,12 +52,12 @@ jobs:
     name: shipped changes carry a version bump
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # The guard diffs against the last version tag, which a shallow
           # default checkout does not fetch.
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 'lts/*'
       - run: node scripts/release-guard.mjs
@@ -66,8 +66,8 @@ jobs:
     name: packs cleanly from a clean checkout
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 'lts/*'
           cache: npm

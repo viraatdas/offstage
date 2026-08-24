@@ -1,33 +1,26 @@
 /**
- * Container lane tests.
+ * The container lane itself.
  *
  * The hard requirement: **this file passes on a machine with no container
  * runtime at all.** That is not a convenience, it is the thing most worth
  * testing: the lane's job on such a machine is to refuse to run, say exactly
- * why, and hand back a contract-valid result rather than an exception. The
- * machine this lane was written on is precisely that machine (docker CLI
- * present but pointed at a dead OrbStack socket, Colima installed but stopped,
- * no podman), so the degraded path is asserted here in that exact shape.
+ * why, and hand back a contract-valid result rather than an exception.
  *
- * Everything that would otherwise need a daemon is driven through the lane's
- * two injection points, `detect` and `exec`, so the full happy path, the
- * build path, the timeout path and the failure-parsing path are all covered
- * without one.
+ * Runtime detection, which decides whether there is a daemon to talk to at
+ * all, is tested in `lanes.container.runtime.test.ts`.
  *
  * The single block that does need a real runtime is gated on a live probe and
  * skips cleanly when there is none.
  */
 
-import { execFile } from 'node:child_process';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import { promisify } from 'node:util';
-
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { isLaneResult, parseLaneResult } from '../src/contract/index.js';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
 import type { LaneRequest } from '../src/contract/index.js';
+import { isLaneResult, parseLaneResult } from '../src/contract/index.js';
+import type { ContainerRuntime, LaneExecResult } from '../src/lanes/container/index.js';
 import {
   BUILD_LOG,
   COMMAND_LOG,
@@ -39,6 +32,7 @@ import {
   containerLane,
   containerNameFor,
   createContainerLane,
+  detectContainerRuntime,
   dockerDirCandidates,
   imageTagFor,
   loadDockerAssets,
@@ -46,484 +40,24 @@ import {
   parseFailures,
   unmapGuestPath,
 } from '../src/lanes/container/index.js';
-import type {
-  ContainerRuntime,
-  ContainerRuntimeProbe,
-  LaneExec,
-  LaneExecOptions,
-  LaneExecResult,
-  ProbeExec,
-  ProbeOutcome,
-} from '../src/lanes/container/index.js';
 import {
-  colimaSocketCandidates,
-  describeRuntimeProbe,
-  detectContainerRuntime,
-  parseColimaList,
-} from '../src/lanes/container/runtime.js';
+  DOCKER_DIR,
+  REPO_ROOT,
+  availableProbe,
+  createTmpRoot,
+  dockerRuntime,
+  execFileAsync,
+  fakeExec,
+  makeArtifactsDir,
+  removeTmpRoot,
+  request,
+  tmpRootPath,
+  unavailableProbe,
+} from './lanes.container.fixtures.js';
 
-const execFileAsync = promisify(execFile);
+beforeAll(createTmpRoot);
+afterAll(removeTmpRoot);
 
-/* -------------------------------------------------------------------------- */
-/* Fixtures and fakes                                                         */
-/* -------------------------------------------------------------------------- */
-
-const REPO_ROOT = path.resolve(import.meta.dirname, '..');
-const DOCKER_DIR = path.join(REPO_ROOT, 'docker');
-
-let tmpRoot: string;
-
-beforeAll(async () => {
-  tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'offstage-container-'));
-});
-
-afterAll(async () => {
-  await fs.rm(tmpRoot, { recursive: true, force: true });
-});
-
-/** A fresh, real directory to use as `artifactsDir`. */
-async function makeArtifactsDir(label: string): Promise<string> {
-  const dir = path.join(tmpRoot, `${label}-${Math.random().toString(16).slice(2, 8)}`);
-  await fs.mkdir(dir, { recursive: true });
-  return dir;
-}
-
-interface RecordedCall {
-  file: string;
-  args: string[];
-  options: LaneExecOptions;
-}
-
-interface FakeExec {
-  exec: LaneExec;
-  calls: RecordedCall[];
-  /** The `docker run ...` invocation, which is what most assertions are about. */
-  runCall(): RecordedCall | undefined;
-}
-
-/**
- * A `LaneExec` that records everything and answers from a handler. Anything the
- * handler does not answer is a successful no-op, so a test only spells out the
- * commands it actually cares about.
- */
-function fakeExec(
-  handler: (call: RecordedCall) => Partial<LaneExecResult> | Promise<Partial<LaneExecResult>>,
-): FakeExec {
-  const calls: RecordedCall[] = [];
-  const exec: LaneExec = async (file, args, options) => {
-    const call = { file, args, options };
-    calls.push(call);
-    const answer = await handler(call);
-    return { exitCode: 0, output: '', timedOut: false, spawnError: null, ...answer };
-  };
-  return {
-    exec,
-    calls,
-    runCall: () => calls.find((call) => call.args[0] === 'run'),
-  };
-}
-
-const dockerRuntime: ContainerRuntime = {
-  kind: 'docker',
-  bin: 'docker',
-  env: {},
-  serverVersion: '27.1.1',
-  description: 'Docker daemon 27.1.1 (context "test")',
-};
-
-const availableProbe: ContainerRuntimeProbe = {
-  runtime: dockerRuntime,
-  availability: { available: true },
-  steps: [{ kind: 'docker', installed: true, usable: true, detail: 'docker info answered' }],
-};
-
-const unavailableProbe: ContainerRuntimeProbe = {
-  runtime: null,
-  availability: {
-    available: false,
-    reason:
-      'No usable container runtime, so headed browser work has nowhere safe to run. colima is installed but no profile is running ("default" is Stopped).',
-    fix: 'colima start',
-  },
-  steps: [
-    {
-      kind: 'docker',
-      installed: true,
-      usable: false,
-      detail: 'the docker CLI is installed but its daemon is unreachable',
-    },
-    {
-      kind: 'colima',
-      installed: true,
-      usable: false,
-      detail: 'colima is installed but no profile is running ("default" is Stopped)',
-    },
-    { kind: 'podman', installed: false, usable: false, detail: 'podman is not installed' },
-  ],
-};
-
-/** Build a `ProbeExec` from a table of `"bin arg arg"` prefixes. */
-function probeTable(
-  table: Record<string, Partial<ProbeOutcome>>,
-  record?: Array<{ file: string; args: string[]; env?: Record<string, string> }>,
-): ProbeExec {
-  return async (file, args, options) => {
-    record?.push({ file, args, env: options.env });
-    const key = [file, ...args].join(' ');
-    const matched = Object.entries(table)
-      .filter(([prefix]) => key.startsWith(prefix))
-      // Longest prefix wins, so a specific override beats a general default.
-      .sort((a, b) => b[0].length - a[0].length)[0];
-    return {
-      found: true,
-      exitCode: 1,
-      stdout: '',
-      stderr: '',
-      timedOut: false,
-      ...(matched?.[1] ?? { found: false, exitCode: null }),
-    };
-  };
-}
-
-/**
- * Desktop-runtime detection reads the filesystem. Tests pin it so a result never
- * depends on whether the machine running them happens to have OrbStack.
- */
-const noDesktopApps = async (): Promise<boolean> => false;
-const orbstackInstalled = async (target: string): Promise<boolean> =>
-  target === '/Applications/OrbStack.app';
-
-const request = (overrides: Partial<LaneRequest> & Pick<LaneRequest, 'artifactsDir'>): LaneRequest => ({
-  cwd: REPO_ROOT,
-  command: ['node', '-e', 'console.log(1)'],
-  ...overrides,
-});
-
-/* -------------------------------------------------------------------------- */
-/* Runtime detection                                                          */
-/* -------------------------------------------------------------------------- */
-
-describe('detectContainerRuntime', () => {
-  it('reports a reachable docker daemon and uses it directly', async () => {
-    const probe = await detectContainerRuntime({
-      exec: probeTable({
-        'docker info': { found: true, exitCode: 0, stdout: '27.1.1' },
-        'docker context show': { found: true, exitCode: 0, stdout: 'orbstack' },
-      }),
-    });
-
-    expect(probe.availability).toEqual({ available: true });
-    expect(probe.runtime).toMatchObject({ kind: 'docker', bin: 'docker', serverVersion: '27.1.1' });
-    expect(probe.runtime?.env).toEqual({});
-    expect(probe.runtime?.description).toContain('context "orbstack"');
-  });
-
-  it('falls back to `colima start` when the dead context belongs to no installed app', async () => {
-    const probe = await detectContainerRuntime({
-      platform: 'darwin',
-      fileExists: noDesktopApps,
-      exec: probeTable({
-        'docker info': {
-          found: true,
-          exitCode: 1,
-          stderr:
-            'failed to connect to the docker API at unix:///Users/x/.orbstack/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/x/.orbstack/run/docker.sock: connect: no such file or directory',
-        },
-        'docker context show': { found: true, exitCode: 0, stdout: 'orbstack' },
-        'colima list --json': {
-          found: true,
-          exitCode: 0,
-          stdout: '{"name":"default","status":"Stopped","arch":"aarch64","runtime":"docker"}',
-        },
-        'podman info': { found: false, exitCode: null },
-      }),
-    });
-
-    expect(probe.runtime).toBeNull();
-    expect(probe.availability.available).toBe(false);
-    expect(probe.availability.fix).toBe('colima start');
-    expect(probe.availability.reason).toContain('.orbstack/run/docker.sock');
-    expect(probe.availability.reason).toContain('"default" is Stopped');
-    expect(probe.steps.map((step) => [step.kind, step.installed, step.usable])).toEqual([
-      ['docker', true, false],
-      ['colima', true, false],
-      ['podman', false, false],
-    ]);
-  });
-
-  it('finds a running colima even when the active docker context points elsewhere', async () => {
-    const seen: Array<{ file: string; args: string[]; env?: Record<string, string> }> = [];
-    const socket = path.join('/home/tester', '.colima', 'default', 'docker.sock');
-    const probe = await detectContainerRuntime({
-      homedir: '/home/tester',
-      env: {},
-      fileExists: noDesktopApps,
-      exec: async (file, args, options) => {
-        seen.push({ file, args, env: options.env });
-        const key = [file, ...args].join(' ');
-        // The active context is dead; only the explicit colima socket answers.
-        if (key.startsWith('docker info')) {
-          const viaColima = options.env?.DOCKER_HOST === `unix://${socket}`;
-          return {
-            found: true,
-            exitCode: viaColima ? 0 : 1,
-            stdout: viaColima ? '24.0.7' : '',
-            stderr: viaColima ? '' : 'cannot connect to orbstack',
-            timedOut: false,
-          };
-        }
-        if (key.startsWith('docker context show')) {
-          return { found: true, exitCode: 0, stdout: 'orbstack', stderr: '', timedOut: false };
-        }
-        if (key.startsWith('colima list')) {
-          return {
-            found: true,
-            exitCode: 0,
-            stdout: '{"name":"default","status":"Running","runtime":"docker"}',
-            stderr: '',
-            timedOut: false,
-          };
-        }
-        return { found: false, exitCode: null, stdout: '', stderr: '', timedOut: false };
-      },
-    });
-
-    // The colima probe must re-run `docker info` with an explicit DOCKER_HOST,
-    // otherwise a hijacked context would hide a perfectly good runtime.
-    const colimaProbe = seen.find((call) => call.env?.DOCKER_HOST);
-    expect(colimaProbe?.env?.DOCKER_HOST).toBe(`unix://${socket}`);
-    expect(probe.runtime).toMatchObject({
-      kind: 'colima',
-      bin: 'docker',
-      env: { DOCKER_HOST: `unix://${socket}` },
-    });
-    expect(probe.runtime?.description).toContain('profile "default"');
-    expect(probe.availability.available).toBe(true);
-  });
-
-  it('falls back to colima 0.3-era socket layout when the per-profile socket is dead', async () => {
-    const perProfile = `unix://${path.join('/home/tester', '.colima', 'default', 'docker.sock')}`;
-    const legacy = `unix://${path.join('/home/tester', '.colima', 'docker.sock')}`;
-    const probe = await detectContainerRuntime({
-      homedir: '/home/tester',
-      env: {},
-      exec: async (file, args, options) => {
-        const key = [file, ...args].join(' ');
-        if (key.startsWith('colima list')) {
-          return {
-            found: true,
-            exitCode: 0,
-            stdout: '{"name":"default","status":"Running"}',
-            stderr: '',
-            timedOut: false,
-          };
-        }
-        if (key.startsWith('docker info')) {
-          const ok = options.env?.DOCKER_HOST === legacy;
-          return {
-            found: true,
-            exitCode: ok ? 0 : 1,
-            stdout: ok ? '24.0.7' : '',
-            stderr: ok ? '' : 'no such file',
-            timedOut: false,
-          };
-        }
-        return { found: false, exitCode: null, stdout: '', stderr: '', timedOut: false };
-      },
-    });
-
-    expect(probe.runtime?.kind).toBe('colima');
-    expect(probe.runtime?.env.DOCKER_HOST).toBe(legacy);
-    expect(probe.runtime?.env.DOCKER_HOST).not.toBe(perProfile);
-  });
-
-  it('names the profile in the fix when the stopped profile is not `default`', async () => {
-    const probe = await detectContainerRuntime({
-      platform: 'darwin',
-      fileExists: noDesktopApps,
-      exec: probeTable({
-        'docker info': { found: false, exitCode: null },
-        'colima list --json': {
-          found: true,
-          exitCode: 0,
-          stdout: '{"name":"web","status":"Stopped"}',
-        },
-        'podman info': { found: false, exitCode: null },
-      }),
-    });
-
-    expect(probe.availability.fix).toBe('colima start --profile web');
-  });
-
-  it('degrades to `colima status` when the installed colima has no `list --json`', async () => {
-    const probe = await detectContainerRuntime({
-      homedir: '/home/tester',
-      env: {},
-      fileExists: noDesktopApps,
-      exec: probeTable({
-        'docker info': { found: true, exitCode: 1, stderr: 'daemon down' },
-        'docker context show': { found: true, exitCode: 1 },
-        // Old colima prints a usage error to stderr and exits non-zero.
-        'colima list --json': { found: true, exitCode: 1, stderr: 'unknown flag: --json' },
-        'colima status': { found: true, exitCode: 1, stderr: 'colima is not running' },
-        'podman info': { found: false, exitCode: null },
-      }),
-    });
-
-    expect(probe.runtime).toBeNull();
-    expect(probe.availability.fix).toBe('colima start');
-    expect(probe.steps.find((step) => step.kind === 'colima')?.detail).toContain('Stopped');
-  });
-
-  it('uses podman when it is the only thing answering', async () => {
-    const probe = await detectContainerRuntime({
-      exec: probeTable({
-        'docker info': { found: false, exitCode: null },
-        'colima list': { found: false, exitCode: null },
-        'podman info': { found: true, exitCode: 0, stdout: '5.2.0' },
-      }),
-    });
-
-    expect(probe.runtime).toMatchObject({ kind: 'podman', bin: 'podman', serverVersion: '5.2.0' });
-  });
-
-  it('suggests `podman machine start` when podman is installed but its machine is down', async () => {
-    const probe = await detectContainerRuntime({
-      platform: 'darwin',
-      exec: probeTable({
-        'docker info': { found: false, exitCode: null },
-        'colima list': { found: false, exitCode: null },
-        'podman info': { found: true, exitCode: 125, stderr: 'Cannot connect to Podman' },
-      }),
-    });
-
-    expect(probe.availability.fix).toBe('podman machine start');
-    expect(probe.availability.reason).toContain('podman is installed but not usable');
-  });
-
-  it('suggests `orb start` for a dead OrbStack, in preference to a stopped colima', async () => {
-    const probe = await detectContainerRuntime({
-      platform: 'darwin',
-      fileExists: orbstackInstalled,
-      exec: probeTable({
-        'docker info': {
-          found: true,
-          exitCode: 1,
-          stderr: 'dial unix /Users/x/.orbstack/run/docker.sock: connect: no such file',
-        },
-        'docker context show': { found: true, exitCode: 0, stdout: 'orbstack' },
-        // Colima is installed and stopped too: the heavier option must lose.
-        'colima list --json': {
-          found: true,
-          exitCode: 0,
-          stdout: '{"name":"default","status":"Stopped"}',
-        },
-        'podman info': { found: false, exitCode: null },
-      }),
-    });
-
-    expect(probe.availability.fix).toBe('orb start');
-    expect(probe.availability.reason).toContain('OrbStack is installed but not running');
-    expect(probe.steps.find((step) => step.kind === 'docker')?.fix).toBe('orb start');
-    // The colima step still records what it saw; it is just outranked.
-    expect(probe.steps.find((step) => step.kind === 'colima')?.detail).toContain('Stopped');
-  });
-
-  it('suggests an install when the machine has nothing at all', async () => {
-    const nothing = probeTable({});
-
-    await expect(
-      detectContainerRuntime({ platform: 'darwin', exec: nothing, fileExists: noDesktopApps }),
-    ).resolves.toMatchObject({
-      runtime: null,
-      availability: { available: false, fix: 'brew install colima docker && colima start' },
-    });
-
-    await expect(
-      detectContainerRuntime({ platform: 'linux', exec: nothing, fileExists: noDesktopApps }),
-    ).resolves.toMatchObject({
-      availability: { fix: 'sudo apt-get install -y docker.io && sudo systemctl start docker' },
-    });
-  });
-
-  it('reports a hung daemon as a timeout rather than hanging or throwing', async () => {
-    const probe = await detectContainerRuntime({
-      platform: 'linux',
-      timeoutMs: 1_234,
-      fileExists: noDesktopApps,
-      exec: probeTable({
-        'docker info': { found: true, exitCode: null, timedOut: true },
-        'docker context show': { found: true, exitCode: 0, stdout: 'default' },
-        'colima list': { found: false, exitCode: null },
-        'podman info': { found: false, exitCode: null },
-      }),
-    });
-
-    expect(probe.steps[0]?.detail).toContain('timed out after 1234ms');
-    expect(probe.availability.fix).toBe('sudo systemctl start docker');
-  });
-
-  it('never throws, even when the probe implementation itself throws', async () => {
-    const probe = await detectContainerRuntime({
-      platform: 'darwin',
-      exec: async () => {
-        throw new Error('probe exploded');
-      },
-    });
-
-    expect(probe.runtime).toBeNull();
-    expect(probe.availability.available).toBe(false);
-    expect(probe.steps.every((step) => !step.usable)).toBe(true);
-  });
-
-  it('probes the real host without throwing and without starting anything', async () => {
-    const probe = await detectContainerRuntime();
-
-    expect(Array.isArray(probe.steps)).toBe(true);
-    if (probe.runtime) {
-      expect(probe.availability.available).toBe(true);
-      expect(probe.runtime.bin === 'docker' || probe.runtime.bin === 'podman').toBe(true);
-    } else {
-      // The degraded contract: a reason a human can act on, and a command.
-      expect(probe.availability.available).toBe(false);
-      expect(probe.availability.reason?.length ?? 0).toBeGreaterThan(20);
-      expect(probe.availability.fix?.length ?? 0).toBeGreaterThan(0);
-    }
-    expect(describeRuntimeProbe(probe).length).toBeGreaterThan(0);
-  });
-});
-
-describe('colima helpers', () => {
-  it('parses colima list --json line by line and ignores noise', () => {
-    const parsed = parseColimaList(
-      [
-        'WARN some deprecation notice',
-        '{"name":"default","status":"Stopped","arch":"aarch64","runtime":"docker"}',
-        'not json at all',
-        '{"name":"web","status":"Running"}',
-        '{"malformed":true}',
-      ].join('\n'),
-    );
-
-    expect(parsed).toEqual([
-      { name: 'default', status: 'Stopped', arch: 'aarch64', runtime: 'docker' },
-      { name: 'web', status: 'Running', arch: undefined, runtime: undefined },
-    ]);
-  });
-
-  it('honours COLIMA_HOME and only offers the legacy socket for the default profile', () => {
-    expect(colimaSocketCandidates('default', { homedir: '/h', env: {} })).toEqual([
-      '/h/.colima/default/docker.sock',
-      '/h/.colima/docker.sock',
-    ]);
-    expect(colimaSocketCandidates('web', { homedir: '/h', env: {} })).toEqual([
-      '/h/.colima/web/docker.sock',
-    ]);
-    expect(colimaSocketCandidates('default', { homedir: '/h', env: { COLIMA_HOME: '/elsewhere' } })).toEqual(
-      ['/elsewhere/default/docker.sock', '/elsewhere/docker.sock'],
-    );
-  });
-});
 
 /* -------------------------------------------------------------------------- */
 /* The degraded path: the point of the whole exercise                        */
@@ -925,7 +459,7 @@ describe('container lane run wiring', () => {
     const lane = createContainerLane({
       detect: async () => availableProbe,
       exec: fakeExec(() => ({})).exec,
-      dockerDir: path.join(tmpRoot, 'nowhere'),
+      dockerDir: path.join(tmpRootPath(), 'nowhere'),
     });
 
     const result = await lane.run(request({ artifactsDir }));
@@ -1222,7 +756,7 @@ describe.skipIf(!hostRuntime)('against a real container runtime', () => {
   let repoDir: string;
 
   beforeAll(async () => {
-    repoDir = path.join(tmpRoot, 'headed-fixture');
+    repoDir = path.join(tmpRootPath(), 'headed-fixture');
     await fs.mkdir(repoDir, { recursive: true });
     // A headed fixture with no dependencies: prove the X server is real, put a
     // window on it, and let the entrypoint photograph the result.
@@ -1300,3 +834,4 @@ describe.skipIf(!hostRuntime)('against a real container runtime', () => {
     600_000,
   );
 });
+

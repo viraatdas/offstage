@@ -200,7 +200,7 @@ const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']);
  * The command string behind `sh -c '<string>'`, or `null` when this is not a
  * shell invocation. Combined short flags (`sh -lc '<string>'`) count.
  */
-export function shellDashC(invocation: Invocation): string | null {
+function shellDashC(invocation: Invocation): string | null {
   if (!SHELLS.has(invocation.bin)) return null;
   for (let index = 0; index < invocation.args.length; index += 1) {
     const token = invocation.args[index] as string;

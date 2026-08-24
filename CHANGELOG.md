@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.7
+
+### Changed
+
+- **No file in the repository is over 1,000 lines, tests included.** 0.3.6 did
+  that for `src/`; this does it for the two suites that were left.
+  `tests/cli.session.test.ts` (1,107) and `tests/lanes.container.test.ts`
+  (1,302) split along the same seams their subjects do: bringing the session
+  lane up versus driving one that is already up, and runtime detection versus
+  the lane that consumes it. Shared setup moved into `*.fixtures.ts` modules,
+  which the repo already had a convention and a guard for. Test count is
+  unchanged at 974.
+- CI and release workflows pin `actions/checkout@v5` and
+  `actions/setup-node@v5`. GitHub was force-running the v4 pins on Node 24 and
+  annotating every run about it.
+- `shellDashC` is no longer exported from `src/router/views.ts`; it has one
+  caller, in that file.
+
 ## 0.3.6
 
 ### Fixed

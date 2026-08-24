@@ -1,7 +1,7 @@
 {
   "name": "offstage",
   "description": "Keep UI, browser and macOS app work off your screen. Each command gets the least isolation that can honestly contain it: in place when it is already headless, a Linux container with Xvfb when a real window is needed, or the macOS session lane (a second, logged-in account with its own display and input) for xcodebuild, simulators and app launches. Anything that could change the machine itself is refused, not run.",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "author": {
     "name": "Viraat Das"
   },
