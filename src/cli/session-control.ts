@@ -453,6 +453,169 @@ export async function sessionLaunch(
   }
 }
 
+/* ---------------------------------- quit ---------------------------------- */
+
+export interface SessionQuitInput {
+  /** App name (`Calculator`) or path to an `.app` bundle, matched like `launch` matches. */
+  target: string;
+  user?: string;
+  /**
+   * Send SIGKILL to whatever SIGTERM did not end. Without it a surviving app
+   * is reported as such, because an agent that asked for a quit may want to
+   * know the app refused rather than have it vanish.
+   */
+  force?: boolean;
+  /** How long to wait for the app to leave the session's app list. */
+  waitMs?: number;
+}
+
+/** What happened to one matched app. */
+export interface SessionQuitOutcome {
+  name: string;
+  pid: number;
+  /** The signal that was actually delivered, `TERM` by default, `KILL` with `force`. */
+  signal: 'TERM' | 'KILL';
+  state: 'quit' | 'survived';
+}
+
+export interface SessionQuitResult {
+  target: string;
+  /** The apps the session's own list matched before anything was signalled. */
+  matched: SessionApp[];
+  outcomes: SessionQuitOutcome[];
+  /** True when every matched app left the list, and true (nothing to do) when none matched. */
+  ok: boolean;
+  diagnostics: string[];
+}
+
+/** How long {@link sessionQuit} waits for a signalled app to leave the list, by default. */
+export const SESSION_QUIT_DEFAULT_WAIT_MS = 5_000;
+
+/** Extra wait after a `--force` SIGKILL, which the kernel does not refuse. */
+export const SESSION_QUIT_FORCE_WAIT_MS = 2_000;
+
+/**
+ * Quit an app inside the helper session, and wait until it is really gone.
+ *
+ * The reason this is a verb and not `offstage run --lane session -- pkill …`
+ * is the same one `launch` exists: a signalled app is not a gone app, and an
+ * agent that fires `pkill` and moves on relaunches over a half-dead instance
+ * or reports a clean session that still shows the window. This matches the
+ * session's own app list (the same matching `launch` uses), signals each
+ * match, then polls the list until the app is absent, reporting per-app
+ * state. It also reaches every instance in one call, which matters because
+ * LaunchServices confusion has been observed to leave two Calculators
+ * running at once.
+ */
+export async function sessionQuit(
+  input: SessionQuitInput,
+  deps?: Partial<ApiDeps>,
+): Promise<SessionQuitResult> {
+  const d = withDefaults(deps);
+  const seams = seamsOf(d);
+  if (typeof input?.target !== 'string' || input.target.trim() === '') {
+    throw new OffstageUsageError('offstage session quit needs an app name or a path to an .app bundle.');
+  }
+  const now = seams.now ?? Date.now;
+  const sleep = seams.sleep ?? defaultSleep;
+
+  const { client } = await sessionConnect(d, input.user);
+
+  let matched: SessionApp[];
+  try {
+    matched = (await client.apps()).filter((app) => appMatchesTarget(input.target, app));
+  } catch (error) {
+    return asSessionError(error);
+  }
+  if (matched.length === 0) {
+    return {
+      target: input.target,
+      matched,
+      outcomes: [],
+      ok: true,
+      diagnostics: [`No app running in the helper session matches "${input.target}". Nothing to quit.`],
+    };
+  }
+
+  const diagnostics: string[] = [];
+  /* `pkill -x` matches the process name, and the app list's display name is
+     the closest thing to it (Calculator → "Calculator", Google Chrome →
+     "Google Chrome"). Names can repeat across different pids; dedupe, because
+     one pkill already reaches every instance of the name, and the
+     two-Calculator case must not need two calls. */
+  const processName = (app: SessionApp): string => app.name ?? app.bundleId?.split('.').pop() ?? '';
+  const names = [...new Set(matched.map(processName))];
+  const stillListed = async (): Promise<SessionApp[]> => {
+    try {
+      return (await client.apps()).filter((app) => appMatchesTarget(input.target, app));
+    } catch {
+      /* A transient socket hiccup must not end the poll: the app may be dying. */
+      return [];
+    }
+  };
+
+  const outcomes: SessionQuitOutcome[] = [];
+  const signal = async (name: string, kill: boolean): Promise<void> => {
+    const argv = kill ? ['/usr/bin/pkill', '-9', '-x', name] : ['/usr/bin/pkill', '-x', name];
+    try {
+      await client.run({
+        argv,
+        cwd: (await client.hello()).user.home,
+        timeoutMs: 10_000,
+      });
+    } catch (error) {
+      diagnostics.push(
+        `pkill for "${name}" could not run: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
+  for (const name of names) {
+    if (name === '') {
+      diagnostics.push('a matched app reported neither a name nor a bundle id; skipped it.');
+      continue;
+    }
+    await signal(name, false);
+    let usedKill = false;
+    const deadline = now() + (input.waitMs ?? SESSION_QUIT_DEFAULT_WAIT_MS);
+    let remaining = await stillListed();
+    while (remaining.some((app) => processName(app) === name) && now() < deadline) {
+      await sleep(400);
+      remaining = await stillListed();
+    }
+    if (remaining.some((app) => processName(app) === name) && input.force === true) {
+      usedKill = true;
+      await signal(name, true);
+      const killDeadline = now() + SESSION_QUIT_FORCE_WAIT_MS;
+      while (remaining.some((app) => processName(app) === name) && now() < killDeadline) {
+        await sleep(400);
+        remaining = await stillListed();
+      }
+    }
+    for (const app of matched.filter((candidate) => processName(candidate) === name)) {
+      outcomes.push({
+        name,
+        pid: app.pid,
+        signal: usedKill ? 'KILL' : 'TERM',
+        state: remaining.some((survivor) => survivor.pid === app.pid) ? 'survived' : 'quit',
+      });
+    }
+  }
+
+  const survivors = outcomes.filter((outcome) => outcome.state === 'survived');
+  if (survivors.length > 0 && input.force !== true) {
+    diagnostics.push(
+      `${survivors.length} app(s) ignored SIGTERM; re-run with --force to SIGKILL ${survivors.map((s) => s.name).join(', ')}.`,
+    );
+  }
+  return {
+    target: input.target,
+    matched,
+    outcomes,
+    ok: survivors.length === 0,
+    diagnostics,
+  };
+}
+
 /* ---------------------------------- open ---------------------------------- */
 
 /**

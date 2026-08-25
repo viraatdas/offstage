@@ -24,7 +24,7 @@ import type {
 import { createDefaultCore } from '../src/mcp/core.js';
 import { createOffstageMcpServer } from '../src/mcp/server.js';
 import type { EntitlementsProbeReport } from '../src/probe/index.js';
-import type { SessionLaunchResult } from '../src/cli/session-control.js';
+import type { SessionLaunchResult, SessionQuitResult } from '../src/cli/session-control.js';
 import type { InputAction, SessionApp } from '../src/session/index.js';
 
 const routeDecision: RouteDecision = {
@@ -157,6 +157,22 @@ class FakeCore implements OffstageCore {
     };
   }
 
+  async sessionQuit(input: {
+    target: string;
+    force?: boolean;
+    waitMs?: number;
+    user?: string;
+  }): Promise<SessionQuitResult> {
+    this.sessionCalls.push({ tool: 'quit', input });
+    return {
+      target: input.target,
+      matched: [{ pid: 5120, name: 'Safari', bundleId: 'com.apple.Safari', active: true, hidden: false }],
+      outcomes: [{ name: 'Safari', pid: 5120, signal: 'TERM', state: 'quit' }],
+      ok: true,
+      diagnostics: [],
+    };
+  }
+
   async probe(input: ProbeInput): Promise<EntitlementsProbeReport> {
     return {
       target: input.path,
@@ -193,7 +209,7 @@ describe('offstage MCP server', () => {
     }
   });
 
-  it('lists the nine offstage tools with useful descriptions', async () => {
+  it('lists the ten offstage tools with useful descriptions', async () => {
     const { client, server } = await connect();
     cleanup.push(() => client.close(), () => server.close());
 
@@ -206,6 +222,7 @@ describe('offstage MCP server', () => {
       'offstage_session_apps',
       'offstage_session_input',
       'offstage_session_launch',
+      'offstage_session_quit',
       'offstage_session_screenshot',
       'offstage_session_status',
     ]);

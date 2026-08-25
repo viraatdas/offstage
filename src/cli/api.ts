@@ -56,6 +56,7 @@ import type { EntitlementsProbeReport } from '../probe/index.js';
 import { probeEntitlements } from '../probe/index.js';
 import type { ClassifyHints } from '../router/index.js';
 import { classify, tokenizeShellish } from '../router/index.js';
+import { measurePipeCapacity, pipeWarning } from './pipecheck.js';
 import type { SessionSeams } from './session.js';
 
 /* -------------------------------------------------------------------------- */
@@ -453,11 +454,18 @@ export async function doctor(deps?: Partial<ApiDeps>): Promise<DoctorReport> {
   );
 
   const install = offstageInstall();
+  const warnings = install.staleBuild ? [install.staleBuild] : [];
+  /* A degraded kernel passes every lane probe and still cannot run the work
+     the lanes are for (the pipe-buffer condition that hangs local Xcode
+     builds). Measured, not assumed, and silent when healthy. */
+  const pipe = await measurePipeCapacity();
+  const pipeLine = pipe.bytes === undefined ? undefined : pipeWarning(pipe.bytes);
+  if (pipeLine !== undefined) warnings.push(pipeLine);
 
   return {
     offstageVersion: install.version,
     install,
-    warnings: install.staleBuild ? [install.staleBuild] : [],
+    warnings,
     node: process.version,
     platform: process.platform,
     arch: process.arch,

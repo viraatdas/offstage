@@ -18,12 +18,14 @@ import type {
   SessionInputResult,
   SessionLaunchInput,
   SessionLaunchResult,
+  SessionQuitInput,
+  SessionQuitResult,
   SessionScreenshotInput,
   SessionScreenshotResult,
 } from '../cli/session-control.js';
 import { doctor, probe, route, run } from '../cli/api.js';
 import { sessionStatus } from '../cli/session.js';
-import { sessionApps, sessionInput, sessionLaunch, sessionScreenshot } from '../cli/session-control.js';
+import { sessionApps, sessionInput, sessionLaunch, sessionQuit, sessionScreenshot } from '../cli/session-control.js';
 import type { EntitlementsProbeReport } from '../probe/index.js';
 import type { SessionApp } from '../session/index.js';
 
@@ -33,6 +35,8 @@ export type {
   SessionInputResult,
   SessionLaunchInput,
   SessionLaunchResult,
+  SessionQuitInput,
+  SessionQuitResult,
   SessionScreenshotInput,
   SessionScreenshotResult,
 } from '../cli/session-control.js';
@@ -56,6 +60,7 @@ export interface OffstageCore {
   sessionInput(input: { actions: unknown; user?: string }): Promise<SessionInputResult>;
   sessionApps(input: { user?: string }): Promise<SessionApp[]>;
   sessionLaunch(input: SessionLaunchInput): Promise<SessionLaunchResult>;
+  sessionQuit(input: SessionQuitInput): Promise<SessionQuitResult>;
 }
 
 export function createDefaultCore(): OffstageCore {
@@ -69,5 +74,6 @@ export function createDefaultCore(): OffstageCore {
     sessionInput: (input) => sessionInput(input),
     sessionApps: (input) => sessionApps(input),
     sessionLaunch: (input) => sessionLaunch(input),
+    sessionQuit: (input) => sessionQuit(input),
   };
 }

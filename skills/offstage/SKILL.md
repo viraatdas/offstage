@@ -34,6 +34,7 @@ the CLI: identical behaviour, same code path.
 | See the helper session's screen | `offstage_session_screenshot` | `offstage session screenshot` |
 | Click/type in the helper session | `offstage_session_input` | `offstage session click / type / key` |
 | What is running in it? | `offstage_session_apps` | `offstage session apps` |
+| Close one of them (waits until gone) | `offstage_session_quit` | `offstage session quit <app> [--force]` |
 
 `route` is free and side-effect-free: it reads argv and a few small config
 files and never executes a line of the repository. When you are unsure whether
@@ -144,8 +145,9 @@ offstage_run { lane:"session", command:["sh","-c","mkdir -p /Users/computeruse/A
 offstage_session_launch { target: "/Users/computeruse/Applications/App.app", fresh: true, waitMs: 60000 }
 ```
 
-Use absolute paths under the helper account's home; kill old instances
-(`pkill -x App` via the session lane) before relaunching; expect a freshly
+Use absolute paths under the helper account's home; quit old instances
+(`offstage_session_quit { target: "App" }`, which waits until the app has left
+the session's app list) before relaunching; expect a freshly
 copied bundle to register slowly (hence the generous `waitMs`).
 
 It is **session isolation, not machine isolation**, same kernel, same disk.

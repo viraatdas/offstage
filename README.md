@@ -218,9 +218,9 @@ Three notes from doing this for real:
 - Use the helper account's absolute home path (`/Users/computeruse/...`).
   Inside the session lane `$HOME` is an unresolved shell expansion to the
   router, and relative paths resolve against the helper's home, not yours.
-- Kill old instances before relaunching
-  (`offstage run --lane session -- pkill -x MyApp`). LaunchServices gets
-  confused by several copies of one bundle id registering at once.
+- Kill old instances before relaunching (`offstage session quit MyApp`), which
+  waits until the app has actually left the session's app list. LaunchServices
+  gets confused by several copies of one bundle id registering at once.
 - A freshly copied bundle can take tens of seconds to register while macOS
   verifies the new file. Pass `--wait-ms 60000` instead of retrying.
 
@@ -238,6 +238,7 @@ offstage session share <dir> / unshare <dir>     # grant/revoke read-only tree a
 offstage session screenshot [--out f] [--max px] # capture the HELPER session's display
 offstage session input '<json actions>'          # or: click X Y / type "text" / key "cmd+q"
 offstage session launch <app> [--fresh] [--wait-ms ms]  # open an app and WAIT until it registers; reports its pid
+offstage session quit <app> [--force] [--wait-ms ms]    # quit an app in the helper session and WAIT until it is gone
 offstage session apps                            # apps running in the helper session
 offstage session update                          # rebuild + swap the daemon, no password
 ```
@@ -287,8 +288,8 @@ stdio, so Claude Code, Codex and opencode can all call them.
 Tools: `offstage_doctor`, `offstage_route`, `offstage_run`, `offstage_probe`,
 plus `offstage_session_status`, `offstage_session_launch`,
 `offstage_session_screenshot`, `offstage_session_input`,
-`offstage_session_apps`. There is deliberately no setup tool over MCP: setup
-runs `sudo` and needs a human at a terminal.
+`offstage_session_apps`, `offstage_session_quit`. There is deliberately no
+setup tool over MCP: setup runs `sudo` and needs a human at a terminal.
 
 An agent's loop for GUI work: **launch** (waits until the app registers),
 screenshot, decide, input, screenshot. Points not pixels, and never drive the
@@ -492,6 +493,16 @@ requirement matches stored grant blobs **byte-for-byte**; `sysadminctl
 -autologin` exists and FileVault refuses it on this machine; CGSession-based
 switching is gone on 26.3, so the one human switch remains honest. Not yet done:
 executing the full sudo script on a fresh machine end to end.
+
+`doctor` also measures the kernel's pipe buffers, because a degraded kernel
+passes every lane probe and still cannot run the work the lanes are for. On
+2026-08-24 a machine under heavy multi-agent load handed out 512- and
+1024-byte pipes to every new process, which deadlocks Xcode's toolchain probe:
+local `xcodebuild` builds printed their banner and hung forever, on every
+lane, with no error. The probe measured exactly 512 there and 16384 on healthy
+machines; the warning names the condition and the one observed fix (a reboot).
+Freeing memory, clearing caches, `purge`, and quitting apps were all measured
+and none moved the capacity by a byte.
 
 Two lessons from driving a real app shaped the session lane:
 

@@ -21,6 +21,7 @@ import type { SessionSetupResult, SessionStatus } from './session.js';
 import type {
   SessionInputResult,
   SessionLaunchResult,
+  SessionQuitResult,
   SessionScreenshotResult,
   SessionShareResult,
   SessionUnshareResult,
@@ -55,6 +56,20 @@ export function block(text: string, first: string, rest: string, width = 78): st
   return wrap(text, Math.max(20, width - rest.length)).map((line, index) =>
     index === 0 ? first + line : rest + line,
   );
+}
+
+/**
+ * The short label a doctor warning is headed by. The stale build keeps the
+ * label it has always had; anything else headlines itself with its opening
+ * clause ("a fresh pipe on this machine holds 512 bytes"), which keeps
+ * renderer knowledge out of the producers without a second field on the wire.
+ */
+function warningHeadline(warning: string): string {
+  if (warning.includes('older than its sources')) return 'stale build';
+  const firstLine = warning.split('\n')[0] ?? warning;
+  const cut = firstLine.search(/[;:.] /);
+  const head = cut > 0 ? firstLine.slice(0, cut) : firstLine;
+  return head.length > 60 ? `${head.slice(0, 57)}...` : head;
 }
 
 /** `<label>: <text>`, wrapped so continuation lines align under the text. */
@@ -94,9 +109,10 @@ export function renderDoctor(report: DoctorReport): string[] {
   ];
 
   // An install that is lying about itself outranks any lane report, so it goes
-  // first: a stale build makes everything below it untrustworthy.
+  // first: a stale build makes everything below it untrustworthy. Each
+  // warning is headed by a short label of its own.
   for (const warning of report.warnings) {
-    lines.push(`  ${CROSS} stale build`);
+    lines.push(`  ${CROSS} ${warningHeadline(warning)}`);
     lines.push(...block(warning, '      ', '      '));
     lines.push('');
   }
@@ -543,5 +559,21 @@ export function renderSessionApps(apps: SessionApp[]): string[] {
       }${flags ? ` (${flags})` : ''}`,
     );
   }
+  return lines;
+}
+
+export function renderSessionQuit(result: SessionQuitResult): string[] {
+  if (result.matched.length === 0) {
+    return result.diagnostics.length > 0 ? result.diagnostics : [`Nothing running matches "${result.target}".`];
+  }
+  const lines: string[] = [];
+  for (const outcome of result.outcomes) {
+    lines.push(
+      outcome.state === 'quit'
+        ? `\u2713 ${outcome.name} (pid ${outcome.pid}) quit on SIG${outcome.signal}`
+        : `\u2717 ${outcome.name} (pid ${outcome.pid}) survived SIG${outcome.signal}`,
+    );
+  }
+  lines.push(...result.diagnostics);
   return lines;
 }

@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.3.9
+
+### Added
+
+- **`doctor` measures the kernel's pipe buffers.** A degraded kernel passes
+  every lane probe and still cannot run the work the lanes are for: on
+  2026-08-24 a machine under heavy multi-agent load started handing every new
+  pipe 512 bytes instead of 16384, and every local `xcodebuild` build hung
+  forever after its banner, on every lane, with no error. The new probe
+  measures what a fresh pipe actually holds (a nonblocking write loop against
+  a real pipe, via python3, which the Command Line Tools offstage already
+  requires) and warns below 16384, naming the condition and the one observed
+  fix. Silent when healthy, and absent without python3 rather than guessed.
+- **`offstage session quit <app>`** (`offstage_session_quit` over MCP): quit
+  an app inside the helper session and wait until it has actually left the
+  session's own app list, which is what a screenshot would otherwise show. A
+  signalled app is not a gone app, and `offstage run --lane session -- pkill`
+  told an agent nothing about either. Matches the way `launch` matches, one
+  `pkill -x` reaches every instance of a name (the two-Calculator state is
+  real), and `--force` escalates to SIGKILL only when SIGTERM was ignored.
+- The Release workflow now creates the GitHub release for each tag. The
+  Releases page had kept saying 0.2.1 was latest while npm served 0.3.x.
+
+### Fixed
+
+- `docs/macos-sessions.md` linked to `session-lane.md`, which does not exist;
+  it now points at `native/sessiond/README.md`, which does.
+
 ## 0.3.8
 
 Documentation only. Cut so the README on npm matches the one on GitHub, which

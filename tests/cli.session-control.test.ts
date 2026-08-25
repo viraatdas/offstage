@@ -18,6 +18,7 @@ import {
   sessionInput,
   sessionLaunch,
   sessionOpen,
+  sessionQuit,
   sessionScreenshot,
   sessionShare,
   sessionUnshare,
@@ -507,5 +508,201 @@ describe('offstage session screenshot and apps', () => {
     expect(result.code).toBe(0);
     expect(result.out).toContain('Safari');
     expect(result.out).toContain('com.apple.Safari');
+  });
+});
+
+/* ---------------------------------- quit ---------------------------------- */
+
+describe('sessionQuit', () => {
+  const CALCULATOR = (pid: number) => ({
+    pid,
+    name: 'Calculator',
+    bundleId: 'com.apple.calculator',
+    active: false,
+    hidden: false,
+  });
+
+  it('signals the app by its process name and waits until it leaves the app list', async () => {
+    const base = fakeClient();
+    let appsCalls = 0;
+    const client = {
+      ...base,
+      async apps() {
+        appsCalls += 1;
+        return appsCalls === 1 ? [CALCULATOR(5120)] : [];
+      },
+    } as unknown as FakeClient;
+    const { session } = seams({ client, sleep: async () => {} });
+
+    const result = await sessionQuit({ target: 'Calculator' }, { session });
+
+    expect(result.ok).toBe(true);
+    expect(result.outcomes).toEqual([
+      { name: 'Calculator', pid: 5120, signal: 'TERM', state: 'quit' },
+    ]);
+    const runCall = base.calls.find((call) => call.op === 'run');
+    expect(runCall?.payload).toEqual(['/usr/bin/pkill', '-x', 'Calculator']);
+  });
+
+  it('reaches every instance of the name with one pkill, and reports each pid', async () => {
+    // Measured live: LaunchServices confusion really does leave two
+    // Calculators running at once. `pkill -x` reaches both; the result must
+    // account for both rather than declaring victory on the first.
+    const base = fakeClient();
+    let appsCalls = 0;
+    const client = {
+      ...base,
+      async apps() {
+        appsCalls += 1;
+        return appsCalls === 1 ? [CALCULATOR(10271), CALCULATOR(10304)] : [];
+      },
+    } as unknown as FakeClient;
+    const { session } = seams({ client, sleep: async () => {} });
+
+    const result = await sessionQuit({ target: 'Calculator' }, { session });
+
+    expect(result.ok).toBe(true);
+    expect(result.outcomes.map((outcome) => outcome.pid)).toEqual([10271, 10304]);
+    const pkillCalls = base.calls.filter((call) => call.op === 'run');
+    expect(pkillCalls).toHaveLength(1);
+  });
+
+  it('is a no-op success when nothing matches', async () => {
+    const base = fakeClient();
+    const client = { ...base, async apps() { return []; } } as unknown as FakeClient;
+    const { session } = seams({ client });
+
+    const result = await sessionQuit({ target: 'Calculator' }, { session });
+
+    expect(result.ok).toBe(true);
+    expect(result.outcomes).toEqual([]);
+    expect(result.diagnostics.join(' ')).toContain('Nothing to quit');
+    expect(base.calls.some((call) => call.op === 'run')).toBe(false);
+  });
+
+  it('reports a survivor honestly, and says --force exists', async () => {
+    const base = fakeClient();
+    const client = { ...base, async apps() { return [CALCULATOR(5120)]; } } as unknown as FakeClient;
+    const { session } = seams({ client, sleep: async () => {} });
+
+    const result = await sessionQuit({ target: 'Calculator', waitMs: 1 }, { session });
+
+    expect(result.ok).toBe(false);
+    expect(result.outcomes[0]?.state).toBe('survived');
+    expect(result.diagnostics.join(' ')).toContain('--force');
+    // Only the TERM was sent: force is the caller's decision, not ours.
+    expect(
+      base.calls.some((call) => (JSON.stringify(call.payload) ?? '').includes("'-9'")),
+    ).toBe(false);
+  });
+
+  it('escalates to SIGKILL only when force is set and TERM did not end it', async () => {
+    const base = fakeClient();
+    let appsCalls = 0;
+    const client = {
+      ...base,
+      async apps() {
+        appsCalls += 1;
+        // Alive through the TERM window (the injected clock skips past its
+        // deadline), gone on the first poll after the KILL.
+        return appsCalls <= 2 ? [CALCULATOR(5120)] : [];
+      },
+    } as unknown as FakeClient;
+    /* The clock: the deadline base reads 0 (deadline = 0 + waitMs), and every
+       read after reads 5, so the TERM window (1ms) is already expired at its
+       first check and the KILL window (2000ms from 5) is open. */
+    const stamps = [0, 5];
+    const { session } = seams({
+      client,
+      sleep: async () => {},
+      now: () => (stamps.length > 0 ? (stamps.shift() as number) : 5),
+    });
+
+    const result = await sessionQuit({ target: 'Calculator', force: true, waitMs: 1 }, { session });
+
+    expect(result.ok).toBe(true);
+    expect(result.outcomes[0]?.signal).toBe('KILL');
+    const argvs = base.calls.filter((call) => call.op === 'run').map((call) => call.payload);
+    expect(argvs).toEqual([
+      ['/usr/bin/pkill', '-x', 'Calculator'],
+      ['/usr/bin/pkill', '-9', '-x', 'Calculator'],
+    ]);
+  });
+
+  it('does not escalate when force is set but TERM already worked', async () => {
+    const base = fakeClient();
+    let appsCalls = 0;
+    const client = {
+      ...base,
+      async apps() {
+        appsCalls += 1;
+        return appsCalls === 1 ? [CALCULATOR(5120)] : [];
+      },
+    } as unknown as FakeClient;
+    const { session } = seams({ client, sleep: async () => {} });
+
+    const result = await sessionQuit({ target: 'Calculator', force: true }, { session });
+
+    expect(result.ok).toBe(true);
+    expect(result.outcomes[0]?.signal).toBe('TERM');
+    expect(base.calls.filter((call) => call.op === 'run')).toHaveLength(1);
+  });
+
+  it('matches an .app bundle path the same way launch does', async () => {
+    const base = fakeClient();
+    let appsCalls = 0;
+    const client = {
+      ...base,
+      async apps() {
+        appsCalls += 1;
+        return appsCalls === 1
+          ? [{ pid: 49153, name: 'GestureEngine', bundleId: 'dev.viraat.GestureEngine', active: false, hidden: false }]
+          : [];
+      },
+    } as unknown as FakeClient;
+    const { session } = seams({ client, sleep: async () => {} });
+
+    const result = await sessionQuit(
+      { target: '/Users/viraat/code/GestureEngine/build/GestureEngine.app' },
+      { session },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.outcomes[0]?.name).toBe('GestureEngine');
+    const runCall = base.calls.find((call) => call.op === 'run');
+    expect(runCall?.payload).toEqual(['/usr/bin/pkill', '-x', 'GestureEngine']);
+  });
+
+  it('raises the session error when the app list cannot be read', async () => {
+    const base = fakeClient();
+    const client = {
+      ...base,
+      async apps() {
+        throw new SessionRpcError('the daemon did not answer', 'socket-gone');
+      },
+    } as unknown as FakeClient;
+    const { session } = seams({ client });
+
+    await expect(sessionQuit({ target: 'Calculator' }, { session })).rejects.toThrow(OffstageSessionError);
+  });
+
+  it('is reachable from the CLI and carries --force', async () => {
+    const base = fakeClient();
+    let appsCalls = 0;
+    const client = {
+      ...base,
+      async apps() {
+        appsCalls += 1;
+        return appsCalls === 1 ? [CALCULATOR(5120)] : [];
+      },
+    } as unknown as FakeClient;
+    const { session } = seams({ client, sleep: async () => {} });
+
+    const result = await cli(['session', 'quit', 'Calculator', '--json'], { deps: { session } });
+
+    expect(result.code).toBe(0);
+    const parsed = JSON.parse(result.out) as { ok: boolean; outcomes: Array<{ state: string }> };
+    expect(parsed.ok).toBe(true);
+    expect(parsed.outcomes[0]?.state).toBe('quit');
   });
 });

@@ -21,7 +21,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write        # the GitHub release step; npm needs no token (OIDC)
       id-token: write        # required for OIDC; without it npm falls back to a token
     steps:
       - uses: actions/checkout@v5
@@ -53,3 +53,12 @@ jobs:
       # No NODE_AUTH_TOKEN: OIDC provides the credential, and npm attaches a
       # provenance attestation automatically when publishing this way.
       - run: npm publish --access public
+
+      # A release that only exists on npm is invisible to a human browsing
+      # GitHub, where the Releases page kept saying 0.2.1 was latest long after
+      # npm was serving 0.3.x. Auto-generated notes from the commits since the
+      # previous tag; the CHANGELOG carries the curated story.
+      - name: create the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true

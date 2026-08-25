@@ -45,6 +45,14 @@ const SessionLaunchArgsSchema = z
     user: z.string().min(1).optional(),
   })
   .strict();
+const SessionQuitArgsSchema = z
+  .object({
+    target: z.string().min(1),
+    force: z.boolean().optional(),
+    waitMs: z.number().int().positive().optional(),
+    user: z.string().min(1).optional(),
+  })
+  .strict();
 const SessionScreenshotArgsSchema = z
   .object({
     maxDimension: z.number().int().positive().optional(),
@@ -210,6 +218,20 @@ export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()
     async (args) =>
       callSafely(SessionLaunchArgsSchema, args, async (input) => ({
         content: [jsonText(await core.sessionLaunch(input))],
+      })),
+  );
+
+  server.registerTool(
+    'offstage_session_quit',
+    {
+      title: 'offstage session quit',
+      description:
+        "Quit an app INSIDE the helper macOS session and wait until it has actually left the session's app list. Matches by app name or .app bundle path, the same way offstage_session_launch matches. Use it to reset the helper desktop between GUI tests: leftover windows and dialogs from a previous run are what the next run screenshots. Reports per-app state; `force: true` SIGKILLs whatever ignored SIGTERM.",
+      inputSchema: SessionQuitArgsSchema,
+    },
+    async (args) =>
+      callSafely(SessionQuitArgsSchema, args, async (input) => ({
+        content: [jsonText(await core.sessionQuit(input))],
       })),
   );
 

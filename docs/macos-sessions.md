@@ -198,8 +198,8 @@ direction: **a backgrounded session can be driven**, so none of the Screen
 Sharing protocol work above is needed. What was built instead is the session
 lane: a helper account logged in and left in the background, with a small Swift
 daemon inside its session that offstage talks to over a unix socket. See
-[session-lane.md](session-lane.md) for the design and
-[`native/sessiond/README.md`](../native/sessiond/README.md) for the daemon.
+[native/sessiond/README.md](../native/sessiond/README.md) for the design and
+the wire protocol.
 
 ### One reading above was wrong, and it is worth correcting in place
 

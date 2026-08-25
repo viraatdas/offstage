@@ -47,6 +47,7 @@ import {
   sessionInput,
   sessionLaunch,
   sessionOpen,
+  sessionQuit,
   sessionScreenshot,
   sessionShare,
   sessionUnshare,
@@ -60,6 +61,7 @@ import {
   renderRunHeader,
   renderSessionApps,
   renderSessionInput,
+  renderSessionQuit,
   renderSessionScreenshot,
   renderSessionLaunch,
   renderSessionSetup,
@@ -451,6 +453,29 @@ export function createProgram(io: CliIo): { program: Command; exitCode: () => nu
         io.deps,
       );
       emit(jsonFlag(this), apps, renderSessionApps(apps));
+    });
+
+  session
+    .command('quit')
+    .description('Quit an app inside the helper session, and wait until it is really gone.')
+    .argument('<target>', 'an app name or a path to an .app bundle, matched like `launch` matches')
+    .option('--force', 'SIGKILL whatever SIGTERM did not end', false)
+    .option('--wait-ms <ms>', 'how long to wait for the app to leave the app list', parsePositiveInt)
+    .option('--user <name>', 'helper account (default: the configured one)')
+    .option('--json', 'emit the result as JSON', false)
+    .action(async function quitAction(this: Command, target: string) {
+      const options = this.opts();
+      const result = await sessionQuit(
+        {
+          target,
+          ...(options.force === true ? { force: true } : {}),
+          ...(options.waitMs === undefined ? {} : { waitMs: options.waitMs as number }),
+          ...(options.user === undefined ? {} : { user: options.user as string }),
+        },
+        io.deps,
+      );
+      emit(jsonFlag(this), result, renderSessionQuit(result));
+      if (!result.ok) setExit(1);
     });
 
   session
