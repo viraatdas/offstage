@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.10
+
+Documentation only.
+
+### Changed
+
+- The README has diagrams. Four of them, each drawing a mechanism the prose
+  could only describe: the routing decision from one command to three lanes and
+  a refusal; the session lane as two live GUI sessions on one Mac joined by a
+  single unix socket; the signal model, from collected observations to a lane
+  and the sentence explaining it; and how `argv[0]` becomes a verdict, through
+  `realpath`, a bounded `PATH` walk, and a size-gated SHA-256, with every "no"
+  exit drawn so the flow is complete.
+- They are ASCII rather than Mermaid on purpose. npm does not render Mermaid,
+  and the README is shipped in the tarball, so a Mermaid fence would read as
+  broken markup to anyone looking at the package page. These render identically
+  on GitHub, on npm, and in a terminal.
+- The lane table at the top is gone. The decision diagram says everything it
+  said and the router step besides.
+- `offstage session open` is documented. It was the one real command the
+  commands reference never listed.
+
 ## 0.3.9
 
 ### Added

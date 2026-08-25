@@ -26,16 +26,33 @@ offstage run   -- npx playwright test  # send it there, get one normalized resul
 
 A command goes in. A place to run it comes out.
 
-| Your agent wants to… | Where it runs | Your screen |
-| --- | --- | --- |
-| `npm test`, `vitest`, most commands | in place, already headless | never touched |
-| `npx playwright test --headed`, watch a browser | a Linux container with Xvfb | never touched |
-| `xcodebuild`, `xcrun simctl`, XCUITests, `open -a`, `osascript`, launch a built `.app` | **a second, logged-in macOS account** | never touched |
-| mount a `.dmg`, run an installer, anything that changes the machine | **refused** | nothing runs at all |
+```
+                          your command
+                                │
+                                ▼
+  ┌───────────────────────────────────────────────────────────┐
+  │ router                                                    │
+  │ reads argv and a few config files                         │
+  │ executes nothing, ever                                    │
+  └─────────────────────────────┬─────────────────────────────┘
+  ┌───────────────────┬─────────┴─────────┬───────────────────┐
+  ▼                   ▼                   ▼                   ▼
+  REFUSED             SESSION             CONTAINER           HEADLESS
+  nothing runs        a second macOS      a Linux box with    runs right where
+  anywhere            account, logged in  an Xvfb virtual     you already are
+                      in the background   display
+
+  installer           xcodebuild          --headed            npm test
+  .pkg / .dmg         xcrun simctl        headless: false     vitest
+  hdiutil             open -a             WebGL / GPU flags   plain puppeteer
+                      osascript
+```
 
 Three places to run something, and one refusal. That is the whole product.
+Your screen is never touched by any of the three, and a refused command does
+not run anywhere at all.
 
-The third row is the interesting one: a full macOS GUI session your agent
+The session lane is the interesting one: a full macOS GUI session your agent
 drives, screenshotting what it sees, clicking, typing, reading the app list,
 while you keep working in your own session. Works standalone and as an agent
 tool for **Claude Code**, **Codex**, and **opencode**.
@@ -58,6 +75,22 @@ Linux container; they need a real macOS window server. But they do not need a
 fresh machine, only a display that is not yours. macOS already has one of those:
 another account with its own window server, its own framebuffer, and its own
 keyboard and mouse stream.
+
+```
+                one Mac, two live GUI sessions, at the same time
+
+ ┌─ your session, on the console ─────┐  ┌─ helper session, in the background ┐
+ │ your apps and windows              │  │ offstage-sessiond                  │
+ │ your keyboard and mouse            │  │ the app under test                 │
+ │ your screen                        │  │ its own window server              │
+ │                                    │  │ its own framebuffer                │
+ │ the offstage CLI                   ───▶ its own input stream               │
+ └────────────────────────────────────┘  └────────────────────────────────────┘
+                                        ▲
+                                        │
+              one unix socket, owned by the helper account, at
+                       /tmp/offstage-session/<uid>.sock
+```
 
 There is no Xvfb for macOS and there cannot be one. Its window server is not a
 wire protocol you can reimplement, there is no `$DISPLAY` to redirect, and
@@ -239,6 +272,7 @@ offstage session screenshot [--out f] [--max px] # capture the HELPER session's 
 offstage session input '<json actions>'          # or: click X Y / type "text" / key "cmd+q"
 offstage session launch <app> [--fresh] [--wait-ms ms]  # open an app and WAIT until it registers; reports its pid
 offstage session quit <app> [--force] [--wait-ms ms]    # quit an app in the helper session and WAIT until it is gone
+offstage session open <target> [args...]         # sugar for: run --lane session -- open …
 offstage session apps                            # apps running in the helper session
 offstage session update                          # rebuild + swap the daemon, no password
 ```
@@ -318,6 +352,33 @@ The router does not match a command onto a lane directly. It collects
 lets it explain itself: the lane comes from the strongest signal, and every
 other observation is still there to print.
 
+```
+  npx playwright test --headed
+             │
+             ▼
+  ┌────────────────────────┐   argv tokens, package.json scripts,
+  │ collect signals        │   playwright / vitest / wdio configs,
+  └───────────┬────────────┘   local scripts the command names
+              │
+              ▼
+   argv: --headed                    argues container, and it is
+                                     literal argv, not a guess
+   playwright is headless by         argues headless, but only as
+   default                           a tool default
+              │
+              ▼
+  ┌────────────────────────┐   session > container > headless
+  │ weigh them             │   a refusal beats all three
+  └───────────┬────────────┘   literal argv beats an inferred default
+              │
+              ▼
+   lane:    container
+   reason:  written by the signal that won
+   signals: every observation, still printed
+```
+
+That is exactly what the CLI hands back:
+
 ```console
 $ offstage route -- npx playwright test --headed
 command:    npx playwright test --headed
@@ -378,6 +439,38 @@ copy keeps no link back to its origin: `realpath` points at the copy itself and
 the basename is whatever the copier chose, so only the content is honest. Size
 is compared first, so nothing is hashed unless it is already exactly as long as
 one of those two, and anything over 8 MiB is never read at all.
+
+Start to finish:
+
+```
+  argv[0]
+     │
+     ├─ contains a "/" ──▶ realpath it ───────────────┐
+     │                                                │
+     └─ a bare name ─────▶ walk PATH: first           │
+                           executable regular file    │
+                           wins, 64 dirs max,         │
+                           stat only, no subprocess   │
+                                                      ▼
+                              ┌─────────────────────────────────────┐
+                              │ is that file installer or hdiutil,  │
+                              │ by name?                            │
+                              └──────────┬───────────────┬──────────┘
+                                     yes │               │ no
+                                         ▼               ▼
+                                    REFUSED      exactly the same size
+                                                 as one of them?
+                                                     │        │ no
+                                                 yes │        └──▶ routed
+                                                     ▼             like any
+                                                 SHA-256 of        other
+                                                 the bytes         command
+                                                 matches it?
+                                                     │        │ no
+                                                 yes │        └──▶ routed
+                                                     ▼             normally
+                                                 REFUSED
+```
 
 The `PATH` walk is `stat` only. No `which`, no shell, no subprocess: first
 executable regular file in `PATH` order wins, bounded to 64 directories, which
