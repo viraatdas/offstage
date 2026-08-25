@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.3.11
+
+Documentation only.
+
+### Changed
+
+- The README documents the macOS mechanisms the session lane rests on, under
+  **Under the hood: the macOS work**, with citations to Apple's documentation
+  for every API named: `CGEventTapLocation`, `CGEvent.post(tap:)`,
+  `CGSessionCopyCurrentDictionary()`, `CGPreflightScreenCaptureAccess()`,
+  `CGDisplayBounds`, `CGDisplayCopyDisplayMode`, `LSUIElement` and
+  `NSApplication.ActivationPolicy`.
+- The framebuffer is explained: a background Aqua session keeps a real window
+  server and a real backing store, capture is `screencapture -x -t png` gated on
+  a preflight check, and geometry comes from the display mode. Including the
+  trap that cost real time: on macOS 26 `CGDisplayPixelsWide()` returns the
+  *point* width for a Retina display (1728, not 3456), so the scale factor has
+  to come from `pixelWidth / width` instead.
+- Why input cannot reach your screen, stated as a mechanism rather than a
+  promise: `.cghidEventTap` lands on the console session and is never used,
+  `.cgSessionEventTap` enters the posting process's own session, and the daemon
+  additionally refuses to inject when `kCGSSessionOnConsoleKey` says its session
+  is the one on screen.
+- The Screen Sharing investigation is summarised where people will find it:
+  `screensharingd` really does build a virtual framebuffer, the four
+  `kSSSessionSelect_*` selectors that choose one, the security types it offers
+  (30, 33, 36, 35), why type 30 was implemented, verified working, and then
+  deleted because it moves the console to the authenticating user, and the SRP
+  parameters the account record names outright
+  (`SRP-RFC5054-4096-SHA512-PBKDF2`, the 4096-bit group from RFC 5054).
+
 ## 0.3.10
 
 Documentation only.

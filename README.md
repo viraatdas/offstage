@@ -95,9 +95,9 @@ keyboard and mouse stream.
 There is no Xvfb for macOS and there cannot be one. Its window server is not a
 wire protocol you can reimplement, there is no `$DISPLAY` to redirect, and
 screen capture is gated per session by the OS. What macOS does have is several
-GUI sessions at once via fast user switching. That is what the session lane
-uses. The full investigation, including the cheap answers that do not work, is
-in [`docs/macos-sessions.md`](docs/macos-sessions.md).
+GUI sessions at once via fast user switching, which is what the session lane
+uses. [Under the hood](#under-the-hood-the-macos-work) has the four reasons in
+full, how the framebuffer is read, and why input cannot reach your screen.
 
 Two rules across all three. Asking for **more** isolation than the router chose
 always works (`--lane container`); asking for less is refused. And if a lane's
@@ -528,6 +528,175 @@ not where the safety comes from. The lanes are, and none of them claims to
 contain a change to the machine itself. That is exactly why this is a refusal
 instead of a fourth lane.
 
+## Under the hood: the macOS work
+
+The session lane rests on a few OS behaviours that are worth stating exactly,
+partly so you can check them, partly because most of them cost real
+investigation to find. Everything measured below was measured on **macOS 26.3
+(build 25D125), Apple silicon**.
+
+### There is no Xvfb for macOS, and there cannot be
+
+Xvfb works because X11 is a documented wire protocol over a socket: anyone may
+implement a server, any client may connect to any server, and `$DISPLAY` names
+which one. macOS has none of those four properties.
+
+1. **No protocol.** The window server is `SkyLight.framework`, whose export
+   surface is **2,388 symbols** (`_SLSAddTrackingRegion`,
+   `_SLSAccessWindowBackingStore`, and so on). AppKit calls those in-process and
+   they marshal over a Mach port. Undocumented, and unstable across releases.
+2. **No `$DISPLAY`.** A process finds the window server through the Mach
+   bootstrap namespace of its launchd session, not an address. `launchctl
+   managername` returns `Aqua` in a GUI session; a `Background` session cannot
+   obtain a window server connection at all, which is the familiar "not
+   connected to a window server" failure. The lookup is namespace-based, so
+   there is nothing to redirect.
+3. **Nothing to replace.** SkyLight is not a file on disk; it lives in the dyld
+   shared cache. SIP, library validation and the hardened runtime block
+   injecting into signed system processes, so there is no `LD_PRELOAD` seam.
+4. **TCC is session-keyed regardless.** Screen capture and event injection are
+   gated per session, enforced outside the calling process.
+
+So what macOS offers is a headless *session*, not a headless *server*: a real
+window server rendering to a framebuffer nobody is watching. That is what a CI
+Mac with no monitor is, and it is what the second account gives you.
+
+### The framebuffer, and reading it
+
+A background Aqua session has a real window server with a real backing store.
+Apps render into it normally, they just render where no display is attached.
+Reading it is ordinary screen capture, done from inside that session:
+
+- The daemon calls
+  [`CGPreflightScreenCaptureAccess()`](<https://developer.apple.com/documentation/coregraphics/cgpreflightscreencaptureaccess()>)
+  first, because invoking the capture tool without the grant triggers the system
+  prompt inside a session nobody is looking at, where it can never be answered.
+- Capture itself is `/usr/sbin/screencapture -x -t png`, and `-x` suppresses the
+  shutter sound. Downscaling, when you pass `--max`, is
+  `/usr/bin/sips --resampleHeightWidthMax`.
+- Geometry comes from
+  [`CGDisplayBounds`](<https://developer.apple.com/documentation/coregraphics/cgdisplaybounds(_:)>)
+  for points and
+  [`CGDisplayCopyDisplayMode`](<https://developer.apple.com/documentation/coregraphics/cgdisplaycopydisplaymode(_:)>)
+  for the backing scale, as `pixelWidth / width`.
+
+**A trap worth naming.** On macOS 26 `CGDisplayPixelsWide()` returns the *point*
+width for a Retina display, 1728 rather than 3456, so it cannot be used to
+derive the scale factor. The display
+mode's `pixelWidth / width` is the ratio that is actually backing-store
+accurate. This is why `session screenshot` reports `scale` separately, and why
+input coordinates are points: divide a pixel coordinate from the image by
+`scale` before clicking with it.
+
+### Why input lands there and only there
+
+Core Graphics lets you post a synthetic event at one of several taps, described
+in
+[`CGEventTapLocation`](https://developer.apple.com/documentation/coregraphics/cgeventtaplocation).
+Two of them matter here, and the difference is the entire safety argument:
+
+- `.cghidEventTap` is the HID-level tap. Events posted there enter the machine
+  as though the hardware produced them, which means they land on **the console
+  session**: your screen. offstage never uses it.
+- `.cgSessionEventTap` is the per-session tap. An event posted from a process
+  inside session N enters session N's own stream, and the window server routes
+  it to that session's key window.
+
+So the daemon posts with
+[`CGEvent.post(tap: .cgSessionEventTap)`](<https://developer.apple.com/documentation/coregraphics/cgevent/post(tap:)>),
+from inside the helper session, and there is no code path that posts anywhere
+else. Belt and braces on top of that: before injecting anything it asks
+[`CGSessionCopyCurrentDictionary()`](<https://developer.apple.com/documentation/coregraphics/cgsessioncopycurrentdictionary()>)
+for `kCGSSessionOnConsoleKey`, and refuses outright if its own session turns out
+to be the one on screen. That check fails closed.
+
+### The Screen Sharing route, and why it was not taken
+
+Before the second-account approach, the obvious idea was Apple's own virtual
+display. `screensharingd` really does build one per connection, and its symbols
+name all three pieces: a virtual framebuffer (`VirtualFrameBuffer()`,
+`SSAgentInfo_VirtualFrameBuffer`), a login session (`create login window session
+if necessary`), and synthetic input routed into it
+(`VirtualDisplayHIDFilter.c`, `VirtualDisplayHIDFilterStart`). The count is
+tracked and capped by `RFBMaxVirtualDisplays`.
+
+Which one you get is the client's choice, and `ScreenSharing.framework` exports
+four selectors for it:
+
+```
+kSSSessionSelect_ConnectToConsole            = "ConnectToConsole"
+kSSSessionSelect_RequestConsole              = "RequestConsole"
+kSSSessionSelect_ConnectToVirtualDisplay     = "ConnectToVirtualDisplay"
+kSSSessionSelect_DontConnectToVirtualDisplay = "DontConnectToVirtualDisplay"
+```
+
+Those strings do not appear in `screensharingd` itself, so they are client-side
+state and the wire encoding of the choice is separate and still unidentified.
+
+Getting there means authenticating. On 127.0.0.1:5900 the daemon announces
+`RFB 003.889` and offers security types **30, 33, 36, 35**:
+
+- **Type 30 is legacy Apple/ARD auth**: Diffie-Hellman (generator 2, 1024-bit
+  modulus supplied by the server), the shared secret MD5'd into an AES-128 key,
+  and a 128-byte credential block encrypted ECB. This was implemented and
+  **verified working** against a real daemon, then deleted, because working is
+  exactly the problem. Type 30 predates the session selectors, so the server has
+  nothing to read and falls back to *switching the console* to the
+  authenticating user. Measured directly: `/dev/console` ownership changed, a
+  second `loginwindow` appeared, the session persisted after disconnect, and the
+  framebuffer came back as `3456x2234`, the physical display. It takes the
+  screen it is supposed to protect.
+- **Types 33, 35 and 36 are SASL SRP**, and the local account record names the
+  parameters outright: `SRP-RFC5054-4096-SHA512-PBKDF2`. That is the 4096-bit
+  group from [RFC 5054](https://www.rfc-editor.org/rfc/rfc5054), SHA-512, with
+  the password stretched through PBKDF2. For these the client speaks first, and
+  sweeping the sub-type byte (0 to 255 under type 33, 0 to 63 under 35 and 36)
+  produced exactly one value that ever answers: 30, the one that takes the
+  console. No SRP handshake byte was ever obtained.
+
+Reaching a virtual display therefore needs both an SRP implementation and the
+unknown encoding of `ConnectToVirtualDisplay`, both private and both free to
+change in any macOS release, to save one click after a reboot. Meanwhile the
+cheaper question turned out to answer itself: **a non-console session is fully
+drivable as-is.** Screenshot, click, keyboard, drag and scroll all work in a
+background Aqua session, and a headed Chromium ran a Playwright spec to
+completion in one while the console user kept working. No protocol archaeology
+required.
+
+The full write-up, including the options that were priced and rejected, is in
+[`docs/macos-sessions.md`](docs/macos-sessions.md).
+
+### Corroboration from an unexpected direction
+
+OpenAI's Codex Computer Use ships a macOS agent that does *not* isolate
+anything. It links ScreenCaptureKit and drives the accessibility tree in the
+**user's own session**, and its UI string is literally "Codex is Using Your
+Mac". The `CGSSession*` symbols it references are queries about the session it
+is already in, and it ships a lock-screen guardian plus a login authorization
+plugin precisely because it needs the real session alive. A well-resourced team
+building exactly this did not find a headless path either.
+
+### What the app list taught us
+
+Two findings from driving a real app, both of which changed the daemon:
+
+- **`LSUIElement` apps are invisible to a naive app list.** A menu-bar tool
+  declares
+  [`LSUIElement`](https://developer.apple.com/documentation/bundleresources/information-property-list/lsuielement)
+  and therefore gets the `accessory` case of
+  [`NSApplication.ActivationPolicy`](https://developer.apple.com/documentation/appkit/nsapplication/activationpolicy-swift.enum)
+  rather than `regular`. A list that reports only regular apps makes every
+  launch of such a tool look like a failure. An agent that saw "launched but not
+  running" relaunched six times, then abandoned isolation and opened the app on
+  the user's screen. `session apps` now reports accessory apps too, each entry
+  carrying its `policy`, and `session launch` waits for real registration rather
+  than trusting `open`'s exit code.
+- **`NSWorkspace` lies from a daemon.** The first fix polled `NSWorkspace`,
+  which in a launchd-daemon context served frozen snapshots: Calculator
+  frontmost, the menu bar reading "Calculator", and the list insisting neither
+  existed. The daemon reads Launch Services directly (`lsappinfo`) instead,
+  which is always current.
+
 ## What comes back
 
 Every lane returns the same envelope (`src/contract/index.ts`). `status` is one
@@ -597,19 +766,8 @@ machines; the warning names the condition and the one observed fix (a reboot).
 Freeing memory, clearing caches, `purge`, and quitting apps were all measured
 and none moved the capacity by a byte.
 
-Two lessons from driving a real app shaped the session lane:
-
-- **Menu-bar apps are invisible to naive app lists.** `LSUIElement` apps get
-  macOS's `.accessory` activation policy, so an app list that only reports
-  regular apps makes every launch of such a tool look like a failure. An agent
-  that saw "launched but not running" relaunched six times, then abandoned
-  isolation and opened the app on the user's screen. The daemon now lists
-  accessory apps too (each entry carries its `policy`), and `session launch`
-  waits until the app actually registers instead of trusting `open`'s exit code.
-- **`NSWorkspace` lies from a daemon.** The first fix polled `NSWorkspace`,
-  which served frozen snapshots in that context: Calculator frontmost, menu bar
-  reading "Calculator", list saying nothing existed. The daemon now reads Launch
-  Services directly (`lsappinfo`), which is always current.
+Two findings from driving a real app changed the daemon itself, and they are
+written up under [What the app list taught us](#what-the-app-list-taught-us).
 
 ## Development
 
