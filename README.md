@@ -1,10 +1,16 @@
-# offstage
+<p align="center">
+  <img src="https://raw.githubusercontent.com/viraatdas/offstage/main/assets/wordmark.svg" alt="offstage" width="440">
+</p>
 
-[![CI](https://github.com/viraatdas/offstage/actions/workflows/ci.yml/badge.svg)](https://github.com/viraatdas/offstage/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/@viraatdas/offstage)](https://www.npmjs.com/package/@viraatdas/offstage)
-[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+<p align="center">
+  <strong>Give your coding agent its own invisible Mac desktop.</strong>
+</p>
 
-**Give your coding agent its own invisible Mac desktop.**
+<p align="center">
+  <a href="https://github.com/viraatdas/offstage/actions/workflows/ci.yml"><img src="https://github.com/viraatdas/offstage/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://www.npmjs.com/package/@viraatdas/offstage"><img src="https://img.shields.io/npm/v/@viraatdas/offstage" alt="npm"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="license"></a>
+</p>
 
 Agents can do real GUI work now: `xcodebuild test` against a real scheme,
 booting an iOS simulator, launching your built `.app` and clicking through it,
@@ -104,6 +110,9 @@ always works (`--lane container`); asking for less is refused. And if a lane's
 substrate is missing, the run stops and tells you how to fix it. offstage never
 quietly falls back to your real screen.
 
+(Why a second account rather than a virtual machine? That is the
+[FAQ](#faq)'s first question.)
+
 ## Driving a real app
 
 GestureEngine is a real macOS utility, a trackpad-gesture engine whose app is an
@@ -135,6 +144,18 @@ Installs Node.js guidance if missing, installs `@viraatdas/offstage` globally,
 checks your PATH, runs `offstage doctor`, and on macOS offers the session-lane
 setup below. By hand: `npm i -g @viraatdas/offstage && offstage doctor`. From a
 clone: `npm ci && npm link`.
+
+offstage currently targets the **Mac on Apple Silicon** (arm64); that is the
+supported platform and where every lane has been measured. You also need
+Node.js 20+. The headless and container lanes happen to run anywhere Node
+does, but treat that as a bonus, not a promise.
+
+Either way, end with a bare `offstage`: it prints the welcome screen, the three
+lanes, and the first commands to try.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/viraatdas/offstage/main/assets/welcome.png" alt="The offstage welcome screen: the wordmark, the three lanes, and the first commands to try." width="720">
+</p>
 
 The headless and container lanes work immediately. The session lane needs one
 setup, once, and it is the next section.
@@ -260,6 +281,7 @@ Three notes from doing this for real:
 ## Commands
 
 ```bash
+offstage                                        # the welcome screen: lanes + first commands
 offstage doctor                                  # per-lane availability + fixes
 offstage route  -- <cmd> [--headed] [--cwd dir]  # which lane, why, executes nothing
 offstage run    -- <cmd> [--lane L] [--timeout ms] [--headed] [--cwd dir]
@@ -768,6 +790,67 @@ and none moved the capacity by a byte.
 
 Two findings from driving a real app changed the daemon itself, and they are
 written up under [What the app list taught us](#what-the-app-list-taught-us).
+
+## FAQ
+
+### Why not a virtual machine (Tart, UTM, Parallels)?
+
+Because the isolation offstage sells is *display and input*, not a separate
+computer, and a VM is the most expensive possible way to buy it. The pinned
+Tart image the old `vm` lane used was a **68.8 GB** download; the session
+lane's helper account costs roughly **3 GB** and needs no boot at all. A vm
+lane existed until 0.3.0 and was deleted because it never actually drove a
+real macOS guest: it was a promise, not a mechanism. The session lane does
+the same job on the machine you already own, and every claim in its Status
+entry was measured on real hardware.
+
+[`docs/macos-sessions.md`](docs/macos-sessions.md) records the full
+investigation, including the native macOS mechanisms that were measured and
+rejected on the way to the session lane.
+
+### But a VM isolates more than an account, doesn't it?
+
+Yes. A guest cannot read your home directory at all; the helper account is a
+different uid on the same disk, which is why `offstage session share` grants
+read access one tree at a time and never grants write. That shared-machine
+stance is deliberate: 3 GB and instant, against 69 GB and a boot, with the
+refusals covering the one class of work the account cannot safely take.
+
+### Is my screen really safe?
+
+That claim is a mechanism, not a promise. Input is posted through
+`.cgSessionEventTap`, the per-session entry point, never the global HID tap,
+and the daemon refuses to inject at all while its own session is the one on
+the console. Delivery was checked against the window server's own log: every
+synthetic event landed in the helper session, zero reached the console.
+[Under the hood](#under-the-hood-the-macos-work) names every API involved.
+
+### Why did it refuse my command?
+
+The refusal reads the command, not the program behind it: `argv[0]` resolved
+on disk (through PATH, symlinks, renames, and byte-identical copies of the
+two refused tools), plus any `.pkg` or `.dmg` named anywhere in argv. Work
+that could change the machine is refused outright, on every lane. The same
+honesty applies in reverse: script files, Makefiles, npm scripts and compiled
+binaries are opaque to it, and
+[How the router picks a lane](#how-the-router-picks-a-lane) lists exactly
+what escapes.
+
+### Linux? Windows? Intel Macs?
+
+offstage targets the **Mac on Apple Silicon**. That is where every lane has
+been measured, and it is the supported platform. The headless and container
+lanes happen to work anywhere Node 20+ does (the container lane covers headed
+browser work on Linux), but treat that as a bonus rather than a promise. The
+session lane is macOS-only and that is not a porting backlog: it *is* macOS (a
+second Aqua session, fast user switching, per-session event taps), so there is
+nothing to port.
+
+### Does it slow headless runs down?
+
+No. Most commands route headless, which runs them right where you are: same
+process tree, no container, no overhead. The router exists precisely so that
+`npx playwright test` does not pay for isolation it never needed.
 
 ## Development
 

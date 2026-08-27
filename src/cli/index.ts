@@ -40,7 +40,7 @@ import { Command, InvalidArgumentError } from 'commander';
 import { LANES } from '../contract/index.js';
 import type { Lane } from '../contract/index.js';
 import { ProbeError } from '../probe/index.js';
-import { OffstageUsageError, doctor, probe, route, run } from './api.js';
+import { OffstageUsageError, doctor, offstageVersion, probe, route, run } from './api.js';
 import { OffstageSessionError, sessionSetup, sessionStatus, sessionUpdate } from './session.js';
 import {
   sessionApps,
@@ -52,6 +52,7 @@ import {
   sessionShare,
   sessionUnshare,
 } from './session-control.js';
+import { detectColorMode, renderWelcome } from './brand.js';
 import type { ApiDeps } from './api.js';
 import {
   renderDoctor,
@@ -82,6 +83,13 @@ export interface CliIo {
    * fail with a message about no askpass, and neither is a useful answer.
    */
   isTty?: () => boolean;
+  /**
+   * Is there a terminal on stdout? Only the welcome screen cares: it is the
+   * one renderer that uses color, and a pipe must not receive ANSI codes.
+   */
+  outTty?: () => boolean;
+  /** Width of the stdout terminal in columns, when there is one. */
+  outColumns?: () => number;
   /** Injected into the API. Tests use it to avoid touching real substrates. */
   deps?: Partial<ApiDeps>;
 }
@@ -92,6 +100,8 @@ export const processIo: CliIo = {
   cwd: () => process.cwd(),
   env: process.env,
   isTty: () => process.stdin.isTTY === true,
+  outTty: () => process.stdout.isTTY === true,
+  outColumns: () => process.stdout.columns ?? 80,
 };
 
 function parsePositiveInt(value: string): number {
@@ -232,6 +242,33 @@ export function createProgram(io: CliIo): { program: Command; exitCode: () => nu
       );
       emit(jsonFlag(this), report, renderProbe(report));
     });
+
+
+  /**
+   * The welcome screen exists for the moment after `npm i -g`: a human just
+   * typed `offstage` for the first time and deserves a picture of the tool
+   * before a wall of subcommands. It is the only command that renders color,
+   * and only when stdout is a terminal (see brand.ts).
+   */
+  const welcome = (): void => {
+    const mode = detectColorMode(io.env, io.outTty?.() ?? false);
+    const lines = renderWelcome(
+      { version: offstageVersion(), platform: process.platform, arch: process.arch },
+      mode,
+      io.outColumns?.() ?? 80,
+    );
+    for (const line of lines) io.stdout(line);
+  };
+
+  program
+    .command('welcome')
+    .description('What offstage is, and where to start.')
+    .action(welcome);
+
+  // Bare `offstage` is the first command anyone types. Show the welcome
+  // screen rather than commander's default subcommand wall; `--help` still
+  // reaches the full reference.
+  program.action(welcome);
 
   /* ------------------------------ session ------------------------------- */
 

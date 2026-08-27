@@ -22,3 +22,6 @@ coverage/
 !tests/fixtures/**/*.log
 .rudder-workspaces/
 *.tgz
+
+# agent session journals (ledger skill), never shipped
+.ledger/

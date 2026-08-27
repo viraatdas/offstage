@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.3.12
+
+The install moment, and the question everyone asks.
+
+### Added
+
+- `offstage` with no arguments now prints a welcome screen: the wordmark
+  under a violet-fuchsia-amber gradient, the three lanes in one line each,
+  and the first commands to try. Same output from the explicit
+  `offstage welcome`. It is the only renderer in the CLI that uses color,
+  and only when stdout is a terminal: `NO_COLOR`, `CI` and pipes all get
+  plain text, and a narrow terminal drops the box rather than wrapping art
+  mid-glyph.
+- A README FAQ, leading with "Why not a virtual machine (Tart, UTM,
+  Parallels)?": the 68.8 GB image against the 3 GB helper account, why the
+  vm lane was deleted in 0.3.0, and why a VM lane would invite routing
+  machine-changing commands into "the safe place" when the security model
+  refuses them outright.
+- Brand assets: `assets/wordmark.svg` and `assets/icon.svg`, generated from
+  the same letterforms as the terminal wordmark, and a README hero built on
+  the wordmark. The install section shows the welcome screen itself
+  (`assets/welcome.png`), so the reader sees where the installer lands
+  before running it.
+- `tests/scripts.install.test.ts`: the curl installer gets the same
+  `/bin/sh -n` gate as every other shipped shell script, plus its two
+  header promises (never invokes sudo itself; ends with the welcome screen).
+
+### Changed
+
+- The installer speaks the same visual language as the CLI now: the wordmark
+  banner (truecolor, 256-color, or plain, detected the same way), `▸` steps
+  with `✓`/`!`/`✗` results, and `offstage welcome` as its last word. All
+  logic, env vars, prompts and fix hints unchanged.
+- The README opens on the wordmark hero and tagline instead of a text
+  heading, and the three-lanes section points the "why not a VM?" reader at
+  the FAQ.
+- The supported platform is now stated everywhere it matters: the installer
+  says "macOS on Apple Silicon" up front (and warns honestly on Intel Macs
+  and Linux), the README's install section and FAQ lead with it, and the
+  package keywords carry `arm64` and `apple-silicon`.
+
 ## 0.3.11
 
 Documentation only.

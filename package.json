@@ -1,6 +1,6 @@
 {
   "name": "@viraatdas/offstage",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "description": "Runs browser, UI and macOS test commands without letting them take over your screen: each command runs in place when it is already headless, goes to a Linux container with a virtual display or a background macOS account when it needs real windows, and anything that could change the machine itself is refused outright.",
   "keywords": [
     "testing",
@@ -15,7 +15,9 @@
     "macos",
     "screen-isolation",
     "fast-user-switching",
-    "computer-use"
+    "computer-use",
+    "arm64",
+    "apple-silicon"
   ],
   "license": "MIT",
   "author": {

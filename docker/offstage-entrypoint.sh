@@ -99,7 +99,7 @@ DISPLAY=":${DISPLAY_NUM}"
 export DISPLAY
 
 # Up to 15s of 0.1s polls. Xvfb normally answers in well under a second; the
-# generous ceiling is for a cold, heavily loaded VM.
+# generous ceiling is for a cold, heavily loaded host.
 tries=0
 until xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; do
   tries=$((tries + 1))
