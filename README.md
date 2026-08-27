@@ -896,33 +896,6 @@ the console. Delivery was checked against the window server's own log: every
 synthetic event landed in the helper session, zero reached the console.
 [Under the hood](#under-the-hood-the-macos-work) names every API involved.
 
-### Why did it refuse my command?
-
-The refusal reads the command, not the program behind it: `argv[0]` resolved
-on disk (through PATH, symlinks, renames, and byte-identical copies of the
-two refused tools), plus any `.pkg` or `.dmg` named anywhere in argv. Work
-that could change the machine is refused outright, on every lane. The same
-honesty applies in reverse: script files, Makefiles, npm scripts and compiled
-binaries are opaque to it, and
-[How the router picks a lane](#how-the-router-picks-a-lane) lists exactly
-what escapes.
-
-### Linux? Windows? Intel Macs?
-
-offstage targets the **Mac on Apple Silicon**. That is where every lane has
-been measured, and it is the supported platform. The headless and container
-lanes happen to work anywhere Node 20+ does (the container lane covers headed
-browser work on Linux), but treat that as a bonus rather than a promise. The
-session lane is macOS-only and that is not a porting backlog: it *is* macOS (a
-second Aqua session, fast user switching, per-session event taps), so there is
-nothing to port.
-
-### Does it slow headless runs down?
-
-No. Most commands route headless, which runs them right where you are: same
-process tree, no container, no overhead. The router exists precisely so that
-`npx playwright test` does not pay for isolation it never needed.
-
 ## Development
 
 ```bash

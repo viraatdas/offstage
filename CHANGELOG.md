@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.14
+
+A shorter FAQ.
+
+### Changed
+
+- The FAQ is down to the three questions people actually ask: why not a VM,
+  what a VM isolates that an account does not, and whether the screen is
+  really safe. The other three ("Why did it refuse my command?", platform
+  scope, headless overhead) restated sections that already answer them —
+  the refusal has its own section, the Install section states the platform,
+  and the headless lane's zero overhead is the first thing "The three lanes"
+  says. Duplicated answers drift; the sections stay.
+
 ## 0.3.13
 
 The README now says what it's for, up front.
