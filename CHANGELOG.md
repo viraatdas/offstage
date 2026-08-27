@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.13
+
+The README now says what it's for, up front.
+
+### Changed
+
+- The README leads with what offstage is actually for. A new "What it's for"
+  section sits right under the install block and opens on the session lane —
+  the second account running behind yours — with five concrete uses: the
+  agent clicking through the app it just built, long computer-use loops that
+  run for an hour without you seeing a frame, Xcode work that needs a real
+  macOS window server, headed browser work on the container lane, and the
+  reminder that everything else runs in place at zero cost.
+- The agent-first framing is no longer buried at line 370. The hero states
+  outright that offstage is an MCP tool for Claude Code, Codex, and opencode;
+  the intro carries the one-line `claude mcp add` hookup and points at
+  [For agents](#for-agents) for the other two. No mechanism changed — the
+  README just stopped hiding the headline.
+
 ## 0.3.12
 
 The install moment, and the question everyone asks.

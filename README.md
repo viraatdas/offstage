@@ -7,6 +7,11 @@
 </p>
 
 <p align="center">
+  An MCP tool for <strong>Claude Code</strong>, <strong>Codex</strong>, and <strong>opencode</strong>.<br>
+  Your agent drives a real macOS desktop in the background. Your screen stays yours.
+</p>
+
+<p align="center">
   <a href="https://github.com/viraatdas/offstage/actions/workflows/ci.yml"><img src="https://github.com/viraatdas/offstage/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.npmjs.com/package/@viraatdas/offstage"><img src="https://img.shields.io/npm/v/@viraatdas/offstage" alt="npm"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="license"></a>
@@ -27,6 +32,72 @@ offstage doctor                        # which lanes work on this machine
 offstage route -- npx playwright test  # where would this go? (nothing runs)
 offstage run   -- npx playwright test  # send it there, get one normalized result
 ```
+
+The CLI is the whole product, but the intended driver is an agent. Every
+operation below is also an MCP tool, and hooking it in is one line:
+
+```bash
+claude mcp add offstage -- npx -y --package=@viraatdas/offstage@latest offstage-mcp
+```
+
+That is Claude Code; Codex and opencode are one snippet each, and Claude Code
+can also take it as a plugin — all three are in [For agents](#for-agents).
+From then on the agent tests its own GUI work on the hidden desktop instead of
+on your screen.
+
+## What it's for
+
+The best thing here, and the reason offstage exists, is the **session lane**:
+a second macOS account,
+logged in and running *behind* yours, with its own desktop, its own window
+server, and its own keyboard and mouse stream. Your agent gets a whole Mac to
+drive in the background. You keep the one you are sitting at. What that buys
+you, concretely:
+
+**Your agent clicks through the app it just built.** The oldest failure mode
+in agentic coding: the agent builds your app, launches it to check its work,
+and suddenly your mouse is moving by itself. Through offstage the app opens on
+the helper account's desktop instead, and the agent runs its whole
+look-and-click loop there while you keep typing in your own editor:
+
+```console
+$ offstage run -- ./Scripts/build-app.sh           # headless, in place
+$ offstage session launch --fresh build/MyApp.app  # opens on the hidden desktop
+$ offstage session screenshot                      # what the agent sees; your screen never flickers
+$ offstage session click 640 412
+$ offstage session screenshot                      # did the click do the right thing?
+```
+
+[Driving a real app](#driving-a-real-app) below runs exactly this loop against
+a real menu-bar utility, end to end.
+
+**Long computer-use loops while you keep working.** Screenshot, decide, click,
+screenshot is how computer-use agents operate, and on your own session that
+loop owns your machine for as long as it runs. In the helper session the same
+loop can run for an hour and you never see a frame of it. The MCP tools
+(`offstage_session_screenshot`, `offstage_session_input`, and the rest) exist
+so **Claude Code**, **Codex**, and **opencode** can hold that loop in the
+background while you use the Mac; [For agents](#for-agents) has the one-line
+install for each.
+
+**Xcode work that needs a real macOS window server.** `xcodebuild test` with
+UI tests, `xcrun simctl` booting a simulator, `open -a`, `osascript`: none of
+these can run in a Linux container, and all of them used to mean surrendering
+your screen. The router sends them to the session lane automatically, and the
+simulator boots on the hidden desktop.
+
+```console
+$ offstage run -- xcodebuild test -scheme MyApp    # routed: session
+```
+
+**Headed browser work, without your screen.** `--headed`, `headless: false`,
+WebGL and GPU flags, `cypress open`: web work that genuinely needs a display
+gets the container lane's Xvfb, a real display that just is not yours.
+
+**And everything else stays fast.** `npx playwright test`, `vitest`, plain
+puppeteer are already headless; offstage runs them in place with zero overhead.
+The router's whole job is knowing the difference, and the rest of this README
+is how it knows.
 
 ## What it decides
 
