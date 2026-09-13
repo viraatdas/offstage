@@ -45,6 +45,28 @@ can also take it as a plugin — all three are in [For agents](#for-agents).
 From then on the agent tests its own GUI work on the hidden desktop instead of
 on your screen.
 
+## Your Mac stays usable
+
+This is the point of offstage. The screenshots below are from a real
+`computeruse` account running in the background on the same Mac. The left
+capture is its idle desktop. The right capture is that account after offstage
+booted an iPhone 17 Pro simulator and installed an app. The person at the
+console stayed in their own account for the entire run.
+
+<p align="center">
+  <img src="assets/guest-desktop.jpg" alt="The idle desktop of the background computeruse account." width="48%">
+  <img src="assets/guest-simulator.jpg" alt="An iPhone 17 Pro simulator running on the background computeruse desktop." width="48%">
+</p>
+
+<p align="center">
+  <em>The helper account's desktop, before and while it runs an iOS Simulator. Neither window appeared in the console user's session.</em>
+</p>
+
+The agent sees and drives the helper desktop through screenshots, app listing,
+and input commands. You keep using your own desktop, keyboard, and mouse. Both
+accounts share the Mac's CPU, memory, and disk; the isolation is the separate
+macOS GUI session and its input stream.
+
 ## What it's for
 
 The best thing here, and the reason offstage exists, is the **session lane**:
@@ -83,8 +105,8 @@ install for each.
 **Xcode work that needs a real macOS window server.** `xcodebuild test` with
 UI tests, `xcrun simctl` booting a simulator, `open -a`, `osascript`: none of
 these can run in a Linux container, and all of them used to mean surrendering
-your screen. The router sends them to the session lane automatically, and the
-simulator boots on the hidden desktop.
+your screen. The router sends them to the session lane automatically, so the
+simulator is visible only on the helper desktop pictured above.
 
 ```console
 $ offstage run -- xcodebuild test -scheme MyApp    # routed: session
@@ -840,6 +862,17 @@ fail), so "suite green" does not mean "lane works". What has been run for real:
 | `headless` | real child processes, real timeouts, real log backpressure |
 | `container` | a genuinely headed Chromium inside the container while the host's visible-app set stayed byte-identical before and after |
 | `session` | all five verification rungs inside the real `computeruse` session: screenshots of the hidden desktop; clicks landing on intended Calculator buttons (`75`); typed strings, drag and scroll confirmed by before/after screenshots; a headed Chromium completing a Playwright spec while the console user kept typing into their own apps. Delivery checked against the window server's own log: every synthetic event landed in the helper session, zero reached the console. |
+
+Latest live check (2026-09-12, macOS 26.5): `computeruse` ran the Simulator
+and a booted iPhone 17 Pro while the console remained owned by the primary
+account across 120 samples over ten minutes. The right-hand screenshot in
+[Your Mac stays usable](#your-mac-stays-usable) is from that helper desktop.
+A disposable app was compiled in the helper account, installed into the
+simulator, and launched through `simctl`; the app later returned to the Home
+screen, so the capture demonstrates the isolated simulator and installation,
+not a completed foreground-app UI test. The attempted Vizzy build stalled at
+Xcode's compiler probe because this machine had the documented 512-byte-pipe
+kernel condition.
 
 Setup-specific evidence (measured 2026-08-21, macOS 26.3): the system TCC db
 holds both services path-keyed; root-with-Full-Disk-Access can write it (probed
