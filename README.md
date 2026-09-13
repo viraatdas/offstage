@@ -3,12 +3,12 @@
 </p>
 
 <p align="center">
-  <strong>Give your coding agent its own invisible Mac desktop.</strong>
+  <strong>Give your coding agent a second macOS desktop, in another account.</strong>
 </p>
 
 <p align="center">
   An MCP tool for <strong>Claude Code</strong>, <strong>Codex</strong>, and <strong>opencode</strong>.<br>
-  Your agent drives a real macOS desktop in the background. Your screen stays yours.
+  GUI work runs in a background macOS account. You keep using your own account.
 </p>
 
 <p align="center">
@@ -17,9 +17,17 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="license"></a>
 </p>
 
-offstage is a command router for coding agents. It looks at a command before
-running it and chooses a place where that command cannot take over the desktop
-you are using.
+offstage gives your coding agent another logged-in macOS account on the same
+machine. When the agent boots a Simulator, launches an app, runs an Xcode UI
+test, or clicks through a window, it happens on **that account's desktop**.
+You stay in **your account**, keep your own windows, keyboard, and mouse, and
+never see the agent's GUI work take over your screen.
+
+It is not a virtual machine or a remote computer. It is a second local macOS
+user session with its own desktop and input stream. The accounts share the
+Mac's CPU, memory, and disk.
+
+offstage also routes the other commands an agent runs:
 
 | If an agent asks to run… | offstage runs it… |
 | --- | --- |
@@ -28,11 +36,9 @@ you are using.
 | `xcodebuild`, `xcrun simctl`, XCUITests, `open -a`, or `osascript` | in a second logged-in macOS account with its own desktop |
 | an installer, `.dmg`, `.pkg`, or `hdiutil` | nowhere; offstage refuses it |
 
-The third row is the reason this project exists. A simulator, Xcode UI test,
-or app window still runs on your Mac, but it appears in the helper account's
-desktop instead of yours. The agent can inspect that desktop, click in it, and
-read its app list. Your account stays at the console with your own windows,
-keyboard, and mouse.
+The third row is the reason this project exists. The agent can inspect the
+helper desktop, click in it, and read its app list while your account stays at
+the console.
 
 ```bash
 npm i -g @viraatdas/offstage
