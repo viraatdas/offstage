@@ -17,13 +17,22 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="license"></a>
 </p>
 
-Agents can do real GUI work now: `xcodebuild test` against a real scheme,
-booting an iOS simulator, launching your built `.app` and clicking through it,
-watching a headed Chromium reproduce a layout bug. Left alone, every one of
-those seizes your display and your keyboard.
+offstage is a command router for coding agents. It looks at a command before
+running it and chooses a place where that command cannot take over the desktop
+you are using.
 
-offstage goes in front of every one of them. It reads the command, works out
-what isolation that command actually needs, and runs it there.
+| If an agent asks to run… | offstage runs it… |
+| --- | --- |
+| `npm test`, headless Playwright, or another non-GUI command | in your current shell, because it cannot show a window |
+| a headed browser, `cypress open`, or WebGL | in a Linux container with a virtual display |
+| `xcodebuild`, `xcrun simctl`, XCUITests, `open -a`, or `osascript` | in a second logged-in macOS account with its own desktop |
+| an installer, `.dmg`, `.pkg`, or `hdiutil` | nowhere; offstage refuses it |
+
+The third row is the reason this project exists. A simulator, Xcode UI test,
+or app window still runs on your Mac, but it appears in the helper account's
+desktop instead of yours. The agent can inspect that desktop, click in it, and
+read its app list. Your account stays at the console with your own windows,
+keyboard, and mouse.
 
 ```bash
 npm i -g @viraatdas/offstage
@@ -47,11 +56,11 @@ on your screen.
 
 ## Your Mac stays usable
 
-This is the point of offstage. The screenshots below are from a real
-`computeruse` account running in the background on the same Mac. The left
-capture is its idle desktop. The right capture is that account after offstage
-booted an iPhone 17 Pro simulator and installed an app. The person at the
-console stayed in their own account for the entire run.
+These are not screenshots of the console user's desktop. They are from a real
+`computeruse` helper account, logged in in the background on the same Mac. The
+left capture is its idle desktop. The right capture is that same account after
+offstage booted an iPhone 17 Pro simulator and installed an app. The person at
+the console stayed in their own account for the entire run.
 
 <p align="center">
   <img src="assets/guest-desktop.jpg" alt="The idle desktop of the background computeruse account." width="48%">
@@ -63,18 +72,17 @@ console stayed in their own account for the entire run.
 </p>
 
 The agent sees and drives the helper desktop through screenshots, app listing,
-and input commands. You keep using your own desktop, keyboard, and mouse. Both
-accounts share the Mac's CPU, memory, and disk; the isolation is the separate
-macOS GUI session and its input stream.
+and input commands. You keep using your own desktop, keyboard, and mouse. This
+is a second local macOS user account, not a virtual machine or a separate
+computer: both accounts share the Mac's CPU, memory, and disk, while their GUI
+sessions and input streams stay separate.
 
 ## What it's for
 
-The best thing here, and the reason offstage exists, is the **session lane**:
-a second macOS account,
-logged in and running *behind* yours, with its own desktop, its own window
-server, and its own keyboard and mouse stream. Your agent gets a whole Mac to
-drive in the background. You keep the one you are sitting at. What that buys
-you, concretely:
+The session lane is a second macOS account, logged in and running behind yours,
+with its own desktop, window server, and keyboard and mouse stream. Your agent
+gets that desktop to drive in the background. You keep the one you are sitting
+at. What that buys you, concretely:
 
 **Your agent clicks through the app it just built.** The oldest failure mode
 in agentic coding: the agent builds your app, launches it to check its work,
