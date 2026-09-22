@@ -127,6 +127,9 @@ function fakeClient(options: FakeClientOptions = {}): FakeClient {
     async restart() {
       return { restarting: true };
     },
+    async gatherWindows(pid) {
+      return { pid, windows: [], mainDisplay: { x: 0, y: 0, w: 1728, h: 1117 }, axError: null };
+    },
   };
   return client;
 }
@@ -150,6 +153,7 @@ const defaultScreenshot = async (): Promise<SessionScreenshot> => ({
   width: 1728,
   height: 1117,
   scale: 2,
+  offDisplayWindows: [],
 });
 
 /** An exec that records `chmod` calls and succeeds. */

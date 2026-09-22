@@ -444,7 +444,8 @@ offstage session setup [flags]                   # the one-command install (abov
 offstage session share <dir> / unshare <dir>     # grant/revoke read-only tree access
 offstage session screenshot [--out f] [--max px] # capture the HELPER session's display
 offstage session input '<json actions>'          # or: click X Y / type "text" / key "cmd+q"
-offstage session launch <app> [--fresh] [--wait-ms ms]  # open an app and WAIT until it registers; reports its pid
+offstage session launch <app> [--fresh] [--wait-ms ms] [--no-gather-windows]  # open an app and WAIT until it registers; reports its pid
+offstage session gather <app|pid>                # move its windows that opened off the main display onto it
 offstage session quit <app> [--force] [--wait-ms ms]    # quit an app in the helper session and WAIT until it is gone
 offstage session open <target> [args...]         # sugar for: run --lane session -- open …
 offstage session apps                            # apps running in the helper session
@@ -496,7 +497,8 @@ stdio, so Claude Code, Codex and opencode can all call them.
 Tools: `offstage_doctor`, `offstage_route`, `offstage_run`, `offstage_probe`,
 plus `offstage_session_status`, `offstage_session_launch`,
 `offstage_session_screenshot`, `offstage_session_input`,
-`offstage_session_apps`, `offstage_session_quit`. There is deliberately no
+`offstage_session_apps`, `offstage_session_quit`, `offstage_session_gather`.
+There is deliberately no
 setup tool over MCP: setup runs `sudo` and needs a human at a terminal.
 
 An agent's loop for GUI work: **launch** (waits until the app registers),
@@ -952,6 +954,33 @@ and none moved the capacity by a byte.
 
 Two findings from driving a real app changed the daemon itself, and they are
 written up under [What the app list taught us](#what-the-app-list-taught-us).
+
+Windows on a second display (measured 2026-09-22). The helper account shares
+the Mac's physical displays: here a 1728×1117-point main display at (0,0) and a
+1920-wide second display at x=-1920. `offstage_session_launch
+/Applications/i2Message.app` returned ok, but every screenshot showed an empty
+desktop: `CGWindowListCopyWindowInfo` inside the helper session put the app's
+only window at {x:-1920, y:67, w:1920, h:1050}, on the second display. The
+daemon's capture (`screencapture`) and its input coordinates cover only the
+main display, so the window was invisible and unreachable. (TextEdit happened
+to open on the main display; a SwiftUI `WindowGroup` app picks whichever screen
+it likes.) A standalone Swift binary, run as a child of the daemon through
+`offstage run --lane session` and so inheriting its Accessibility grant, set
+the window's `kAXPosition`/`kAXSize` onto the main display; after that the
+window appeared in screenshots and took input. That logic is now the daemon's
+`gather-windows` op, which `launch` calls once the app registers, and
+`screenshot` now lists on-screen windows that miss the main display
+(`offDisplayWindows`). The op itself has been run only by `smoke.sh` on a
+console session (validation, and a windowless pid); it has **not** yet been
+run in the real helper session, which needs the new daemon installed there
+(`offstage session update`). Until then an installed older daemon answers
+"unknown op", and `launch` says so instead of failing.
+
+A full Data volume (measured the same day, 132 MB free) made `screenshot`
+report a Screen Recording problem: `screencapture` exited 0 but printed
+"cannot write file to intended destination". The daemon now blames TCC only
+when the output says so, and otherwise answers `io` with the free space on its
+temp volume.
 
 ## FAQ
 

@@ -38,6 +38,8 @@ export const SESSION_ERROR_CODES = [
   'tcc-screen-capture',
   'tcc-accessibility',
   'not-found',
+  /* A file could not be written or read back, e.g. the helper's temp volume is full. */
+  'io',
   'internal',
 ] as const;
 
@@ -64,6 +66,22 @@ export class SessionRpcError extends Error {
     this.fix = fix;
     this.performed = performed;
   }
+}
+
+/**
+ * The daemon does not know this op: it was built before the op existed.
+ *
+ * The daemon answers an unrecognised op with `bad-request` and the sentence
+ * "unknown op '<name>'" (native/sessiond/Server.swift). There is no version
+ * negotiation beyond that, so this is how a newer client tells "your daemon is
+ * old" from "your request was wrong".
+ */
+export function isUnknownOpError(error: unknown): boolean {
+  return (
+    error instanceof SessionRpcError &&
+    error.code === 'bad-request' &&
+    /unknown op\b/i.test(error.message)
+  );
 }
 
 /** The socket could not be reached, or died before answering. */
@@ -152,12 +170,38 @@ export interface SessionRunResult {
   pid: number | null;
 }
 
+/** A rectangle in global display points, origin top-left of the main display. */
+export const WindowFrameSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  w: z.number(),
+  h: z.number(),
+});
+
+export type WindowFrame = z.infer<typeof WindowFrameSchema>;
+
+/**
+ * An on-screen window whose bounds miss the main display entirely. The
+ * daemon's capture (`screencapture`) and its input coordinates only cover the
+ * main display, so a window like this is invisible AND unreachable.
+ */
+export const OffDisplayWindowSchema = z.object({
+  pid: z.number().int(),
+  owner: z.string().nullable(),
+  name: z.string().nullable(),
+  bounds: WindowFrameSchema,
+});
+
+export type OffDisplayWindow = z.infer<typeof OffDisplayWindowSchema>;
+
 const ScreenshotSchema = z.object({
   ok: z.literal(true),
   png: z.string(),
   width: z.number(),
   height: z.number(),
   scale: z.number(),
+  /* Absent on daemons older than `gather-windows`; they could not tell. */
+  offDisplayWindows: z.array(OffDisplayWindowSchema).optional(),
 });
 
 /** What `screenshot` resolves to; `png` is decoded bytes, not base64. */
@@ -166,6 +210,36 @@ export interface SessionScreenshot {
   width: number;
   height: number;
   scale: number;
+  /** Windows the capture could not include. Empty when none, or when the daemon predates the check. */
+  offDisplayWindows: OffDisplayWindow[];
+}
+
+/** One window `gather-windows` looked at. `after` is null when it was left alone. */
+export const GatheredWindowSchema = z.object({
+  before: WindowFrameSchema.nullable(),
+  after: WindowFrameSchema.nullable(),
+  /** True when the window now intersects the main display because it was moved. */
+  moved: z.boolean(),
+  error: z.string().optional(),
+});
+
+export type GatheredWindow = z.infer<typeof GatheredWindowSchema>;
+
+const GatherWindowsSchema = z.object({
+  ok: z.literal(true),
+  pid: z.number().int(),
+  windows: z.array(GatheredWindowSchema),
+  mainDisplay: WindowFrameSchema,
+  /** The raw AXError when the app would not list its windows (usually: not up yet). */
+  axError: z.number().int().optional(),
+});
+
+/** What `gather-windows` resolves to. */
+export interface SessionGatherWindows {
+  pid: number;
+  windows: GatheredWindow[];
+  mainDisplay: WindowFrame;
+  axError: number | null;
 }
 
 const InputSchema = z.object({
@@ -527,6 +601,12 @@ export interface SessionClient {
   requestPermissions(): Promise<SessionPermissions>;
   /** Restart the daemon so it re-reads its TCC grants. Needs no privilege. */
   restart(): Promise<{ restarting: boolean }>;
+  /**
+   * Move every window of `pid` that misses the main display onto it, through
+   * Accessibility. Daemons older than this op answer `bad-request` "unknown
+   * op": see {@link isUnknownOpError}.
+   */
+  gatherWindows(pid: number): Promise<SessionGatherWindows>;
 }
 
 /**
@@ -611,6 +691,7 @@ export function createSessionClient(options: SessionClientOptions): SessionClien
         width: final.width,
         height: final.height,
         scale: final.scale,
+        offDisplayWindows: final.offDisplayWindows ?? [],
       };
     },
 
@@ -636,6 +717,16 @@ export function createSessionClient(options: SessionClientOptions): SessionClien
     async restart() {
       const final = await short({ op: 'restart' }, RestartSchema);
       return { restarting: final.restarting };
+    },
+
+    async gatherWindows(pid) {
+      const final = await short({ op: 'gather-windows', pid }, GatherWindowsSchema);
+      return {
+        pid: final.pid,
+        windows: final.windows,
+        mainDisplay: final.mainDisplay,
+        axError: final.axError ?? null,
+      };
     },
 
     async requestPermissions() {

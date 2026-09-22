@@ -44,6 +44,7 @@ import { OffstageUsageError, doctor, offstageVersion, probe, route, run } from '
 import { OffstageSessionError, sessionSetup, sessionStatus, sessionUpdate } from './session.js';
 import {
   sessionApps,
+  sessionGather,
   sessionInput,
   sessionLaunch,
   sessionOpen,
@@ -61,6 +62,7 @@ import {
   renderRun,
   renderRunHeader,
   renderSessionApps,
+  renderSessionGather,
   renderSessionInput,
   renderSessionQuit,
   renderSessionScreenshot,
@@ -538,6 +540,7 @@ export function createProgram(io: CliIo): { program: Command; exitCode: () => nu
     .argument('[args...]', 'extra arguments for `open` (files to open, etc.)')
     .option('--fresh', 'open a new instance even if one is already running (`open -n`)', false)
     .option('--wait-ms <ms>', 'how long to wait for the app to register', parsePositiveInt)
+    .option('--no-gather-windows', 'leave windows that open off the main display where they are')
     .option('--cwd <dir>', 'directory to run against (default: current directory)')
     .option('--user <name>', 'helper account (default: the configured one)')
     .option('--json', 'emit the result as JSON', false)
@@ -551,12 +554,29 @@ export function createProgram(io: CliIo): { program: Command; exitCode: () => nu
           ...(options.cwd === undefined ? {} : { cwd: options.cwd as string }),
           ...(options.fresh ? { fresh: true } : {}),
           ...(options.waitMs === undefined ? {} : { waitMs: options.waitMs as number }),
+          ...(options.gatherWindows === false ? { gatherWindows: false } : {}),
           ...(options.user === undefined ? {} : { user: options.user as string }),
         },
         io.deps,
       );
       emit(jsonFlag(this), result, renderSessionLaunch(result));
       setExit(result.ok ? 0 : 70);
+    });
+
+  session
+    .command('gather')
+    .description("Move an app's windows that opened off the main display onto it, where screenshots and input reach.")
+    .argument('<target>', 'an app name, a path to an .app bundle, or a pid')
+    .option('--user <name>', 'helper account (default: the configured one)')
+    .option('--json', 'emit the result as JSON', false)
+    .action(async function gatherAction(this: Command, target: string) {
+      const options = this.opts();
+      const result = await sessionGather(
+        { target, ...(options.user === undefined ? {} : { user: options.user as string }) },
+        io.deps,
+      );
+      emit(jsonFlag(this), result, renderSessionGather(result));
+      if (!result.ok) setExit(1);
     });
 
   // exitOverride() and the output configuration are per-command and are copied

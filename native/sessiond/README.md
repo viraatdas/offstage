@@ -18,6 +18,7 @@ lives in the repository's `README.md`.
 | `Protocol.swift` | wire types, error codes, `Conn` (framing, JSON lines, EPIPE latch) |
 | `Ops.swift` | identity, `hello`, `access`, `apps`, `screenshot`, `request-permissions` |
 | `Input.swift` | `input`: keycode/modifier tables, all-or-nothing validation, CGEvent posting |
+| `Windows.swift` | `gather-windows` (AX move onto the main display), `screenshot`'s `offDisplayWindows` |
 | `Run.swift` | `run`: PATH resolution, `posix_spawn`, merged-pipe streaming, timeout/cancel |
 | `Server.swift` | op dispatch, per-connection lifecycle |
 | `Csreq.swift` | `--print-csreq`: export the Designated Requirement for TCC pre-seeding |
@@ -39,6 +40,7 @@ swiftc -O -swift-version 5 \
   native/sessiond/Protocol.swift \
   native/sessiond/Ops.swift \
   native/sessiond/Input.swift \
+  native/sessiond/Windows.swift \
   native/sessiond/Run.swift \
   native/sessiond/Server.swift \
   native/sessiond/Csreq.swift \
@@ -103,18 +105,24 @@ beyond). A failure final line is
 `{"ok":false,"error":"<sentence>","code":"<kebab-code>","fix":"<optional command>"}`.
 
 Error codes: `bad-request`, `spawn-failed`, `tcc-screen-capture`,
-`tcc-accessibility`, `not-found`, `no-target`, `on-console`, `internal`.
+`tcc-accessibility`, `not-found`, `no-target`, `on-console`, `io`, `internal`.
+
+An op this daemon does not know answers `bad-request` with the message
+`unknown op '<name>'`. That sentence is the only version signal there is:
+the host matches it (`isUnknownOpError`) to tell an older installed daemon
+from a malformed request.
 
 | op | reply |
 | --- | --- |
 | `hello` | daemon version/pid/protocol; user uid/name/home; session `{onConsole, managerName}`; display points + backing scale; cached TCC `permissions` (preflight only, never prompts) |
 | `access` | `access(2)` as the daemon's real uid, ACLs honoured; directories need `R_OK && X_OK` for `readable` |
 | `run` | `started` event with pid, base64 `output` events (stdout+stderr merged, in order), final `{exitCode, signal, timedOut, durationMs}` |
-| `screenshot` | `{png: <base64>, width, height, scale}`: PNG of this session's framebuffer, downscaled with `sips` when capped |
+| `screenshot` | `{png: <base64>, width, height, scale, offDisplayWindows}`: PNG of this session's MAIN display, downscaled with `sips` when capped. `offDisplayWindows` lists on-screen layer-0 windows whose bounds miss the main display, `[{pid, owner, name, bounds:{x,y,w,h}}]`: they are not in the picture and input cannot reach them |
 | `input` | `{"ok":true,"performed":N}`, or refusal on the first failing action |
 | `apps` | this session's apps with `regular` OR `accessory` activation policy, each entry carrying its `policy`: LSUIElement/menu-bar tools are accessory, and omitting them made every launch of such an app look like a failure |
 | `request-permissions` | raises the TCC prompts **in this session**; idempotent; returns the permissions shape |
 | `restart` | replies, then exits `70`; launchd restarts it (`KeepAlive {SuccessfulExit: false}`) so grants given after start take effect with no root |
+| `gather-windows` | request `{pid}`. Through Accessibility, moves each window of `pid` whose frame misses the main display to `(main.minX, main.minY+30)`, shrunk to at most the main display's width and height−40. Answers `{pid, mainDisplay:{x,y,w,h}, windows:[{before, after, moved, error?}], axError?}`: `after` is `null` for a window left alone, `moved` is true when the window now intersects the main display. An app that will not list its windows yet (common right after launch) answers `windows: []` plus the raw `axError`, not a failure. `tcc-accessibility` when the grant is missing, `not-found` for a pid that does not exist |
 
 `run` environment rules: the daemon's own environment (it carries the Aqua
 session's window-server bootstrap) overlaid with the request's `env`; `DISPLAY`
@@ -287,6 +295,18 @@ reports the Screen Recording grant.
   image, and `scale` is the display's backing scale.
 - **`apps`** returns only `.regular` activation-policy apps; `name` and
   `bundleId` may be `null`.
+- **Only the main display is captured.** The helper account shares the Mac's
+  physical displays, and `screencapture` without `-D` captures the main one.
+  An app may open its window on another display (measured: a SwiftUI app at
+  x=-1920 on a second display), where no screenshot shows it and no input
+  coordinate reaches it. `screenshot` reports such windows in
+  `offDisplayWindows`; `gather-windows` moves them.
+- **A failed capture is classified, not assumed to be TCC.** When
+  `screencapture` leaves no file, the answer is `tcc-screen-capture` only if
+  its output mentions permission; `io` (with the temp volume's free space)
+  when it says it cannot write its file or the volume has under 256 MB free;
+  `internal` otherwise. Measured: a full volume produced "cannot write file to
+  intended destination" with a perfectly good grant.
 
 ## Signing and TCC
 

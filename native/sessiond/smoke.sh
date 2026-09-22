@@ -191,6 +191,30 @@ f = final(call({"op": "input", "actions": "not-an-array"}))
 check("input non-array actions -> failure with performed 0",
       f.get("ok") is False and f.get("performed") == 0, f)
 
+# ---- gather-windows: validation, and a pid that owns no windows -----------
+# Never pointed at a real app: this may be the developer's own console
+# session, and with Accessibility inherited from the terminal the op would
+# really move their windows. A `sleep` child has no AX windows at all.
+f = final(call({"op": "gather-windows"}))
+check("gather-windows without pid -> bad-request", f.get("ok") is False and f.get("code") == "bad-request", f)
+
+sleeper = subprocess.Popen(["/bin/sleep", "30"])
+try:
+    f = final(call({"op": "gather-windows", "pid": sleeper.pid}))
+finally:
+    sleeper.kill()
+    sleeper.wait()
+if f.get("ok") is True:
+    md = f.get("mainDisplay", {})
+    check("gather-windows on a windowless pid moves nothing and reports the main display",
+          f.get("windows") == [] and f.get("pid") == sleeper.pid
+          and md.get("w", 0) > 0 and md.get("h", 0) > 0, f)
+else:
+    # Without Accessibility the op fails closed rather than trying anything.
+    check("gather-windows without Accessibility -> tcc-accessibility with a fix",
+          f.get("code") == "tcc-accessibility" and bool(f.get("fix")), f)
+print("INFO  gather-windows answered %s" % json.dumps(f))
+
 # ---- unknown op / malformed request ---------------------------------------
 f = final(call({"op": "definitely-not-an-op"}))
 check("unknown op -> bad-request", f.get("ok") is False and f.get("code") == "bad-request", f)
@@ -254,6 +278,10 @@ if h.get("permissions", {}).get("screenCapture") is True:
           f.get("ok") is True and png[:8] == b"\x89PNG\r\n\x1a\n", {k: v for k, v in f.items() if k != "png"})
     check("screenshot respects maxDimension",
           max(f.get("width", 0), f.get("height", 0)) == 320, (f.get("width"), f.get("height")))
+    odw = f.get("offDisplayWindows")
+    check("screenshot lists windows the capture cannot include",
+          isinstance(odw, list) and all(set(w) == {"pid", "owner", "name", "bounds"} for w in odw), odw)
+    print("INFO  offDisplayWindows=%d" % len(odw or []))
 else:
     print("SKIP  screenshot (hello.permissions.screenCapture is false)")
 

@@ -15,6 +15,8 @@ import type { RouteDecision } from '../contract/index.js';
 import type { DoctorReport, ProbeInput, RouteInput, RunInput, RunOutcome } from '../cli/api.js';
 import type { SessionStatus } from '../cli/session.js';
 import type {
+  SessionGatherInput,
+  SessionGatherResult,
   SessionInputResult,
   SessionLaunchInput,
   SessionLaunchResult,
@@ -25,13 +27,22 @@ import type {
 } from '../cli/session-control.js';
 import { doctor, probe, route, run } from '../cli/api.js';
 import { sessionStatus } from '../cli/session.js';
-import { sessionApps, sessionInput, sessionLaunch, sessionQuit, sessionScreenshot } from '../cli/session-control.js';
+import {
+  sessionApps,
+  sessionGather,
+  sessionInput,
+  sessionLaunch,
+  sessionQuit,
+  sessionScreenshot,
+} from '../cli/session-control.js';
 import type { EntitlementsProbeReport } from '../probe/index.js';
 import type { SessionApp } from '../session/index.js';
 
 export type { DoctorReport, ProbeInput, RouteInput, RunInput, RunOutcome } from '../cli/api.js';
 export type { SessionStatus } from '../cli/session.js';
 export type {
+  SessionGatherInput,
+  SessionGatherResult,
   SessionInputResult,
   SessionLaunchInput,
   SessionLaunchResult,
@@ -61,6 +72,7 @@ export interface OffstageCore {
   sessionApps(input: { user?: string }): Promise<SessionApp[]>;
   sessionLaunch(input: SessionLaunchInput): Promise<SessionLaunchResult>;
   sessionQuit(input: SessionQuitInput): Promise<SessionQuitResult>;
+  sessionGather(input: SessionGatherInput): Promise<SessionGatherResult>;
 }
 
 export function createDefaultCore(): OffstageCore {
@@ -75,5 +87,6 @@ export function createDefaultCore(): OffstageCore {
     sessionApps: (input) => sessionApps(input),
     sessionLaunch: (input) => sessionLaunch(input),
     sessionQuit: (input) => sessionQuit(input),
+    sessionGather: (input) => sessionGather(input),
   };
 }

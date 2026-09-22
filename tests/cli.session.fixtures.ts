@@ -21,8 +21,10 @@ import type { SessionSeams } from '../src/cli/session.js';
 import type { CliIo } from '../src/cli/index.js';
 import { main } from '../src/cli/index.js';
 import type {
+  OffDisplayWindow,
   SessionClient,
   SessionDiscovery,
+  SessionGatherWindows,
   SessionHello,
 } from '../src/session/index.js';
 
@@ -70,6 +72,9 @@ export function hello(overrides: Partial<SessionHello> = {}): SessionHello {
   };
 }
 
+/** The measured main display: 1728x1117 points at the origin. */
+export const MAIN_DISPLAY = { x: 0, y: 0, w: 1728, h: 1117 };
+
 export const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 export interface FakeClient extends SessionClient {
@@ -82,6 +87,9 @@ export function fakeClient(options: {
   onInput?: () => never;
   apps?: Awaited<ReturnType<SessionClient['apps']>>;
   permissions?: { screenCapture: boolean; accessibility: boolean };
+  offDisplayWindows?: OffDisplayWindow[];
+  /** What `gather-windows` answers for a pid; throw to simulate a refusal or an old daemon. */
+  gatherWindows?: (pid: number) => SessionGatherWindows;
 } = {}): FakeClient {
   const calls: FakeClient['calls'] = [];
   return {
@@ -102,7 +110,7 @@ export function fakeClient(options: {
     async screenshot(screenshotOptions) {
       calls.push({ op: 'screenshot', payload: screenshotOptions });
       options.onScreenshot?.();
-      return { png: PNG, width: 1728, height: 1117, scale: 2 };
+      return { png: PNG, width: 1728, height: 1117, scale: 2, offDisplayWindows: options.offDisplayWindows ?? [] };
     },
     async input(actions) {
       calls.push({ op: 'input', payload: actions });
@@ -124,6 +132,17 @@ export function fakeClient(options: {
     async restart() {
       calls.push({ op: 'restart' });
       return { restarting: true };
+    },
+    async gatherWindows(pid) {
+      calls.push({ op: 'gather-windows', payload: pid });
+      if (options.gatherWindows !== undefined) return options.gatherWindows(pid);
+      // Default: one window, already on the main display, left alone.
+      return {
+        pid,
+        windows: [{ before: { x: 100, y: 80, w: 800, h: 600 }, after: null, moved: false }],
+        mainDisplay: MAIN_DISPLAY,
+        axError: null,
+      };
     },
   };
 }

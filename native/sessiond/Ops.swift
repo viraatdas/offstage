@@ -376,6 +376,47 @@ func runTool(_ path: String, _ args: [String], timeout: TimeInterval = 30) -> (I
     return (p.terminationStatus, String(data: out, encoding: .utf8) ?? "")
 }
 
+/// Free bytes on the volume holding `path`, or nil if statfs fails.
+func freeBytes(_ path: String) -> UInt64? {
+    var fs = statfs()
+    guard statfs(path, &fs) == 0 else { return nil }
+    return UInt64(fs.f_bavail) * UInt64(fs.f_bsize)
+}
+
+/// Why screencapture left no file. Pure over its inputs, so the classification
+/// reads on its own.
+///
+/// This used to be reported as a Screen Recording problem unconditionally.
+/// Measured with the Data volume full (132 MB free): the grant was fine,
+/// screencapture exited 0 and printed "cannot write file to intended
+/// destination", and the answer told the user to re-grant a permission they
+/// already had. TCC is now blamed only when the output says so; the
+/// preflight check before capture already catches a missing grant.
+func classifyScreencaptureFailure(status: Int32, output: String, dir: String, free: UInt64?) -> OpError {
+    let out = output.trimmingCharacters(in: .whitespacesAndNewlines)
+    let detail = "screencapture produced no file (exit \(status))\(out.isEmpty ? "" : ": " + out)"
+    let lower = out.lowercased()
+    if lower.contains("not authorized") || lower.contains("permission") || lower.contains("not permitted") {
+        return OpError(code: ErrCode.tccScreenCapture, message: detail, fix: screenCaptureFix())
+    }
+    let freeMB = free.map { Int($0 / (1024 * 1024)) }
+    // screencapture needs room for a full-resolution PNG (a few MB at most);
+    // anything under 256 MB on the temp volume is treated as the cause when
+    // the write failed.
+    if lower.contains("cannot write file") || (freeMB.map { $0 < 256 } ?? false) {
+        let space = freeMB.map { "\($0) MB free" } ?? "free space unknown"
+        return OpError(code: ErrCode.io,
+                       message: "\(detail) [temp volume for \(dir): \(space)]",
+                       fix: "the helper's temp volume is out of space (\(space)); free some disk space and retry")
+    }
+    return OpError(code: ErrCode.internalError, message: detail)
+}
+
+func screencaptureFailure(status: Int32, output: String, dir: String) -> OpError {
+    classifyScreencaptureFailure(status: status, output: output, dir: dir,
+                                 free: freeBytes(dir) ?? freeBytes(identity.tmpdir))
+}
+
 func opScreenshot(_ req: [String: Any]) throws -> [String: Any] {
     // Check first: invoking /usr/sbin/screencapture without the grant can
     // raise a TCC prompt in this session, which is exactly what we must not do.
@@ -401,9 +442,7 @@ func opScreenshot(_ req: [String: Any]) throws -> [String: Any] {
 
     let (status, toolOut) = runTool("/usr/sbin/screencapture", ["-x", "-t", "png", shot])
     guard status == 0, FileManager.default.fileExists(atPath: shot) else {
-        throw OpError(code: ErrCode.tccScreenCapture,
-                      message: "screencapture produced no file (exit \(status))\(toolOut.isEmpty ? "" : ": " + toolOut.trimmingCharacters(in: .whitespacesAndNewlines))",
-                      fix: screenCaptureFix())
+        throw screencaptureFailure(status: status, output: toolOut, dir: dir)
     }
 
     if let maxDimension {
@@ -426,5 +465,9 @@ func opScreenshot(_ req: [String: Any]) throws -> [String: Any] {
         "width": w,
         "height": h,
         "scale": mainDisplayInfo().scale,
+        // screencapture only sees the main display; say what it missed so
+        // the host can warn instead of showing an "empty" desktop. See
+        // Windows.swift.
+        "offDisplayWindows": offDisplayWindows(),
     ]
 }

@@ -24,6 +24,7 @@ import {
   SessionRpcError,
   SessionUnreachableError,
   createSessionClient,
+  isUnknownOpError,
   parseInputActions,
 } from '../src/session/index.js';
 
@@ -292,6 +293,51 @@ describe('createSessionClient', () => {
     expect(shot.png.equals(png)).toBe(true);
     expect(shot.width).toBe(1280);
     expect(daemon.requests[0]).toEqual({ op: 'screenshot', maxDimension: 1280 });
+  });
+
+  it('reads offDisplayWindows from a screenshot, and defaults it to none for an older daemon', async () => {
+    const png = Buffer.from('\x89PNG\r\n\x1a\nfake', 'binary').toString('base64');
+    const window = { pid: 51313, owner: 'i2Message', name: null, bounds: { x: -1920, y: 67, w: 1920, h: 1050 } };
+    daemon.setHandler((_request, socket) => {
+      answer(socket, { ok: true, png, width: 1, height: 1, scale: 2, offDisplayWindows: [window] });
+    });
+    expect((await client.screenshot()).offDisplayWindows).toEqual([window]);
+
+    daemon.setHandler((_request, socket) => {
+      answer(socket, { ok: true, png, width: 1, height: 1, scale: 2 });
+    });
+    expect((await client.screenshot()).offDisplayWindows).toEqual([]);
+  });
+
+  it('sends gather-windows with the pid and validates the answer', async () => {
+    daemon.setHandler((_request, socket) => {
+      answer(socket, {
+        ok: true,
+        pid: 51313,
+        mainDisplay: { x: 0, y: 0, w: 1728, h: 1117 },
+        windows: [
+          { before: { x: -1920, y: 67, w: 1920, h: 1050 }, after: { x: 0, y: 30, w: 1728, h: 1050 }, moved: true },
+          { before: null, after: null, moved: false, error: 'could not read the window' },
+        ],
+      });
+    });
+
+    const gathered = await client.gatherWindows(51313);
+
+    expect(daemon.requests[0]).toEqual({ op: 'gather-windows', pid: 51313 });
+    expect(gathered.windows).toHaveLength(2);
+    expect(gathered.windows[0]?.moved).toBe(true);
+    expect(gathered.axError).toBeNull();
+  });
+
+  it('surfaces an older daemon\'s unknown-op refusal as something isUnknownOpError recognises', async () => {
+    daemon.setHandler((_request, socket) => {
+      answer(socket, { ok: false, code: 'bad-request', error: "unknown op 'gather-windows'" });
+    });
+
+    const error = await client.gatherWindows(1).catch((caught: unknown) => caught);
+
+    expect(isUnknownOpError(error)).toBe(true);
   });
 
   it('counts performed input actions and sends them verbatim', async () => {

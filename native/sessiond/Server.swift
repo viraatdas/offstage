@@ -16,6 +16,7 @@ func dispatch(_ req: [String: Any], _ conn: Conn) throws -> [String: Any]? {
     case "apps": return try opApps(req)
     case "request-permissions": return try opRequestPermissions(req)
     case "restart": return try opRestart(req)
+    case "gather-windows": return try opGatherWindows(req)
     default: throw badRequest("unknown op '\(op)'")
     }
 }

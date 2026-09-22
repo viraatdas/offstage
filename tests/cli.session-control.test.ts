@@ -364,6 +364,33 @@ describe('sessionLaunch', () => {
     expect(runCall?.payload).toEqual(['open', '-n', '/Users/viraat/code/GestureEngine/build/GestureEngine.app']);
   });
 
+  it('with fresh, snapshots BEFORE `open`, so a fast app\'s own new pid is not mistaken for a stale one', async () => {
+    // Measured: i2Message launched fresh with nothing running registered
+    // before `open -n` returned; the snapshot taken after it listed the new
+    // pid as pre-existing, and the launch "failed" after 20s.
+    const NEW = { ...GESTURE_APP, pid: 51313 };
+    let opened = false;
+    const base = fakeClient();
+    const client = {
+      ...base,
+      async run(request: Parameters<FakeClient['run']>[0]) {
+        opened = true;
+        return await base.run(request);
+      },
+      // Nothing before `open`; the new instance is already listed by the
+      // time `run` resolves.
+      async apps() {
+        return opened ? [NEW] : [];
+      },
+    } as unknown as FakeClient;
+    const { session } = seams({ client, sleep: async () => {} });
+
+    const result = await sessionLaunch({ target: 'GestureEngine', fresh: true, waitMs: 1 }, { session });
+
+    expect(result.ok).toBe(true);
+    expect(result.app?.pid).toBe(51313);
+  });
+
   it('routes bare app names through `open -a`, because bare paths mean files', async () => {
     // Measured on a live helper session: `open Calculator` exits 1 with
     // "The file /Users/computeruse/Calculator does not exist.": open only

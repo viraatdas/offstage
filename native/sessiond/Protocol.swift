@@ -22,6 +22,9 @@ enum ErrCode {
     /// `input` was asked to type into the session the user is looking at.
     /// Refused: the lane exists so that cannot happen.
     static let onConsole = "on-console"
+    /// A file the op needed could not be written or read back: most often the
+    /// helper's temp volume is full. Not a permission problem.
+    static let io = "io"
     static let internalError = "internal"
 }
 

@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased
+
+Windows that open on a second display, and three honest error paths.
+
+### Fixed
+
+- **An app whose window opened on a non-main display looked like an empty
+  desktop.** The helper account shares the Mac's physical displays, and the
+  daemon's screenshot and input coordinates cover only the main one. Measured
+  on 2026-09-22: `offstage_session_launch /Applications/i2Message.app`
+  succeeded, every screenshot was empty, and the app's only window sat at
+  {x:-1920, y:67, w:1920, h:1050} on a second display. The daemon has a new
+  `gather-windows` op that moves such windows onto the main display through
+  Accessibility; `offstage session launch` calls it once the app registers
+  (polling up to 3 s for a first window) and reports each move in
+  `diagnostics` and a new `gather` field. `--no-gather-windows` /
+  `gatherWindows: false` turns it off. A daemon installed before this answers
+  "unknown op"; the launch still succeeds and says to run
+  `offstage session update`. The AX move was verified in the real helper
+  session with a standalone binary; the daemon op itself was exercised only by
+  `smoke.sh` and awaits `offstage session update` to run there.
+- **`launch --fresh` could miss the instance it had just started.** The
+  snapshot of already-running copies was taken after `open -n` returned, so
+  a fast app's own new pid was counted as pre-existing (measured: i2Message
+  reported "a matching app was already running (pid 51313)" after 20 s, and
+  51313 was the new instance). The snapshot now happens before `open`.
+- **A full disk was reported as a Screen Recording problem.** With 132 MB
+  free, `screencapture` exited 0, printed "cannot write file to intended
+  destination", and `screenshot` told the user to re-grant a permission they
+  had. The daemon now answers `tcc-screen-capture` only when the output names
+  a permission problem, `io` with the temp volume's free space when it cannot
+  write, and `internal` otherwise.
+
+### Added
+
+- `screenshot` reports `offDisplayWindows`: on-screen windows the capture
+  cannot include. The CLI prints a warning and the MCP tool adds
+  `offDisplayWindows` and `warnings` to its metadata when there are any.
+- `offstage session gather <app|pid>` and the `offstage_session_gather` MCP
+  tool: run `gather-windows` on demand, for a window that opened later.
+
 ## 0.3.14
 
 A shorter FAQ.

@@ -42,6 +42,13 @@ const SessionLaunchArgsSchema = z
     cwd: z.string().min(1).optional(),
     fresh: z.boolean().optional(),
     waitMs: z.number().int().positive().optional(),
+    gatherWindows: z.boolean().optional(),
+    user: z.string().min(1).optional(),
+  })
+  .strict();
+const SessionGatherArgsSchema = z
+  .object({
+    target: z.union([z.string().min(1), z.number().int().positive()]),
     user: z.string().min(1).optional(),
   })
   .strict();
@@ -212,12 +219,26 @@ export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()
     {
       title: 'offstage session launch',
       description:
-        "Launch an app INSIDE the helper macOS session and wait until it has actually registered (the reply names the app's pid, so a success here means the app is really running in that hidden session, not merely that `open` handed off the request. This is the right way to start any .app for GUI testing: pass the bundle name or a path to the .app bundle. NEVER exec the binary inside Contents/MacOS/ directly (it does not register with LaunchServices and becomes invisible to offstage_session_apps), and NEVER launch apps outside offstage) anything launched outside lands on the USER's screen, which defeats the entire product. `fresh: true` opens a new instance (`open -n`) when one may already be running. If it reports failure after `open` succeeded, take a screenshot before retrying: first launches can be slow while Gatekeeper verifies the bundle.",
+        "Launch an app INSIDE the helper macOS session and wait until it has actually registered (the reply names the app's pid, so a success here means the app is really running in that hidden session, not merely that `open` handed off the request. This is the right way to start any .app for GUI testing: pass the bundle name or a path to the .app bundle. NEVER exec the binary inside Contents/MacOS/ directly (it does not register with LaunchServices and becomes invisible to offstage_session_apps), and NEVER launch apps outside offstage) anything launched outside lands on the USER's screen, which defeats the entire product. `fresh: true` opens a new instance (`open -n`) when one may already be running. The helper session shares the Mac's displays but screenshots and input cover only the MAIN one, so once the app registers its windows that opened on another display are moved onto the main one (reported in `diagnostics` and `gather`); `gatherWindows: false` turns that off. If it reports failure after `open` succeeded, take a screenshot before retrying: first launches can be slow while Gatekeeper verifies the bundle.",
       inputSchema: SessionLaunchArgsSchema,
     },
     async (args) =>
       callSafely(SessionLaunchArgsSchema, args, async (input) => ({
         content: [jsonText(await core.sessionLaunch(input))],
+      })),
+  );
+
+  server.registerTool(
+    'offstage_session_gather',
+    {
+      title: 'offstage session gather',
+      description:
+        "Move an app's windows that sit on a display other than the helper session's main one onto the main display, where offstage_session_screenshot can see them and offstage_session_input can reach them. offstage_session_launch already does this once the app registers; call this when a screenshot warns that windows are off the captured display, or for a window that opened later. `target` is an app name, an .app bundle path (matched like offstage_session_launch) or a pid. Needs Accessibility for offstage-sessiond in that session.",
+      inputSchema: SessionGatherArgsSchema,
+    },
+    async (args) =>
+      callSafely(SessionGatherArgsSchema, args, async (input) => ({
+        content: [jsonText(await core.sessionGather(input))],
       })),
   );
 
@@ -264,7 +285,16 @@ export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()
         const shot = await core.sessionScreenshot({ ...input, out: null });
         return {
           content: [
-            jsonText({ width: shot.width, height: shot.height, scale: shot.scale }),
+            jsonText({
+              width: shot.width,
+              height: shot.height,
+              scale: shot.scale,
+              // Only when there is something to say: an agent staring at an
+              // empty desktop needs to know the window is merely elsewhere.
+              ...(shot.offDisplayWindows.length === 0
+                ? {}
+                : { offDisplayWindows: shot.offDisplayWindows, warnings: shot.diagnostics }),
+            }),
             {
               type: 'image',
               data: shot.png.toString('base64'),

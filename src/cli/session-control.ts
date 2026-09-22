@@ -14,7 +14,14 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import type { DescribeSessionOptions, InputAction, SessionApp } from '../session/index.js';
+import type {
+  DescribeSessionOptions,
+  GatheredWindow,
+  InputAction,
+  OffDisplayWindow,
+  SessionApp,
+  WindowFrame,
+} from '../session/index.js';
 import { describeSession, parseInputActions, shareAcl, unshareAcl } from '../session/index.js';
 import type { ApiDeps, RunOutcome } from './api.js';
 import { OffstageUsageError, run, withDefaults } from './api.js';
@@ -24,6 +31,7 @@ import {
   seamsOf,
   sessionConnect,
 } from './session.js';
+import { describeOffDisplayWindows, gatherWindowsOf } from './session-gather.js';
 
 /* ---------------------------------- share --------------------------------- */
 
@@ -164,6 +172,13 @@ export interface SessionScreenshotResult {
   /** Backing scale of the captured display: pixels per point. */
   scale: number;
   png: Buffer;
+  /**
+   * On-screen windows outside the captured (main) display: they are not in
+   * this picture and input cannot reach them. Empty with an older daemon.
+   */
+  offDisplayWindows: OffDisplayWindow[];
+  /** Warnings about what the picture does not show. */
+  diagnostics: string[];
 }
 
 /** Capture the helper session's screen. Never the console's: the daemon is in the other session. */
@@ -203,7 +218,15 @@ export async function sessionScreenshot(
     await fs.writeFile(out, shot.png);
   }
 
-  return { path: out, width: shot.width, height: shot.height, scale: shot.scale, png: shot.png };
+  return {
+    path: out,
+    width: shot.width,
+    height: shot.height,
+    scale: shot.scale,
+    png: shot.png,
+    offDisplayWindows: shot.offDisplayWindows,
+    diagnostics: describeOffDisplayWindows(shot.offDisplayWindows),
+  };
 }
 
 /* ---------------------------------- input --------------------------------- */
@@ -282,6 +305,25 @@ export interface SessionLaunchInput {
    * can trip a Gatekeeper scan, so this is generous by default.
    */
   waitMs?: number;
+  /**
+   * After the app registers, move any of its windows that opened off the
+   * main display onto it (default true). The helper account shares the Mac's
+   * displays, and screenshots and input cover only the main one; an app that
+   * picks another display is otherwise invisible. `false` leaves windows
+   * wherever the app put them.
+   */
+  gatherWindows?: boolean;
+}
+
+/** What window gathering did after a launch. */
+export interface SessionLaunchGather {
+  /** False when the daemon predates `gather-windows` (see diagnostics). */
+  supported: boolean;
+  /** Every window the daemon saw on the last attempt. */
+  windows: GatheredWindow[];
+  /** How many of them were moved onto the main display. */
+  moved: number;
+  mainDisplay: WindowFrame | null;
 }
 
 export interface SessionLaunchResult {
@@ -295,6 +337,8 @@ export interface SessionLaunchResult {
   /** The registered app, when it appeared. */
   app: SessionApp | null;
   waitedMs: number;
+  /** Window gathering, or null when it was turned off or the launch failed. */
+  gather: SessionLaunchGather | null;
   diagnostics: string[];
 }
 
@@ -365,6 +409,28 @@ export async function sessionLaunch(
     targetArg,
     ...(input.args ?? []),
   ];
+  /* When `fresh` is set, snapshot which matching pids already exist so the
+     poll can demand a NEW one. Matching a stale instance would report success
+     while `open -n`'s process went somewhere else entirely. Measured live:
+     two old copies were running and the poll happily blessed one of them.
+     The snapshot is taken BEFORE `open` runs: taken after, a fast app has
+     already registered and its own new pid lands in the "stale" set (measured:
+     i2Message launched fresh with nothing running reported "a matching app
+     was already running (pid 51313)", and 51313 was the new instance). */
+  const diagnostics: string[] = [];
+  const preExistingPids = new Set<number>();
+  if (input.fresh === true) {
+    try {
+      for (const app of await client.apps()) {
+        if (appMatchesTarget(targetArg, app)) preExistingPids.add(app.pid);
+      }
+    } catch {
+      /* A failed snapshot must not block the launch; the poll below simply
+         loses its freshness guarantee and matches any registration. */
+      diagnostics.push('could not snapshot pre-existing apps; matching any registration.');
+    }
+  }
+
   let openOutput = '';
   try {
     const outcome = await client.run({
@@ -383,6 +449,7 @@ export async function sessionLaunch(
         target: input.target,
         app: null,
         waitedMs: now() - startedAtMs,
+        gather: null,
         diagnostics: [
           outcome.timedOut
             ? '`open` did not return within 30s.'
@@ -395,24 +462,6 @@ export async function sessionLaunch(
     }
   } catch (error) {
     return asSessionError(error);
-  }
-
-  /* When `fresh` is set, snapshot which matching pids already exist so the
-     poll can demand a NEW one. Matching a stale instance would report success
-     while `open -n`'s process went somewhere else entirely. Measured live:
-     two old copies were running and the poll happily blessed one of them. */
-  const diagnostics: string[] = [];
-  let preExistingPids = new Set<number>();
-  if (input.fresh === true) {
-    try {
-      for (const app of await client.apps()) {
-        if (appMatchesTarget(targetArg, app)) preExistingPids.add(app.pid);
-      }
-    } catch {
-      /* A failed snapshot must not block the launch; the poll below simply
-         loses its freshness guarantee and matches any registration. */
-      diagnostics.push('could not snapshot pre-existing apps; matching any registration.');
-    }
   }
 
   const deadline = now() + (input.waitMs ?? SESSION_LAUNCH_DEFAULT_WAIT_MS);
@@ -429,7 +478,22 @@ export async function sessionLaunch(
       (app) => appMatchesTarget(targetArg, app) && !preExistingPids.has(app.pid),
     );
     if (found !== undefined) {
-      return { ok: true, target: input.target, app: found, waitedMs: now() - startedAtMs, diagnostics };
+      let gather: SessionLaunchGather | null = null;
+      if (input.gatherWindows !== false) {
+        const outcome = await gatherWindowsOf(client, found.pid, {
+          label: `${found.name ?? input.target} (pid ${found.pid})`,
+          now,
+          sleep,
+        });
+        diagnostics.push(...outcome.diagnostics);
+        gather = {
+          supported: outcome.supported,
+          windows: outcome.result?.windows ?? [],
+          moved: outcome.moved,
+          mainDisplay: outcome.result?.mainDisplay ?? null,
+        };
+      }
+      return { ok: true, target: input.target, app: found, waitedMs: now() - startedAtMs, gather, diagnostics };
     }
     if (now() >= deadline) {
       const stale = [...preExistingPids];
@@ -438,6 +502,7 @@ export async function sessionLaunch(
         target: input.target,
         app: null,
         waitedMs: now() - startedAtMs,
+        gather: null,
         diagnostics: [
           `"${input.target}" did not register with the helper session within the wait window.`,
           ...(stale.length > 0
@@ -451,6 +516,82 @@ export async function sessionLaunch(
     }
     await sleep(SESSION_LAUNCH_POLL_MS);
   }
+}
+
+/* --------------------------------- gather --------------------------------- */
+
+export interface SessionGatherInput {
+  /** App name or `.app` path, matched like `launch` matches, or a pid. */
+  target: string | number;
+  user?: string;
+}
+
+export interface SessionGatherResult {
+  target: string;
+  /** One entry per matched app. */
+  apps: Array<{ pid: number; name: string | null; windows: GatheredWindow[]; moved: number }>;
+  mainDisplay: WindowFrame | null;
+  /** False when nothing matched, the daemon predates the op, or it could not run. */
+  ok: boolean;
+  diagnostics: string[];
+}
+
+/**
+ * Move an app's windows that sit off the captured main display onto it, once.
+ * `launch` already does this after registering; this is for windows that open
+ * later, or an app launched with `gatherWindows: false`.
+ */
+export async function sessionGather(
+  input: SessionGatherInput,
+  deps?: Partial<ApiDeps>,
+): Promise<SessionGatherResult> {
+  const d = withDefaults(deps);
+  const seams = seamsOf(d);
+  const raw = typeof input?.target === 'number' ? String(input.target) : input?.target;
+  if (typeof raw !== 'string' || raw.trim() === '') {
+    throw new OffstageUsageError('offstage session gather needs an app name, a path to an .app bundle, or a pid.');
+  }
+  const target = raw.trim();
+  const { client } = await sessionConnect(d, input.user);
+
+  let matched: Array<Pick<SessionApp, 'pid' | 'name'>>;
+  if (/^\d+$/.test(target)) {
+    matched = [{ pid: Number(target), name: null }];
+  } else {
+    try {
+      matched = (await client.apps()).filter((app) => appMatchesTarget(target, app));
+    } catch (error) {
+      return asSessionError(error);
+    }
+  }
+  if (matched.length === 0) {
+    return {
+      target,
+      apps: [],
+      mainDisplay: null,
+      ok: false,
+      diagnostics: [`No app running in the helper session matches "${target}". Launch it with \`offstage session launch\` first.`],
+    };
+  }
+
+  const result: SessionGatherResult = { target, apps: [], mainDisplay: null, ok: true, diagnostics: [] };
+  for (const app of matched) {
+    const outcome = await gatherWindowsOf(client, app.pid, {
+      label: `${app.name ?? target} (pid ${app.pid})`,
+      now: seams.now ?? Date.now,
+      sleep: seams.sleep ?? defaultSleep,
+      waitMs: 0,
+    });
+    result.diagnostics.push(...outcome.diagnostics);
+    if (outcome.result === null) {
+      result.ok = false;
+      if (!outcome.supported) break; // the same old daemon answers every pid the same way
+      continue;
+    }
+    result.mainDisplay = outcome.result.mainDisplay;
+    result.apps.push({ pid: app.pid, name: app.name, windows: outcome.result.windows, moved: outcome.moved });
+  }
+  return result;
 }
 
 /* ---------------------------------- quit ---------------------------------- */

@@ -19,6 +19,7 @@ import type { EntitlementsProbeReport } from '../probe/index.js';
 import type { DoctorReport, RunOutcome } from './api.js';
 import type { SessionSetupResult, SessionStatus } from './session.js';
 import type {
+  SessionGatherResult,
   SessionInputResult,
   SessionLaunchResult,
   SessionQuitResult,
@@ -513,11 +514,25 @@ export function renderSessionLaunch(result: SessionLaunchResult): string[] {
       app?.bundleId ? ` [${app.bundleId}]` : ''
     }`,
   ];
+  for (const diagnostic of result.diagnostics) lines.push(...block(diagnostic, '  ! ', '    '));
   lines.push(
     ...wrap(
       "It is running on the OTHER account's display. Screenshot before and after any input; nothing here touched the user's screen.",
     ),
   );
+  return lines;
+}
+
+/** `offstage session gather`: which windows moved onto the captured display. */
+export function renderSessionGather(result: SessionGatherResult): string[] {
+  const moved = result.apps.reduce((sum, app) => sum + app.moved, 0);
+  const seen = result.apps.reduce((sum, app) => sum + app.windows.length, 0);
+  const lines = [
+    result.ok
+      ? `${CHECK} "${result.target}": ${seen} window${seen === 1 ? '' : 's'} checked, ${moved} moved onto the captured display`
+      : `${CROSS} could not gather the windows of "${result.target}"`,
+  ];
+  for (const diagnostic of result.diagnostics) lines.push(...block(diagnostic, '  ', '    '));
   return lines;
 }
 
@@ -530,6 +545,7 @@ export function renderSessionScreenshot(result: SessionScreenshotResult): string
   lines.push(
     `  ${Math.round(result.width / result.scale)}×${Math.round(result.height / result.scale)} points: divide pixel coordinates by ${result.scale} before passing them to \`offstage session click\`.`,
   );
+  for (const diagnostic of result.diagnostics) lines.push(...block(diagnostic, '  ! ', '    '));
   return lines;
 }
 

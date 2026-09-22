@@ -35,6 +35,7 @@ the CLI: identical behaviour, same code path.
 | Click/type in the helper session | `offstage_session_input` | `offstage session click / type / key` |
 | What is running in it? | `offstage_session_apps` | `offstage session apps` |
 | Close one of them (waits until gone) | `offstage_session_quit` | `offstage session quit <app> [--force]` |
+| Screenshot warns a window is off the captured display | `offstage_session_gather` | `offstage session gather <app\|pid>` |
 
 `route` is free and side-effect-free: it reads argv and a few small config
 files and never executes a line of the repository. When you are unsure whether
@@ -144,6 +145,13 @@ are refused outright, but this is not that:
 offstage_run { lane:"session", command:["sh","-c","mkdir -p /Users/computeruse/Applications && cp -R build/App.app /Users/computeruse/Applications/"] }
 offstage_session_launch { target: "/Users/computeruse/Applications/App.app", fresh: true, waitMs: 60000 }
 ```
+
+The helper session shares the Mac's displays, but screenshots and input cover
+only its **main** display. `offstage_session_launch` moves any of the app's
+windows that opened on another display onto the main one and says so in its
+`diagnostics`; if a screenshot comes back with `offDisplayWindows`/`warnings`
+(an "empty" desktop while the app is running), call `offstage_session_gather`
+for that app rather than relaunching it.
 
 Use absolute paths under the helper account's home; quit old instances
 (`offstage_session_quit { target: "App" }`, which waits until the app has left

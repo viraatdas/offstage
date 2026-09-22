@@ -29,6 +29,7 @@ swiftc \
    "$dir"/Protocol.swift \
    "$dir"/Ops.swift \
    "$dir"/Input.swift \
+   "$dir"/Windows.swift \
    "$dir"/Run.swift \
    "$dir"/Server.swift \
    "$dir"/Csreq.swift \

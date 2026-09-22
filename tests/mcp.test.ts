@@ -16,6 +16,8 @@ import type {
   RouteInput,
   RunInput,
   RunOutcome,
+  SessionGatherInput,
+  SessionGatherResult,
   SessionInputResult,
   SessionScreenshotInput,
   SessionScreenshotResult,
@@ -39,6 +41,7 @@ const FAKE_PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 
 class FakeCore implements OffstageCore {
   screenshotPath: string | null = null;
+  offDisplayWindows: SessionScreenshotResult['offDisplayWindows'] = [];
   /** Every session tool call, so a test can assert what reached the seam. */
   readonly sessionCalls: Array<{ tool: string; input: unknown }> = [];
 
@@ -125,7 +128,15 @@ class FakeCore implements OffstageCore {
 
   async sessionScreenshot(input: SessionScreenshotInput): Promise<SessionScreenshotResult> {
     this.sessionCalls.push({ tool: 'screenshot', input });
-    return { path: null, width: 1728, height: 1117, scale: 2, png: FAKE_PNG };
+    return {
+      path: null,
+      width: 1728,
+      height: 1117,
+      scale: 2,
+      png: FAKE_PNG,
+      offDisplayWindows: this.offDisplayWindows,
+      diagnostics: this.offDisplayWindows.length === 0 ? [] : ['1 window(s) are on a display this capture doesn\'t include'],
+    };
   }
 
   async sessionInput(input: { actions: unknown; user?: string }): Promise<SessionInputResult> {
@@ -153,6 +164,18 @@ class FakeCore implements OffstageCore {
       target: input.target,
       app: { pid: 45272, name: 'GestureEngine', bundleId: 'dev.viraat.GestureEngine', active: true, hidden: false },
       waitedMs: 1200,
+      gather: { supported: true, windows: [], moved: 0, mainDisplay: { x: 0, y: 0, w: 1728, h: 1117 } },
+      diagnostics: [],
+    };
+  }
+
+  async sessionGather(input: SessionGatherInput): Promise<SessionGatherResult> {
+    this.sessionCalls.push({ tool: 'gather', input });
+    return {
+      target: String(input.target),
+      apps: [],
+      mainDisplay: { x: 0, y: 0, w: 1728, h: 1117 },
+      ok: true,
       diagnostics: [],
     };
   }
@@ -209,7 +232,7 @@ describe('offstage MCP server', () => {
     }
   });
 
-  it('lists the ten offstage tools with useful descriptions', async () => {
+  it('lists the eleven offstage tools with useful descriptions', async () => {
     const { client, server } = await connect();
     cleanup.push(() => client.close(), () => server.close());
 
@@ -220,6 +243,7 @@ describe('offstage MCP server', () => {
       'offstage_route',
       'offstage_run',
       'offstage_session_apps',
+      'offstage_session_gather',
       'offstage_session_input',
       'offstage_session_launch',
       'offstage_session_quit',
@@ -302,6 +326,43 @@ describe('offstage MCP server', () => {
     );
     // An agent gets bytes; nothing is dropped into the user's repository.
     expect((core.sessionCalls[0]?.input as SessionScreenshotInput).out).toBeNull();
+  });
+
+  it('adds the off-display windows and a warning to the screenshot metadata only when there are some', async () => {
+    const core = new FakeCore();
+    core.offDisplayWindows = [
+      { pid: 51313, owner: 'i2Message', name: 'i2Message', bounds: { x: -1920, y: 67, w: 1920, h: 1050 } },
+    ];
+    const { client, server } = await connect(core);
+    cleanup.push(() => client.close(), () => server.close());
+
+    const parsed = CallToolResultSchema.parse(
+      await client.callTool({ name: 'offstage_session_screenshot', arguments: {} }, CallToolResultSchema),
+    );
+    const meta = JSON.parse(parsed.content[0]?.type === 'text' ? parsed.content[0].text : '{}') as {
+      offDisplayWindows?: unknown[];
+      warnings?: string[];
+    };
+    expect(meta.offDisplayWindows).toHaveLength(1);
+    expect(meta.warnings?.[0]).toContain("on a display this capture doesn't include");
+  });
+
+  it('passes gatherWindows through offstage_session_launch and exposes offstage_session_gather', async () => {
+    const core = new FakeCore();
+    const { client, server } = await connect(core);
+    cleanup.push(() => client.close(), () => server.close());
+
+    await client.callTool(
+      { name: 'offstage_session_launch', arguments: { target: 'i2Message', gatherWindows: false } },
+      CallToolResultSchema,
+    );
+    await client.callTool({ name: 'offstage_session_gather', arguments: { target: 51313 } }, CallToolResultSchema);
+
+    expect(core.sessionCalls.map((call) => call.tool)).toEqual(['launch', 'gather']);
+    expect((core.sessionCalls[0]?.input as { gatherWindows?: boolean }).gatherWindows).toBe(false);
+    expect((core.sessionCalls[1]?.input as { target: unknown }).target).toBe(51313);
+    const tools = (await client.listTools()).tools;
+    expect(tools.find((tool) => tool.name === 'offstage_session_launch')?.description).toContain('gatherWindows: false');
   });
 
   it('validates input actions against the daemon\'s own schema before opening a socket', async () => {
