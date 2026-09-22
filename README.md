@@ -56,25 +56,70 @@ claude mcp add offstage -- npx -y --package=@viraatdas/offstage@latest offstage-
 ```
 
 That is Claude Code; Codex and opencode are one snippet each, and Claude Code
-can also take it as a plugin — all three are in [For agents](#for-agents).
-From then on the agent tests its own GUI work on the hidden desktop instead of
-on your screen.
+can also take it as a plugin. All three are in [For agents](#for-agents). Or
+skip the snippets and hand the agent the block below.
+
+## Copy this into your agent
+
+Paste this into Claude Code, Codex, or opencode as a message. The agent hooks
+offstage up and keeps its GUI work off your screen from then on. Drop the same
+block into your project's `AGENTS.md` or `CLAUDE.md` to make it permanent.
+
+```text
+Use offstage (https://github.com/viraatdas/offstage) for any command that
+could open a window or take focus on my Mac. It runs GUI work in a second,
+logged-in macOS account, so nothing appears on my screen.
+
+Set it up if the offstage_* MCP tools are not already available:
+- Claude Code: claude mcp add offstage -- npx -y --package=@viraatdas/offstage@latest offstage-mcp
+- Codex: add to ~/.codex/config.toml
+    [mcp_servers.offstage]
+    command = "npx"
+    args = ["-y", "--package=@viraatdas/offstage@latest", "offstage-mcp"]
+- opencode: add to opencode.json
+    "mcp": { "offstage": { "type": "local",
+      "command": ["npx", "-y", "--package=@viraatdas/offstage@latest", "offstage-mcp"] } }
+The tools appear once I restart you. Until then, or if MCP is not an option,
+install the CLI (npm i -g @viraatdas/offstage) and use `offstage route -- <cmd>`
+and `offstage run -- <cmd>`; they are the same code path as the tools.
+
+Rules:
+1. Never run these directly: Playwright, Puppeteer, Cypress, or WebDriver
+   with --headed or headless: false; screen or video capture; xcodebuild;
+   xcrun simctl; XCUITests; simulators; open -a; osascript; or a built .app.
+   Call offstage_route to see which lane the command gets, then offstage_run
+   to run it there. Commands that are already headless (npm test, npx
+   playwright test) run in place at no cost, and that is the right answer.
+2. To test an app with a GUI: offstage_session_launch (it waits until the app
+   registers and returns its pid), then offstage_session_screenshot, decide,
+   offstage_session_input, and screenshot again to confirm. Coordinates are
+   points, not pixels: divide a pixel coordinate by the screenshot's scale.
+   offstage_session_quit closes the app when you are done.
+3. status "skipped" means nothing ran anywhere. Show me the fix line from
+   diagnostics and stop. Never re-run the command outside offstage to get
+   past it: that puts it on my screen.
+4. "Refused" (an installer, .pkg, .dmg, or hdiutil) means offstage will not
+   run it on any lane, and no flag overrides that. Tell me; running it is my
+   call, not yours.
+5. Two things only I can do, so ask instead of working around them: if a run
+   errors because the helper account cannot read my repository, I run
+   `offstage session share <dir>`; if the session lane is not set up, I run
+   `offstage session setup --create` in a terminal (it needs sudo).
+```
 
 ## Your Mac stays usable
 
-These are not screenshots of the console user's desktop. They are from a real
-`computeruse` helper account, logged in in the background on the same Mac. The
-left capture is its idle desktop. The right capture is that same account after
-offstage booted an iPhone 17 Pro simulator and installed an app. The person at
-the console stayed in their own account for the entire run.
+Two captures from one Mac, labeled by account. The top one is a Ghostty window
+in the account the person at the keyboard was using. In it, Claude Code asked
+offstage whether the helper account was up and what was running there. The
+answer was `off your screen: yes`, with an app called i2Message running. The
+bottom one is the `computeruse` helper account's own desktop a minute later.
+A second Claude Code session was testing i2Message there through offstage's MCP
+tools, on the app's demo data. None of it appeared on the console user's
+screen, which was playing a video in a browser during the run.
 
 <p align="center">
-  <img src="assets/guest-desktop.jpg" alt="The idle desktop of the background computeruse account." width="48%">
-  <img src="assets/guest-simulator.jpg" alt="An iPhone 17 Pro simulator running on the background computeruse desktop." width="48%">
-</p>
-
-<p align="center">
-  <em>The helper account's desktop, before and while it runs an iOS Simulator. Neither window appeared in the console user's session.</em>
+  <img src="https://raw.githubusercontent.com/viraatdas/offstage/main/assets/two-accounts.jpg" alt="Two labeled captures from one Mac. Top, your account: a Ghostty window where Claude Code runs offstage session status and sees the helper account running in the background. Bottom, the computeruse account: its own desktop, where an agent is testing the i2Message app." width="100%">
 </p>
 
 The agent sees and drives the helper desktop through screenshots, app listing,
@@ -120,7 +165,7 @@ install for each.
 UI tests, `xcrun simctl` booting a simulator, `open -a`, `osascript`: none of
 these can run in a Linux container, and all of them used to mean surrendering
 your screen. The router sends them to the session lane automatically, so the
-simulator is visible only on the helper desktop pictured above.
+simulator is visible only on the helper account's desktop.
 
 ```console
 $ offstage run -- xcodebuild test -scheme MyApp    # routed: session
@@ -458,16 +503,9 @@ An agent's loop for GUI work: **launch** (waits until the app registers),
 screenshot, decide, input, screenshot. Points not pixels, and never drive the
 console session.
 
-The rule that keeps it honest, worth pasting into any project's AGENTS.md:
-
-```markdown
-Before running anything that could open a window or steal focus: Playwright/
-Puppeteer/Cypress/WebDriver, --headed, screen/video capture, xcodebuild,
-xcrun simctl, open/-a, osascript, launching a built .app: use the offstage
-MCP tools. status:'skipped' means the substrate is missing: report the fix,
-never re-run the command directly to get past it, and never launch apps or run
-GUI commands outside offstage: that puts them on the user's screen.
-```
+The rules that keep it honest are the numbered list in
+[Copy this into your agent](#copy-this-into-your-agent), written to be pasted
+as a message or into a project's `AGENTS.md` or `CLAUDE.md`.
 
 ## How the router picks a lane
 
@@ -879,14 +917,20 @@ fail), so "suite green" does not mean "lane works". What has been run for real:
 
 Latest live check (2026-09-12, macOS 26.5): `computeruse` ran the Simulator
 and a booted iPhone 17 Pro while the console remained owned by the primary
-account across 120 samples over ten minutes. The right-hand screenshot in
-[Your Mac stays usable](#your-mac-stays-usable) is from that helper desktop.
-A disposable app was compiled in the helper account, installed into the
+account across 120 samples over ten minutes. A disposable app was compiled in the helper account, installed into the
 simulator, and launched through `simctl`; the app later returned to the Home
 screen, so the capture demonstrates the isolated simulator and installation,
 not a completed foreground-app UI test. The attempted Vizzy build stalled at
 Xcode's compiler probe because this machine had the documented 512-byte-pipe
 kernel condition.
+
+The image in [Your Mac stays usable](#your-mac-stays-usable) was captured on
+2026-09-22 (macOS 26.5). `offstage session status` reported the helper session
+off the console, and `offstage session apps` listed i2Message in it. The top
+panel is a window-level capture of the Ghostty window, so it shows that window
+only, not the rest of the console desktop. The bottom panel is
+`offstage session screenshot` of the helper account, taken about a minute
+later.
 
 Setup-specific evidence (measured 2026-08-21, macOS 26.3): the system TCC db
 holds both services path-keyed; root-with-Full-Disk-Access can write it (probed
