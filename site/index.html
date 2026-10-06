@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>offstage: a second Mac desktop for your coding agent</title>
+    <meta
+      name="description"
+      content="offstage gives Claude Code, Codex and opencode a second, logged-in macOS account to do GUI work in. Simulators, Xcode UI tests and the app your agent just built open on that account's desktop, not yours."
+    />
+    <link rel="canonical" href="https://offstage.viraat.dev/" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://offstage.viraat.dev/" />
+    <meta property="og:title" content="offstage: your agent gets its own Mac desktop" />
+    <meta
+      property="og:description"
+      content="GUI work runs in a second macOS account in the background. You keep your screen, keyboard and mouse."
+    />
+    <meta property="og:image" content="https://offstage.viraat.dev/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://offstage.viraat.dev/og.png" />
+    <meta name="theme-color" content="#f3f4f8" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Hanken+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/site.js" defer></script>
+  </head>
+  <body>
+    <!--
+      THESIS: the stage and the wings. Your screen is the lit stage; the
+      helper account is offstage, in the dark, where the agent works. The page
+      tells that story top to bottom: your calm Ghostty window sits in the
+      house lights, then the floor drops into the dark band where the
+      computeruse desktop is busy. That band is the one loud thing on the page.
+      Everything after it is plain paper: a table, a block to copy, numbered
+      setup steps, four answers.
+      Both captures are real (2026-09-22, macOS 26.5). The moving cursor is an
+      illustration of the agent's loop over the real capture, and the caption
+      says so.
+    -->
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-head wrap">
+      <a class="brand" href="/" aria-label="offstage home">
+        <img src="/wordmark.svg" alt="offstage" width="176" height="16" />
+      </a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="https://github.com/viraatdas/offstage">GitHub</a>
+        <a href="https://www.npmjs.com/package/@viraatdas/offstage">npm</a>
+        <a href="https://github.com/viraatdas/offstage#readme">Docs</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero wrap" aria-labelledby="title">
+        <h1 id="title"><span>Your agent gets its own Mac desktop.</span> <span>You keep yours.</span></h1>
+        <p class="lede">
+          offstage gives your coding agent a second macOS account, logged in
+          behind yours. Simulators, Xcode UI tests and the app it just built
+          open on that account's desktop. Your windows, keyboard and mouse
+          stay yours.
+        </p>
+
+        <div class="install" role="group" aria-label="Add offstage to your agent">
+          <input class="tab-input" type="radio" name="agent" id="tab-claude" checked />
+          <input class="tab-input" type="radio" name="agent" id="tab-codex" />
+          <input class="tab-input" type="radio" name="agent" id="tab-opencode" />
+          <input class="tab-input" type="radio" name="agent" id="tab-cli" />
+          <div class="tabs">
+            <label for="tab-claude">Claude Code</label>
+            <label for="tab-codex">Codex</label>
+            <label for="tab-opencode">opencode</label>
+            <label for="tab-cli">CLI only</label>
+          </div>
+
+          <div class="tab-panel panel-claude">
+            <pre class="code"><code id="cmd-claude"><span class="prompt" aria-hidden="true">$ </span>claude mcp add offstage -- npx -y --package=@viraatdas/offstage@latest offstage-mcp</code></pre>
+            <button class="copy" type="button" data-copy="cmd-claude">Copy</button>
+          </div>
+          <div class="tab-panel panel-codex">
+            <pre class="code"><code id="cmd-codex"><span class="dim"># ~/.codex/config.toml</span>
+[mcp_servers.offstage]
+command = "npx"
+args = ["-y", "--package=@viraatdas/offstage@latest", "offstage-mcp"]</code></pre>
+            <button class="copy" type="button" data-copy="cmd-codex">Copy</button>
+          </div>
+          <div class="tab-panel panel-opencode">
+            <pre class="code"><code id="cmd-opencode"><span class="dim">// opencode.json</span>
+"mcp": {
+  "offstage": {
+    "type": "local",
+    "command": ["npx", "-y", "--package=@viraatdas/offstage@latest", "offstage-mcp"]
+  }
+}</code></pre>
+            <button class="copy" type="button" data-copy="cmd-opencode">Copy</button>
+          </div>
+          <div class="tab-panel panel-cli">
+            <pre class="code"><code id="cmd-cli"><span class="prompt" aria-hidden="true">$ </span>npm i -g @viraatdas/offstage</code></pre>
+            <button class="copy" type="button" data-copy="cmd-cli">Copy</button>
+          </div>
+        </div>
+        <p class="hero-note">
+          Free and MIT licensed. For Macs on Apple Silicon with Node 20 or
+          newer. The helper account takes <a href="#setup">one setup command</a>.
+        </p>
+      </section>
+
+      <section class="stage" aria-labelledby="stage-title">
+        <h2 id="stage-title" class="visually-hidden">One Mac, two desktops, at the same time</h2>
+
+        <figure class="onstage wrap">
+          <figcaption class="shot-label">
+            <strong>Your account</strong>
+            <span>The screen you are looking at. Claude Code checks on the helper account and gets <q>off your screen: yes</q>.</span>
+          </figcaption>
+          <picture>
+            <source srcset="/img/your-account.webp" type="image/webp" />
+            <img
+              class="shot shot-mine"
+              src="/img/your-account.jpg"
+              width="1920"
+              height="649"
+              alt="A Ghostty window in your own account. Claude Code ran offstage session status: the computeruse account is logged in, off your screen, with Screen Recording and Accessibility granted, and i2Message running in it."
+            />
+          </picture>
+        </figure>
+
+        <div class="wings">
+          <figure class="offstage wrap">
+            <figcaption class="shot-label">
+              <strong>The computeruse account</strong>
+              <span>Logged in behind yours, a minute later. Another Claude Code session is testing i2Message here.</span>
+            </figcaption>
+            <div class="desk">
+              <picture>
+                <source srcset="/img/computeruse.webp" type="image/webp" />
+                <img
+                  class="shot shot-theirs"
+                  src="/img/computeruse.jpg"
+                  width="1920"
+                  height="1240"
+                  loading="lazy"
+                  alt="The computeruse account's own desktop: i2Message open with a search for coffee, the Dock along the bottom. None of this was on the console user's screen."
+                />
+              </picture>
+              <svg class="agent-cursor" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M5 2.5v17.2l4.3-4.1 2.7 6.2 3-1.3-2.7-6.1h5.9z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round" />
+              </svg>
+              <span class="agent-ripple" aria-hidden="true"></span>
+            </div>
+            <p class="agent-log" aria-hidden="true">
+              <span class="agent-log-tool">offstage_session_screenshot</span>
+              <span class="agent-log-args">1728×1117 points</span>
+            </p>
+            <p class="wings-note">
+              Both captures are real, taken on one Mac on 2026-09-22. The
+              console user was watching a video in a browser the whole time.
+              The moving cursor above illustrates the agent's loop: screenshot,
+              decide, click, screenshot.
+            </p>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section wrap" aria-labelledby="routes-title">
+        <div class="section-head">
+          <h2 id="routes-title">Every command goes somewhere that is not your screen</h2>
+          <p>
+            Agents also run tests and browsers. offstage reads each command
+            before it runs and sends it to the cheapest place that keeps it off
+            your display.
+          </p>
+        </div>
+        <div class="table-scroll">
+          <table class="routes">
+            <thead>
+              <tr>
+                <th scope="col">When your agent runs</th>
+                <th scope="col">offstage runs it</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>xcodebuild test</code>, <code>xcrun simctl</code>, XCUITests, <code>open -a</code>, <code>osascript</code>, a built <code>.app</code></td>
+                <td><strong>In the second macOS account.</strong> It has its own desktop, window server and input. This is why offstage exists.</td>
+              </tr>
+              <tr>
+                <td><code>--headed</code>, <code>headless: false</code>, <code>cypress open</code>, WebGL and GPU flags</td>
+                <td><strong>In a Linux container</strong> with a virtual display, if Docker is installed. It's a real display, just not yours.</td>
+              </tr>
+              <tr>
+                <td><code>npm test</code>, <code>vitest</code>, headless Playwright and Puppeteer</td>
+                <td><strong>Right where it is.</strong> These never open a window, so wrapping them would only cost time.</td>
+              </tr>
+              <tr class="refused">
+                <td>An installer, a <code>.pkg</code>, a <code>.dmg</code>, <code>hdiutil</code></td>
+                <td><strong>Nowhere.</strong> Both accounts share one machine, so offstage refuses these, and no flag overrides that.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section wrap" aria-labelledby="agent-title">
+        <div class="section-head">
+          <h2 id="agent-title">Paste this into your agent</h2>
+          <p>
+            Send it as a message in Claude Code, Codex or opencode. The agent
+            connects offstage itself and keeps GUI work off your screen from
+            then on. Put it in your project's <code>AGENTS.md</code> or
+            <code>CLAUDE.md</code> to make it stick.
+          </p>
+        </div>
+        <div class="prompt-block">
+          <button class="copy copy-block" type="button" data-copy="agent-prompt">Copy</button>
+          <pre class="code code-long"><code id="agent-prompt">Use offstage (https://github.com/viraatdas/offstage) for any command that
+could open a window or take focus on my Mac. It runs GUI work in a second,
+logged-in macOS account, so nothing appears on my screen.
+
+Set it up if the offstage_* MCP tools are not already available:
+- Claude Code: claude mcp add offstage -- npx -y --package=@viraatdas/offstage@latest offstage-mcp
+- Codex: add to ~/.codex/config.toml
+    [mcp_servers.offstage]
+    command = "npx"
+    args = ["-y", "--package=@viraatdas/offstage@latest", "offstage-mcp"]
+- opencode: add to opencode.json
+    "mcp": { "offstage": { "type": "local",
+      "command": ["npx", "-y", "--package=@viraatdas/offstage@latest", "offstage-mcp"] } }
+The tools appear once I restart you. Until then, or if MCP is not an option,
+install the CLI (npm i -g @viraatdas/offstage) and use `offstage route -- &lt;cmd&gt;`
+and `offstage run -- &lt;cmd&gt;`; they are the same code path as the tools.
+
+Rules:
+1. Never run these directly: Playwright, Puppeteer, Cypress, or WebDriver
+   with --headed or headless: false; screen or video capture; xcodebuild;
+   xcrun simctl; XCUITests; simulators; open -a; osascript; or a built .app.
+   Call offstage_route to see which lane the command gets, then offstage_run
+   to run it there. Commands that are already headless (npm test, npx
+   playwright test) run in place at no cost, and that is the right answer.
+2. To test an app with a GUI: offstage_session_launch (it waits until the app
+   registers and returns its pid), then offstage_session_screenshot, decide,
+   offstage_session_input, and screenshot again to confirm. Coordinates are
+   points, not pixels: divide a pixel coordinate by the screenshot's scale.
+   offstage_session_quit closes the app when you are done.
+3. status "skipped" means nothing ran anywhere. Show me the fix line from
+   diagnostics and stop. Never re-run the command outside offstage to get
+   past it: that puts it on my screen.
+4. "Refused" (an installer, .pkg, .dmg, or hdiutil) means offstage will not
+   run it on any lane, and no flag overrides that. Tell me; running it is my
+   call, not yours.
+5. Two things only I can do, so ask instead of working around them: if a run
+   errors because the helper account cannot read my repository, I run
+   `offstage session share &lt;dir&gt;`; if the session lane is not set up, I run
+   `offstage session setup --create` in a terminal (it needs sudo).</code></pre>
+        </div>
+      </section>
+
+      <section class="section wrap" id="setup" aria-labelledby="setup-title">
+        <div class="section-head">
+          <h2 id="setup-title">Set up the helper account once</h2>
+          <p>
+            Your agent can't do this part, because it needs <code>sudo</code>
+            and one click from you.
+          </p>
+        </div>
+        <ol class="steps">
+          <li>
+            <h3>Install the CLI</h3>
+            <pre class="code"><code><span class="prompt" aria-hidden="true">$ </span>npm i -g @viraatdas/offstage
+<span class="prompt" aria-hidden="true">$ </span>offstage doctor</code></pre>
+            <p><code>doctor</code> tells you which lanes work on this Mac and how to fix the rest.</p>
+          </li>
+          <li>
+            <h3>Create the helper account</h3>
+            <pre class="code"><code><span class="prompt" aria-hidden="true">$ </span>sudo offstage session setup --create</code></pre>
+            <p>
+              This creates an ordinary account called <code>computeruse</code>
+              and builds a small Swift daemon for it. If your terminal has Full
+              Disk Access, it also grants that daemon Screen Recording and
+              Accessibility; if not, it tells you which two toggles to flip. It
+              prints the whole root script before running it.
+            </p>
+          </li>
+          <li>
+            <h3>Switch to it once, then switch back</h3>
+            <pre class="code"><code><span class="prompt" aria-hidden="true">$ </span>offstage session status</code></pre>
+            <p>
+              Use the user menu in the menu bar. That first login starts the
+              daemon, and the account stays logged in behind yours until the
+              Mac restarts. <code>status</code> exits 0 when it's ready.
+            </p>
+          </li>
+          <li>
+            <h3>Let it read your project</h3>
+            <pre class="code"><code><span class="prompt" aria-hidden="true">$ </span>offstage session share ~/code/myapp</code></pre>
+            <p>
+              If a run fails because the helper account can't read your
+              project, share that folder with it. Sharing is read-only, one
+              folder at a time, and <code>unshare</code> takes it back.
+            </p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="section wrap" aria-labelledby="faq-title">
+        <div class="section-head">
+          <h2 id="faq-title">Questions people ask first</h2>
+        </div>
+        <div class="faq">
+          <div class="qa">
+            <h3>Is this a virtual machine?</h3>
+            <p>
+              No. It's a second user account on the Mac you already have, with
+              no guest OS and nothing to boot. It takes about 3&nbsp;GB of
+              disk, where the macOS VM image we measured was a 68.8&nbsp;GB
+              download. The trade-off is that both accounts share the Mac's
+              CPU, memory and disk.
+            </p>
+          </div>
+          <div class="qa">
+            <h3>Can the agent ever click on my screen?</h3>
+            <p>
+              The daemon posts input to its own session only, never to the
+              global input stream that feeds your screen. If its session is
+              ever the one on the console, it refuses to send input at all. In
+              testing, the window server's own log showed every synthetic
+              event landing in the helper session and none reaching the
+              console.
+            </p>
+          </div>
+          <div class="qa">
+            <h3>What can the helper account read?</h3>
+            <p>
+              It's an ordinary second user on your Mac, so it can't write to
+              your files. It can read what macOS lets any other local account
+              read. <code>offstage session share</code> gives it read-only
+              access to a folder it can't otherwise reach, and each run writes
+              its output to its own artifacts folder.
+            </p>
+          </div>
+          <div class="qa">
+            <h3>Which agents does it work with?</h3>
+            <p>
+              Claude Code, Codex and opencode, through MCP, and Claude Code also
+              as a plugin. Anything else that can run a shell command can use
+              the <code>offstage</code> CLI, which runs the same code.
+            </p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-foot wrap">
+      <div class="foot-main">
+        <img src="/favicon.svg" alt="" width="28" height="28" />
+        <p>
+          offstage is MIT licensed and built by
+          <a href="https://www.viraat.dev">Viraat Das</a>.
+          Also by Viraat: <a href="https://rudder.viraat.dev">Rudder</a>, for
+          running several coding agents on one repo at once.
+        </p>
+      </div>
+      <nav class="foot-nav" aria-label="Footer">
+        <a href="https://github.com/viraatdas/offstage">Source</a>
+        <a href="https://github.com/viraatdas/offstage/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/viraatdas/offstage/issues">Report an issue</a>
+      </nav>
+    </footer>
+  </body>
+</html>

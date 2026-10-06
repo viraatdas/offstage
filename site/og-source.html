@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>offstage social card</title>
+<!-- Source for /og.png (1200x630). Not linked from the site; rendered once with
+     a headless browser. Keep it in step with the hero copy. -->
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800&family=Hanken+Grotesk:wght@500&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; }
+  body { width: 1200px; height: 630px; overflow: hidden; background: #f3f4f8; color: #1d2130; font-family: "Hanken Grotesk", sans-serif; position: relative; }
+  .top { padding: 56px 64px 0; }
+  .mark { width: 230px; display: block; }
+  h1 { font: 800 76px/0.92 "Big Shoulders Display", sans-serif; margin: 34px 0 0; letter-spacing: -0.005em; }
+  h1 span { display: block; }
+  .wings { position: absolute; left: 0; right: 0; bottom: 0; height: 236px; background: linear-gradient(90deg,#7c3aed,#d946ef 50%,#f59e0b) top / 100% 4px no-repeat, #17132a; }
+  .shot { position: absolute; right: 64px; bottom: -150px; width: 560px; border-radius: 12px; box-shadow: 0 0 0 1px rgba(255,255,255,.1), 0 -20px 50px rgba(0,0,0,.35); }
+  .note { position: absolute; left: 64px; bottom: 54px; color: #ece9f7; font-size: 27px; line-height: 1.35; max-width: 480px; }
+  .note b { color: #f5a524; font-weight: 500; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <img class="mark" src="wordmark.svg" alt="" />
+    <h1><span>Your agent gets its own Mac desktop.</span><span>You keep yours.</span></h1>
+  </div>
+  <div class="wings">
+    <p class="note">GUI work runs in a second macOS account. <b>Nothing lands on your screen.</b></p>
+    <img class="shot" src="img/computeruse.jpg" alt="" />
+  </div>
+</body>
+</html>

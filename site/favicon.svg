@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="offstage icon">
+  <defs>
+    <linearGradient id="ramp" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#7c3aed"/>
+      <stop offset="0.5" stop-color="#d946ef"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#ramp)"/>
+  <!-- the spotlight: a beam widening from the top toward the stage floor -->
+  <path d="M52 24 L76 24 L98 88 L30 88 Z" fill="#ffffff" fill-opacity="0.92"/>
+  <!-- the stage floor, with a gap so the beam lands on it -->
+  <rect x="22" y="96" width="84" height="10" rx="5" fill="#ffffff" fill-opacity="0.92"/>
+</svg>
