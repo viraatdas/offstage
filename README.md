@@ -17,6 +17,8 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="license"></a>
 </p>
 
+<p align="center"><a href="https://offstage.viraat.dev">offstage.viraat.dev</a></p>
+
 offstage gives your coding agent another logged-in macOS account on the same
 machine. When the agent boots a Simulator, launches an app, runs an Xcode UI
 test, or clicks through a window, it happens on **that account's desktop**.
@@ -382,8 +384,13 @@ and a replacement that fails it gets nothing.
 
 ### Filesystem access is separate from TCC
 
-The helper account is a different uid and your home is `0750`, so grant read
-access one tree at a time:
+The helper account is a separate uid, but like every standard macOS user it
+is in the `staff` group. A home folder is usually `drwxr-x---`, owned by you
+and `staff`, so the helper can enter it and read anything inside that is
+group- or world-readable: a `~/code` created with the default umask is `0755`,
+for example. Desktop, Documents, Downloads, Library, Movies and Pictures are
+`0700`, and with the default umask it has no write access to anything of yours.
+For a tree it cannot otherwise read, grant read access one tree at a time:
 
 ```bash
 offstage session share ~/code/myrepo    # read-only ACL, traverse-only on ancestors
@@ -1002,8 +1009,9 @@ rejected on the way to the session lane.
 ### But a VM isolates more than an account, doesn't it?
 
 Yes. A guest cannot read your home directory at all; the helper account is a
-different uid on the same disk, which is why `offstage session share` grants
-read access one tree at a time and never grants write. That shared-machine
+different uid on the same disk, so it can read what any other local account
+can (whatever is group- or world-readable), and `offstage session share` adds
+read access to a tree it cannot otherwise reach. Nothing grants it write. That shared-machine
 stance is deliberate: 3 GB and instant, against 69 GB and a boot, with the
 refusals covering the one class of work the account cannot safely take.
 

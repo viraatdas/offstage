@@ -74,8 +74,10 @@ Recording and Accessibility, system-level records that a terminal with Full
 Disk Access may write directly), and bootstrap its LaunchAgent; when the
 invoking terminal lacks Full Disk Access, those grants fall back to a one-time
 human approval from inside the helper account's own session. The helper
-account cannot read the caller's files until `offstage session share <dir>`
-grants it read-only access to one tree at a time. Full details: the README's
+account is an ordinary second user in the `staff` group: it can read whatever
+in the caller's home is group- or world-readable and write none of it, and
+`offstage session share <dir>` grants read-only access to a tree it cannot
+otherwise reach, one tree at a time. Full details: the README's
 session section, and `native/sessiond/README.md` for the wire protocol.
 
 ## Repo conventions

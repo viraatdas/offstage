@@ -1,8 +1,21 @@
 # Changelog
 
-## Unreleased
+## 0.3.15
 
-Windows that open on a second display, and three honest error paths.
+Windows that open on a second display, three honest error paths, and a
+correction about what the helper account can read.
+
+### Docs
+
+- **The README and AGENTS.md said the helper account could not read your files
+  until you shared them.** It is in the `staff` group like every standard
+  macOS user, and a home folder is usually `drwxr-x---` owned by you and
+  `staff`, so it can read anything in your home that is group- or
+  world-readable (a `~/code` made with the default umask is `0755`). Desktop,
+  Documents, Downloads, Library, Movies and Pictures stay `0700`, and it has
+  no write access. Both files now say so; `offstage session share` is for a
+  tree it cannot otherwise read.
+- The package and plugin homepage is now https://offstage.viraat.dev.
 
 ### Fixed
 
