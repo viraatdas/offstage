@@ -25,6 +25,7 @@ import type {
 } from '../src/mcp/core.js';
 import { createDefaultCore } from '../src/mcp/core.js';
 import { createOffstageMcpServer } from '../src/mcp/server.js';
+import { OffstageSessionError } from '../src/cli/session.js';
 import type { EntitlementsProbeReport } from '../src/probe/index.js';
 import type { SessionLaunchResult, SessionQuitResult } from '../src/cli/session-control.js';
 import type { InputAction, SessionApp } from '../src/session/index.js';
@@ -398,6 +399,48 @@ describe('offstage MCP server', () => {
     );
     expect(good.isError).not.toBe(true);
     expect(JSON.parse(good.content[0]?.type === 'text' ? good.content[0].text : '{}').performed).toBe(2);
+  });
+
+  it('hands an agent the code, fix and partial count when the session refuses input', async () => {
+    const core = new FakeCore();
+    core.sessionInput = async () => {
+      throw new OffstageSessionError(
+        "refusing to inject input: the computeruse session is currently on the console, so events would land on the user's screen",
+        {
+          code: 'on-console',
+          fix: 'Switch back to your own account with fast user switching.',
+          performed: 1,
+        },
+      );
+    };
+    const { client, server } = await connect(core);
+    cleanup.push(() => client.close(), () => server.close());
+
+    const refused = CallToolResultSchema.parse(
+      await client.callTool(
+        {
+          name: 'offstage_session_input',
+          arguments: { actions: [{ type: 'click', x: 640, y: 400 }, { type: 'type', text: 'hi' }] },
+        },
+        CallToolResultSchema,
+      ),
+    );
+    expect(refused.isError).toBe(true);
+    expect(JSON.parse(refused.content[0]?.type === 'text' ? refused.content[0].text : '{}')).toEqual({
+      error: expect.stringContaining('on the console'),
+      code: 'on-console',
+      fix: 'Switch back to your own account with fast user switching.',
+      performed: 1,
+    });
+  });
+
+  it('tells an agent that an on-console refusal is not retried or queued', async () => {
+    const { client, server } = await connect();
+    cleanup.push(() => client.close(), () => server.close());
+    const { tools } = await client.listTools();
+    const description = tools.find((tool) => tool.name === 'offstage_session_input')?.description ?? '';
+    expect(description).toContain('on-console');
+    expect(description).toMatch(/nothing is retried or queued/);
   });
 
   it('lists the helper session\'s apps', async () => {

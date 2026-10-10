@@ -408,7 +408,10 @@ entry point. The window server routes it to that session's key window and
 nowhere else. The global HID tap always routes to the console session, which is
 your screen, and is unreachable here by construction. The daemon refuses input
 entirely (`on-console`) if its own session is somehow the one on screen, failing
-closed, and (`no-target`) when nothing there has focus.
+closed, and (`no-target`) when nothing there has focus. Nothing is retried or
+queued. Over MCP the agent gets a tool error carrying that `code`, the `fix`,
+and `performed`, the number of actions that landed before the refusal, so it
+can tell "the user is looking at the helper desktop, wait" from a real failure.
 
 ### Installing your own app into the helper account
 

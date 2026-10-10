@@ -166,6 +166,46 @@ describe('sessionInput', () => {
       sessionInput({ actions: [{ type: 'key', key: 'cmd+q' }] }, { session }),
     ).rejects.toMatchObject({ code: 'tcc-accessibility', fix: expect.stringContaining('Accessibility') });
   });
+
+  it('keeps the on-console code, the fix and how many actions landed when the daemon refuses mid-batch', async () => {
+    const { session } = seams({
+      client: fakeClient({
+        onInput: () => {
+          throw new SessionRpcError(
+            'refusing to inject input: the computeruse session is currently on the console',
+            'on-console',
+            'Switch back to your own account with fast user switching.',
+            1,
+          );
+        },
+      }),
+    });
+
+    await expect(
+      sessionInput({ actions: [{ type: 'click', x: 1, y: 2 }, { type: 'type', text: 'hi' }] }, { session }),
+    ).rejects.toMatchObject({
+      name: 'OffstageSessionError',
+      code: 'on-console',
+      fix: expect.stringContaining('Switch back'),
+      performed: 1,
+    });
+  });
+
+  it('reports on-console, not a generic outage, when the lane refuses because the helper is on screen', async () => {
+    const onScreen = discovery({ guiSession: { exists: true, loginDone: true, onConsole: true, sessionId: 258 } });
+    const { session, client } = seams({ discovery: onScreen });
+
+    await expect(sessionInput({ actions: [{ type: 'click', x: 1, y: 2 }] }, { session })).rejects.toMatchObject({
+      code: 'on-console',
+      fix: expect.stringContaining('Switch back'),
+    });
+    expect(client.calls).toHaveLength(0);
+
+    const { session: broken } = seams({ discovery: discovery({ accountExists: false }) });
+    await expect(sessionInput({ actions: [{ type: 'click', x: 1, y: 2 }] }, { session: broken })).rejects.toMatchObject({
+      code: 'session-unavailable',
+    });
+  });
 });
 
 describe('sessionApps', () => {

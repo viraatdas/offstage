@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.16
+
+An agent can now tell why the session lane refused it.
+
+### Fixed
+
+- **Over MCP, a session-lane refusal reached the agent as a bare message.**
+  `callSafely` in the MCP server returned only `error.message`, and
+  `asSessionError` dropped the daemon's `performed` count, so the `code`, the
+  `fix` and the partial count the CLI and the daemon already had never reached
+  an agent. When the helper session was the one on screen, an agent could not
+  tell "the user is looking at that desktop, wait" from a broken lane. Session
+  tool errors are now `{ error, code, fix, performed }`.
+- **The lane's own on-screen refusal now uses the daemon's code.** When the
+  helper session is on the console, every session op is refused before a
+  socket is opened, and that refusal said `session-unavailable`, the same as a
+  missing account. It now says `on-console`, like the daemon's own per-action
+  check, and still carries the "switch back to your own account" fix.
+- The `offstage_session_input` description tells agents that an `on-console`
+  refusal is not retried or queued: stop, tell the user, and try again once
+  they have switched back.
+
 ## 0.3.15
 
 Windows that open on a second display, three honest error paths, and a

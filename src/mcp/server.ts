@@ -6,6 +6,7 @@ import type { CallToolResult, ImageContent, TextContent } from '@modelcontextpro
 import { z } from 'zod';
 
 import { offstageInstall } from '../cli/api.js';
+import { OffstageSessionError } from '../cli/session.js';
 import { LaneSchema } from '../contract/index.js';
 import type { LaneResult } from '../contract/index.js';
 import { InputActionSchema } from '../session/index.js';
@@ -88,6 +89,25 @@ const toolError = (message: string, details?: unknown): CallToolResult => ({
   content: [jsonText(details === undefined ? { error: message } : { error: message, details })],
 });
 
+/**
+ * A session-lane refusal, with everything the CLI prints and more: the stable
+ * `code` (`on-console` means the user is looking at the helper desktop right
+ * now, and clears up as soon as they switch back), the repair instruction,
+ * and for `input` how many actions landed before the refusal. Without them an
+ * agent sees only prose and cannot tell "wait" from "broken".
+ */
+const sessionToolError = (error: OffstageSessionError): CallToolResult => ({
+  isError: true,
+  content: [
+    jsonText({
+      error: error.message,
+      code: error.code,
+      ...(error.fix === undefined ? {} : { fix: error.fix }),
+      ...(error.performed === undefined ? {} : { performed: error.performed }),
+    }),
+  ],
+});
+
 function parseArgs<T extends z.ZodTypeAny>(
   schema: T,
   args: unknown,
@@ -110,6 +130,7 @@ async function callSafely<T>(
   try {
     return await handler(parsed.value);
   } catch (error) {
+    if (error instanceof OffstageSessionError) return sessionToolError(error);
     return toolError(error instanceof Error ? error.message : String(error));
   }
 }
@@ -310,7 +331,7 @@ export function createOffstageMcpServer(core: OffstageCore = createDefaultCore()
     {
       title: 'offstage session input',
       description:
-        'Inject keyboard and mouse events into the helper macOS session (move, click, drag, scroll, type, key, wait. Coordinates are POINTS in that session\'s global display space, origin at the top-left of its main display (a screenshot\'s pixels divided by its `scale`), never pixels and never coordinates from the user\'s own screen. These events are posted to that session\'s own event tap, so the window server routes them inside the helper session only; they never reach the user\'s keyboard, mouse or focus, and there is no mode in which they could. `drag` and `scroll` are implemented but not yet verified in the session lane; `click`, `key` and `type` are. Always screenshot, then input, then screenshot again. Requires Accessibility to be granted to offstage-sessiond inside that session) offstage_session_status says whether it is.',
+        'Inject keyboard and mouse events into the helper macOS session (move, click, drag, scroll, type, key, wait. Coordinates are POINTS in that session\'s global display space, origin at the top-left of its main display (a screenshot\'s pixels divided by its `scale`), never pixels and never coordinates from the user\'s own screen. These events are posted to that session\'s own event tap, so the window server routes them inside the helper session only; they never reach the user\'s keyboard, mouse or focus, and there is no mode in which they could. `drag` and `scroll` are implemented but not yet verified in the session lane; `click`, `key` and `type` are. Always screenshot, then input, then screenshot again. Requires Accessibility to be granted to offstage-sessiond inside that session) offstage_session_status says whether it is. A refusal comes back as an error with a `code` and a `fix`, plus `performed` (how many actions landed first) when the daemon refused part-way. `on-console` means the user has switched to the helper desktop and is looking at it: nothing is retried or queued, so stop, tell them, and try again only after they switch back.',
       inputSchema: SessionInputArgsSchema,
     },
     async (args) =>

@@ -76,12 +76,15 @@ export class OffstageSessionError extends Error {
   readonly exitCode = 69;
   readonly fix: string | undefined;
   readonly code: string;
+  /** For `input`: how many actions landed before the one that was refused. */
+  readonly performed: number | undefined;
 
-  constructor(message: string, options: { fix?: string; code?: string } = {}) {
+  constructor(message: string, options: { fix?: string; code?: string; performed?: number } = {}) {
     super(message);
     this.name = 'OffstageSessionError';
     this.fix = options.fix;
     this.code = options.code ?? 'session-unavailable';
+    this.performed = options.performed;
   }
 }
 
@@ -237,9 +240,14 @@ export async function sessionConnect(
 ): Promise<{ client: SessionClient; probe: SessionProbe }> {
   const probe = await sessionLaneFor(deps, user).probeSession();
   if (!probe.availability.available) {
+    /* The helper session being the one on screen is the only rung that clears
+       up by itself, as soon as the user switches back. It gets the daemon's own
+       code so a caller can tell "wait" from "broken" without parsing prose. */
+    const { accountExists, guiSession } = probe.discovery;
+    const onConsole = accountExists && guiSession.exists && guiSession.loginDone && guiSession.onConsole;
     throw new OffstageSessionError(
       probe.availability.reason ?? 'The session lane is not available on this machine.',
-      { fix: probe.availability.fix ?? undefined, code: 'session-unavailable' },
+      { fix: probe.availability.fix ?? undefined, code: onConsole ? 'on-console' : 'session-unavailable' },
     );
   }
   const factory = seamsOf(deps).createClient ?? createSessionClient;
@@ -252,6 +260,7 @@ export function asSessionError(error: unknown): never {
   if (error instanceof SessionRpcError) {
     throw new OffstageSessionError(error.message, {
       ...(error.fix === undefined ? {} : { fix: error.fix }),
+      ...(error.performed === undefined ? {} : { performed: error.performed }),
       code: error.code,
     });
   }
